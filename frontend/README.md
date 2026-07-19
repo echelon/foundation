@@ -1,0 +1,75 @@
+# Foundation — Frontend (mock)
+
+A **frontend-only** build of the Foundation generative-media + LLM API gateway.
+The backend is entirely stubbed — no Rust, no services — so we can see the UX and
+evaluate how the seams fit before wiring anything real. Everything under
+`src/lib/` (catalog, pricing, requests, auth) is mock data.
+
+## Stack
+
+- **Vite 6** + **React 19** + **TypeScript** (strict)
+- **Tailwind CSS 3** with a CSS-variable token system
+- **react-router-dom 7**, **lucide-react** icons
+
+## Run
+
+```bash
+npm install
+npm run dev        # http://localhost:3000
+npm run build      # tsc + vite build
+npm run typecheck
+```
+
+## Structure
+
+The single Vite app is organized to mirror the intended Nx split so nothing has
+to be undone when the real apps/libs are broken out:
+
+```
+src/
+  lib/            → future shared libs
+    catalog.ts    catalog-as-code: models, modalities, pricing, playground controls
+    mock-api.ts   mock auth, balance, API keys, request ledger, endpoint reference
+    theme.tsx     per-surface light/dark ThemeProvider
+    cn.ts         class merge helper
+  components/     shared UI primitives (ui.tsx) + ModelCard
+  surfaces/       → future apps, one folder per surface
+    marketing/    landing, pricing, docs (public)
+    models/       catalog, model page (Playground / API / Examples / Pricing / Changelog)
+    auth/         login, signup, password reset
+    dashboard/    overview, requests, keys, billing, settings (mock logged-in)
+    admin/        placeholder for the internal console
+```
+
+## Theming
+
+Each **surface** owns its own day/night choice (persisted per surface in
+`localStorage`). `ThemeProvider surface="…"` toggles a local `.dark` class, and
+the token variables in `index.css` flip only within that wrapper. So marketing
+can be light while the dashboard is dark, independently.
+
+## Endpoints modeled (see `/docs` in-app and `mock-api.ts`)
+
+- **Model-specific** — `POST /v1/models/{model}/generate[/{modality}]`, pins an exact model+version.
+- **Modality** — `POST /v1/any/{image|video|3d|world}`, routes to the best (or named) model.
+- **Cost twins** — every generate endpoint has a `…/cost` sibling that prices a request without running it.
+- **Language** — OpenAI-compatible `POST /v1/chat/completions` (+ `/cost`).
+- **Catalog / model pages** — public `GET /v1/models`, `/v1/models/{model}`, `/changelog`, `/examples`.
+
+## Cost structure
+
+Metering units: `per_image`, `per_video_second`, `per_mesh`, `per_splat`,
+`per_million_tokens_in/out`. Requests draw down prepaid USD credits; tax is added
+at top-up; invoices are numbered gaplessly. Details on the in-app `/docs` page.
+
+## End-user attribution (flagged for the architecture docs)
+
+Every request can carry an `end_user` identifier — the customer-of-our-customer.
+The dashboard's **Requests** view has two scopes:
+
+- **My requests** — what the logged-in user ran in the dashboard.
+- **All account traffic** — *everything that transited the account*, including
+  traffic your customers' end-users generated through your integration.
+
+This is the piece the design docs still need to document; see the note at the top
+of `src/lib/mock-api.ts`.
