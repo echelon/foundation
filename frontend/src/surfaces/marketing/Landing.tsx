@@ -1,8 +1,9 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Boxes, Check, Globe, Image as ImageIcon, MessageSquare, Sparkles, Video, Zap } from "lucide-react";
+import { ArrowRight, BarChart3, Boxes, Check, Globe, Image as ImageIcon, MessageSquare, Sparkles, Video, Zap } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
 import { MODELS, MODALITY_LABEL, type Modality } from "@/lib/catalog";
+import { MEDIA, compact, leaderboard, type MediaKey } from "@/lib/rankings";
 
 const MODALITIES: { modality: Modality; icon: typeof ImageIcon; blurb: string }[] = [
   { modality: "image", icon: ImageIcon, blurb: "Photoreal, editable, up to 4K." },
@@ -132,6 +133,36 @@ export default function Landing() {
         </div>
       </Container>
 
+      {/* ── Rankings ── */}
+      <Container className="py-16">
+        <Card className="relative overflow-hidden p-8 sm:p-10">
+          <div className="pointer-events-none absolute inset-0 brand-gradient opacity-[0.06]" />
+          <div className="relative grid gap-8 lg:grid-cols-[1fr_1.1fr] lg:items-center">
+            <div>
+              <Badge tone="brand" className="mb-3">
+                <BarChart3 className="h-3 w-3" /> Rankings
+              </Badge>
+              <h2 className="font-display text-3xl font-bold tracking-tight">
+                See what the whole market is <span className="brand-text">actually using</span>
+              </h2>
+              <p className="mt-3 max-w-lg text-muted">
+                Real usage across every model — image and video first-class alongside language. Ranked by market
+                share, sliced by task and content category, day by day. The generative-media index.
+              </p>
+              <Link to="/rankings" className="mt-6 inline-flex">
+                <Button size="lg">
+                  Explore rankings <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <MiniBoard media="image" />
+              <MiniBoard media="video" />
+            </div>
+          </div>
+        </Card>
+      </Container>
+
       {/* ── CTA ── */}
       <Container className="py-20">
         <Card className="relative overflow-hidden p-12 text-center">
@@ -149,5 +180,31 @@ export default function Landing() {
         </Card>
       </Container>
     </>
+  );
+}
+
+function MiniBoard({ media }: { media: MediaKey }) {
+  const m = MEDIA[media];
+  const rows = leaderboard(media, { period: "month" }).slice(0, 5);
+  return (
+    <Link to={`/rankings/${media}`} className="group block">
+      <Card className="h-full bg-surface/80 p-4 transition group-hover:border-brand/50">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="font-display text-sm font-semibold">
+            {m.glyph} {m.label}
+          </span>
+          <span className="text-xs text-muted">{compact(m.monthlyVolume)}/mo</span>
+        </div>
+        <ol className="space-y-1.5 text-sm">
+          {rows.map((r) => (
+            <li key={r.model.slug} className="flex items-center gap-2">
+              <span className="w-4 font-mono text-xs text-muted">{r.rank}</span>
+              <span className="flex-1 truncate text-fg">{r.model.name}</span>
+              <span className="tabular-nums text-xs text-muted">{(r.share * 100).toFixed(1)}%</span>
+            </li>
+          ))}
+        </ol>
+      </Card>
+    </Link>
   );
 }

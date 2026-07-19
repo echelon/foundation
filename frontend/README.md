@@ -36,10 +36,28 @@ src/
   surfaces/       → future apps, one folder per surface
     marketing/    landing, pricing, docs (public)
     models/       catalog, model page (Playground / API / Examples / Pricing / Changelog)
+    rankings/     the Rankings product — overview, per-media pages, model detail
     auth/         login, signup, password reset
     dashboard/    overview, requests, keys, billing, settings (mock logged-in)
     admin/        placeholder for the internal console
 ```
+
+## Rankings (a headline feature)
+
+`/rankings` is a full generative-media usage index — our answer to OpenRouter's LLM
+Rankings, extended to **image and video as first-class** plus 3D, world, audio, and
+language. Data lives in `src/lib/rankings.ts`, shaped like the design's rollup **cubes**
+(`design/core/model_rankings_and_reports.md` §5) so wiring to `/v1/public/rankings*` later
+is a data-source swap, not a rebuild. Every number is derived deterministically from a seed
+hash (no `Math.random`) so it renders identically on every reload.
+
+- `/rankings` — overview; image & video leaderboards front and center, market-share donuts,
+  movers of the week, media quick-nav.
+- `/rankings/:media` — per-media page with sub-tabs **Leaderboard · By task · By category ·
+  Market share · Trends** (day-by-day share-over-time). Image tasks: generate / edit / infill /
+  style / upscale / background. Video categories: dialogue scene / action scene / b-roll / …
+- `/rankings/models/:slug` — model detail: rank, share, trend, top tasks, top content
+  categories, top apps, success rate, p50/p95 latency.
 
 ## Theming
 

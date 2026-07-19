@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
-import { ArrowLeft, ImageOff } from "lucide-react";
+import { ArrowLeft, BarChart3, ImageOff } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
 import { Playground } from "./Playground";
@@ -44,6 +44,12 @@ export default function ModelPage() {
               <Badge key={t}>{t}</Badge>
             ))}
           </div>
+          <Link
+            to={`/rankings/${rankingsMediaFor(model.modality)}`}
+            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:underline"
+          >
+            <BarChart3 className="h-4 w-4" /> See {MODALITY_LABEL[model.modality]} rankings
+          </Link>
         </div>
         <Card className="w-full shrink-0 p-5 md:w-64">
           <div className="text-xs text-muted">Starting at</div>
@@ -226,6 +232,11 @@ function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
       <dd className={cn("text-right text-fg", mono && "font-mono text-[13px]")}>{v}</dd>
     </div>
   );
+}
+
+/** Map a catalog modality to a rankings media key. */
+function rankingsMediaFor(modality: Model["modality"]): string {
+  return modality === "chat" ? "llm" : modality;
 }
 
 function exampleRequest(model: Model): string {
