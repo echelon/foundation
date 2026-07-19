@@ -4,13 +4,14 @@ import { Badge, Button, Card, Container } from "@/components/ui";
 import { Sparkline, Mover, OwnerDot } from "./components";
 import { MEDIA, compact, modelDetail, pct } from "@/lib/rankings";
 import { MODEL_BY_SLUG } from "@/lib/catalog";
+import { cn } from "@/lib/cn";
 
 export default function RankingModel() {
   const { slug } = useParams();
   const detail = slug ? modelDetail(slug) : undefined;
   if (!detail) return <Navigate to="/rankings" replace />;
 
-  const { media, model, row, topTasks, topCategories, topApps } = detail;
+  const { media, model, row, topTasks, topCategories, topApps, topLanguages } = detail;
   const m = MEDIA[media];
   const inCatalog = !!MODEL_BY_SLUG[model.slug];
 
@@ -66,9 +67,12 @@ export default function RankingModel() {
       </Card>
 
       {/* ── Breakdowns ── */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className={cn("mt-6 grid gap-6", topLanguages ? "lg:grid-cols-2 xl:grid-cols-4" : "lg:grid-cols-3")}>
         <BreakdownCard title="Top tasks" rows={topTasks.map((t) => ({ label: t.label, share: t.share }))} />
         <BreakdownCard title="Top content categories" rows={topCategories.map((c) => ({ label: c.label, share: c.share }))} note="classified sample" />
+        {topLanguages && (
+          <BreakdownCard title={media === "llm" ? "Top languages" : "Top spoken languages"} rows={topLanguages} note="classified" />
+        )}
         <BreakdownCard title="Top apps" rows={topApps.map((a) => ({ label: a.app, share: a.share }))} note="opt-in" />
       </div>
     </Container>

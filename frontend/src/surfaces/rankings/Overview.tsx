@@ -3,14 +3,28 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BarChart3 } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { LeaderboardTable, MoversStrip, ShareDonut } from "./components";
-import { MEDIA, MEDIA_ORDER, PERIODS, compact, leaderboard, marketShare, movers, type MediaKey, type Period } from "@/lib/rankings";
+import { LeaderboardTable, MoversStrip, ShareDonut, StackedBars } from "./components";
+import {
+  MEDIA,
+  MEDIA_ORDER,
+  PERIODS,
+  compact,
+  leaderboard,
+  marketShare,
+  movers,
+  weeklyStack,
+  type MediaKey,
+  type Period,
+} from "@/lib/rankings";
+
+const HERO_MEDIA: MediaKey[] = ["image", "video", "llm", "speech", "transcription"];
 
 export default function RankingsOverview() {
   const [period, setPeriod] = useState<Period>("month");
+  const [heroMedia, setHeroMedia] = useState<MediaKey>("image");
 
-  const image = MEDIA.image;
-  const video = MEDIA.video;
+  const hero = MEDIA[heroMedia];
+  const heroMetric = hero.metrics[0];
 
   return (
     <Container className="py-12">
@@ -24,15 +38,42 @@ export default function RankingsOverview() {
             The generative media <span className="brand-text">index</span>
           </h1>
           <p className="mt-3 max-w-2xl text-muted">
-            Real usage across every model on Foundation — ranked by market share, broken down by task and by
-            content category, day by day. Image and video, first-class alongside language.
+            Real usage across every model on Foundation — ranked by market share, broken down by task, content
+            category, and language, week by week. Image and video, first-class alongside language, speech, and more.
           </p>
         </div>
         <PeriodSwitch period={period} onChange={setPeriod} />
       </div>
 
+      {/* ── Hero: signature stacked bar chart ── */}
+      <Card className="mt-8 p-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-xl font-bold tracking-tight">Top models over time</h2>
+            <p className="text-sm text-muted">
+              Weekly {hero.unit} · last 16 weeks
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {HERO_MEDIA.map((k) => (
+              <button
+                key={k}
+                onClick={() => setHeroMedia(k)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                  heroMedia === k ? "brand-gradient text-white shadow-glow" : "bg-surface2 text-muted hover:text-fg",
+                )}
+              >
+                {MEDIA[k].glyph} {MEDIA[k].label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <StackedBars stack={weeklyStack(heroMedia)} metric={heroMetric} />
+      </Card>
+
       {/* ── Media quick nav ── */}
-      <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {MEDIA_ORDER.map((k) => {
           const m = MEDIA[k];
           const top = leaderboard(k, { period }).slice(0, 1)[0];
@@ -45,7 +86,9 @@ export default function RankingsOverview() {
                 </div>
                 <div className="mt-2 font-display font-semibold">{m.label}</div>
                 <div className="mt-0.5 truncate text-xs text-muted">#1 {top.model.name}</div>
-                <div className="mt-2 text-xs text-muted">{compact(m.monthlyVolume)} {m.unitShort}/mo</div>
+                <div className="mt-2 text-xs text-muted">
+                  {compact(m.monthlyVolume)} {m.unitShort}/mo
+                </div>
               </Card>
             </Link>
           );
@@ -58,36 +101,24 @@ export default function RankingsOverview() {
         <FeaturedBoard media="video" period={period} />
       </div>
 
-      {/* ── Market share + movers ── */}
+      {/* ── Market share ── */}
       <div className="mt-10 grid gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-xl font-bold tracking-tight">Image market share</h2>
-              <p className="text-sm text-muted">By lab · {image.unit}</p>
+        {(["image", "video"] as MediaKey[]).map((k) => (
+          <Card key={k} className="p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-xl font-bold tracking-tight">{MEDIA[k].label} market share</h2>
+                <p className="text-sm text-muted">By lab · {MEDIA[k].unit}</p>
+              </div>
+              <Link to={`/rankings/${k}`}>
+                <Button variant="ghost" size="sm">
+                  Details <ArrowRight className="h-4 w-4" />
+                </Button>
+              </Link>
             </div>
-            <Link to="/rankings/image">
-              <Button variant="ghost" size="sm">
-                Details <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-          <ShareDonut slices={marketShare("image", "owner", period)} />
-        </Card>
-        <Card className="p-6">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-xl font-bold tracking-tight">Video market share</h2>
-              <p className="text-sm text-muted">By lab · {video.unit}</p>
-            </div>
-            <Link to="/rankings/video">
-              <Button variant="ghost" size="sm">
-                Details <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-          <ShareDonut slices={marketShare("video", "owner", period)} />
-        </Card>
+            <ShareDonut slices={marketShare(k, "owner", period)} />
+          </Card>
+        ))}
       </div>
 
       {/* ── Movers ── */}
@@ -105,7 +136,7 @@ export default function RankingsOverview() {
         </div>
       </div>
 
-      {/* ── LLM teaser (OpenRouter parity) ── */}
+      {/* ── LLM board ── */}
       <div className="mt-10">
         <FeaturedBoard media="llm" period={period} />
       </div>
@@ -133,7 +164,7 @@ function FeaturedBoard({ media, period }: { media: MediaKey; period: Period }) {
         </Link>
       </div>
       <div className="px-2">
-        <LeaderboardTable rows={rows} unitShort={m.unitShort} />
+        <LeaderboardTable rows={rows} metric={m.metrics[0]} />
       </div>
     </Card>
   );

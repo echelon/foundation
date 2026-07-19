@@ -44,20 +44,31 @@ src/
 
 ## Rankings (a headline feature)
 
-`/rankings` is a full generative-media usage index — our answer to OpenRouter's LLM
-Rankings, extended to **image and video as first-class** plus 3D, world, audio, and
-language. Data lives in `src/lib/rankings.ts`, shaped like the design's rollup **cubes**
-(`design/core/model_rankings_and_reports.md` §5) so wiring to `/v1/public/rankings*` later
-is a data-source swap, not a rebuild. Every number is derived deterministically from a seed
-hash (no `Math.random`) so it renders identically on every reload.
+`/rankings` is a full generative-media usage index — our answer to (and a superset of)
+OpenRouter's LLM Rankings. Eight **verticals**: Image and Video first-class, then Language
+(LLM), Speech, Transcription, Music, 3D, World. Data lives in `src/lib/rankings.ts`, shaped
+like the design's rollup **cubes** (`design/core/model_rankings_and_reports.md` §5) so wiring
+to `/v1/public/rankings*` later is a data-source swap, not a rebuild. Every number is derived
+deterministically from a seed hash (no `Math.random`) so it renders identically on every reload.
 
-- `/rankings` — overview; image & video leaderboards front and center, market-share donuts,
-  movers of the week, media quick-nav.
-- `/rankings/:media` — per-media page with sub-tabs **Leaderboard · By task · By category ·
-  Market share · Trends** (day-by-day share-over-time). Image tasks: generate / edit / infill /
-  style / upscale / background. Video categories: dialogue scene / action scene / b-roll / …
-- `/rankings/models/:slug` — model detail: rank, share, trend, top tasks, top content
-  categories, top apps, success rate, p50/p95 latency.
+OpenRouter-grade visuals:
+
+- **Weekly stacked-bar chart** (top models over ~16 weeks, hoverable per-week breakdown) — the
+  signature hero on the overview and every vertical page, with a media/metric switcher.
+- **Week-over-week %** delta column on every leaderboard row, plus a 14-day sparkline.
+- **Stacked-area** day-by-day share-over-time; **donut** market share by model and by lab.
+
+Pages:
+
+- `/rankings` — overview; stacked-bar hero, image & video leaderboards front and center,
+  market-share donuts, movers of the week, vertical quick-nav.
+- `/rankings/:media` — per-vertical page with a metric switch (e.g. video: total duration /
+  seconds / requests) and sub-tabs **Leaderboard · By task · By category · By language\* ·
+  Market share · Trends**. Image tasks: generate / edit / infill / style / upscale / background.
+  Video categories: dialogue scene / action scene / b-roll / … (\*language tab for LLM / Speech /
+  Transcription — programming languages like **Rust** + natural languages).
+- `/rankings/models/:slug` — model detail: rank, share, WoW, trend, top tasks, top content
+  categories, top languages, top apps, success rate, p50/p95 latency.
 
 ## Theming
 
