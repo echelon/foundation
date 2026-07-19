@@ -1,22 +1,41 @@
 import { useState } from "react";
-import { Link, useParams, Navigate } from "react-router-dom";
-import { ArrowLeft, BarChart3, ImageOff } from "lucide-react";
+import { Link, useParams, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, BarChart3, Bot, FileText, ImageOff, Plug } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
+import { CodeTabs } from "@/components/CodeBlock";
 import { Playground } from "./Playground";
 import { Gallery, type RemixValues } from "./Gallery";
 import { MODEL_BY_SLUG, MODALITY_LABEL, priceLabel, type Model } from "@/lib/catalog";
-import { endpointsForModel } from "@/lib/mock-api";
+import { endpointsForModel, type EndpointDoc } from "@/lib/mock-api";
+import { curlSnippet, jsSnippet, pySnippet } from "@/lib/codegen";
 import { examplesForModel } from "@/lib/gallery";
 import { cn } from "@/lib/cn";
 
 const TABS = ["Overview", "Playground", "API", "Examples", "Pricing", "Changelog"] as const;
 type Tab = (typeof TABS)[number];
 
+/** Tabs sync to the URL hash (linkable, back/forward history) — matches the design's #anchors. */
+const TAB_HASH: Record<Tab, string> = {
+  Overview: "overview",
+  Playground: "playground",
+  API: "api",
+  Examples: "examples",
+  Pricing: "pricing",
+  Changelog: "changelog",
+};
+function tabFromHash(hash: string): Tab {
+  const h = hash.replace(/^#/, "").toLowerCase();
+  return (TABS.find((t) => TAB_HASH[t] === h) as Tab) ?? "Playground";
+}
+
 export default function ModelPage() {
   const { slug } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const model = slug ? MODEL_BY_SLUG[slug] : undefined;
-  const [tab, setTab] = useState<Tab>("Playground");
+  const tab = tabFromHash(location.hash);
+  const setTab = (t: Tab) => navigate(`#${TAB_HASH[t]}`);
   const [remix, setRemix] = useState<{ values: RemixValues; nonce: number } | null>(null);
 
   if (!model) return <Navigate to="/models" replace />;
@@ -133,37 +152,7 @@ export default function ModelPage() {
 
         {tab === "Playground" && <Playground key={remix?.nonce ?? 0} model={model} initialValues={remix?.values} />}
 
-        {tab === "API" && (
-          <div className="space-y-6">
-            <p className="max-w-2xl text-muted">
-              Call {model.name} directly by its slug, route to it via a modality endpoint, or price a request
-              first with the <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">/cost</code> twin.
-            </p>
-            <Card className="overflow-hidden">
-              <div className="scrollbar-thin overflow-x-auto">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {endpoints.map((e) => (
-                      <tr key={e.path} className="border-b border-border/60 last:border-0">
-                        <td className="px-4 py-3 align-top">
-                          <span className="rounded bg-brand/12 px-2 py-0.5 font-mono text-xs font-semibold text-brand">{e.method}</span>
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-[13px] text-fg">{e.path}</td>
-                        <td className="px-4 py-3 align-top text-muted">{e.blurb}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-            <Card className="overflow-hidden">
-              <div className="border-b border-border px-4 py-2.5 text-xs text-muted">Example request</div>
-              <pre className="scrollbar-thin overflow-x-auto p-5 text-[13px] leading-relaxed">
-                <code>{exampleRequest(model)}</code>
-              </pre>
-            </Card>
-          </div>
-        )}
+        {tab === "API" && <ApiTab model={model} endpoints={endpoints} />}
 
         {tab === "Examples" &&
           (examplesForModel(model.slug).length ? (
@@ -250,22 +239,104 @@ function rankingsMediaFor(modality: Model["modality"]): string {
   return modality === "chat" ? "llm" : modality;
 }
 
-function exampleRequest(model: Model): string {
-  if (model.modality === "chat") {
-    return `curl https://api.foundation.ai/v1/chat/completions \\
-  -H "Authorization: Bearer $FOUNDATION_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "${model.slug}",
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "max_tokens": 1024
-  }'`;
-  }
-  return `curl https://api.foundation.ai/v1/models/${model.slug}/generate \\
-  -H "Authorization: Bearer $FOUNDATION_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "prompt": "a beautiful landscape at golden hour",
-    "end_user": "cust_a2f_user_5512"
-  }'`;
+/* ── API tab: code samples (cURL / JS / Python) + endpoints + agents CTA ── */
+function ApiTab({ model, endpoints }: { model: Model; endpoints: EndpointDoc[] }) {
+  return (
+    <div className="space-y-8">
+      <div>
+        <p className="max-w-2xl text-muted">
+          Call {model.name} directly by its slug, route to it via a modality endpoint, or price a request first
+          with the <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">/cost</code> twin. One key
+          authenticates everything.
+        </p>
+        <CodeTabs
+          className="mt-4"
+          tabs={[
+            { label: "cURL", lang: "bash", code: curlSnippet(model) },
+            { label: "JavaScript", lang: "javascript", code: jsSnippet(model) },
+            { label: "Python", lang: "python", code: pySnippet(model) },
+          ]}
+        />
+      </div>
+
+      <div>
+        <h3 className="mb-3 font-display font-semibold">Endpoints</h3>
+        <Card className="overflow-hidden">
+          <div className="scrollbar-thin overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody>
+                {endpoints.map((e) => (
+                  <tr key={e.path} className="border-b border-border/60 last:border-0">
+                    <td className="px-4 py-3 align-top">
+                      <span className="rounded bg-brand/12 px-2 py-0.5 font-mono text-xs font-semibold text-brand">{e.method}</span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-[13px] text-fg">{e.path}</td>
+                    <td className="px-4 py-3 align-top text-muted">{e.blurb}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
+      <AgentsCTA model={model} />
+    </div>
+  );
+}
+
+/** Call to action for LLMs, Agents, and MCP. */
+function AgentsCTA({ model }: { model: Model }) {
+  const items = [
+    {
+      icon: FileText,
+      title: "llms.txt",
+      body: "Machine-readable docs for this exact model — params, schema, pricing, and copy-paste snippets, built for LLMs.",
+      action: `/models/${model.slug}/llms.txt`,
+      cta: "View llms.txt",
+    },
+    {
+      icon: Plug,
+      title: "MCP server",
+      body: "Connect Foundation to any MCP client so agents can call this model as a tool, with usage scoped to your key.",
+      action: "https://docs.foundation.ai/mcp",
+      cta: "Add MCP server",
+    },
+    {
+      icon: Bot,
+      title: "Coding agents",
+      body: "Drop the snippets straight into Claude Code, Cursor, or your own agent — the API is OpenAI-compatible where it counts.",
+      action: "https://docs.foundation.ai/agents",
+      cta: "Agent guide",
+    },
+  ];
+  return (
+    <Card className="relative overflow-hidden p-6">
+      <div className="pointer-events-none absolute inset-0 brand-gradient opacity-[0.06]" />
+      <div className="relative">
+        <Badge tone="brand" className="mb-2">
+          Built for agents
+        </Badge>
+        <h3 className="font-display text-xl font-bold tracking-tight">Use {model.name} from LLMs, agents & MCP</h3>
+        <p className="mt-1 max-w-2xl text-sm text-muted">
+          Every model ships agent-ready. Point an LLM at its <code className="rounded bg-surface2 px-1 py-0.5">llms.txt</code>,
+          expose it as an MCP tool, or wire it into your coding agent.
+        </p>
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          {items.map((it) => (
+            <div key={it.title} className="rounded-xl border border-border bg-surface p-4">
+              <div className="mb-3 grid h-9 w-9 place-items-center rounded-lg bg-brand/12 text-brand">
+                <it.icon className="h-5 w-5" />
+              </div>
+              <div className="font-display font-semibold">{it.title}</div>
+              <p className="mt-1 text-sm text-muted">{it.body}</p>
+              <a href={it.action} className="mt-3 inline-flex text-sm font-medium text-brand hover:underline">
+                {it.cta} →
+              </a>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
 }

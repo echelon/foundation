@@ -14,6 +14,17 @@
   --brand: 258 90% 62%;
   --brand-2: 291 92% 63%;
   --accent: 190 96% 48%;
+
+  /* code syntax tokens (light) */
+  --code-comment: 240 6% 50%;
+  --code-punct: 250 10% 42%;
+  --code-keyword: 262 78% 52%;
+  --code-string: 150 52% 34%;
+  --code-number: 28 85% 42%;
+  --code-function: 202 82% 40%;
+  --code-property: 330 68% 46%;
+  --code-operator: 250 12% 40%;
+  --code-variable: 20 78% 46%;
 }
 
 .dark {
@@ -27,6 +38,68 @@
   --brand: 258 95% 70%;
   --brand-2: 291 95% 72%;
   --accent: 190 96% 56%;
+
+  /* code syntax tokens (dark) */
+  --code-comment: 250 10% 55%;
+  --code-punct: 250 12% 72%;
+  --code-keyword: 262 92% 80%;
+  --code-string: 150 60% 64%;
+  --code-number: 30 92% 68%;
+  --code-function: 195 92% 70%;
+  --code-property: 330 88% 74%;
+  --code-operator: 250 12% 74%;
+  --code-variable: 26 92% 70%;
+}
+
+/* Prism token colors — theme-aware (flip with .dark via the vars above) */
+.code-hl code {
+  color: hsl(var(--fg));
+  background: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+.code-hl .token.comment,
+.code-hl .token.prolog,
+.code-hl .token.doctype,
+.code-hl .token.cdata {
+  color: hsl(var(--code-comment));
+  font-style: italic;
+}
+.code-hl .token.punctuation {
+  color: hsl(var(--code-punct));
+}
+.code-hl .token.keyword,
+.code-hl .token.boolean,
+.code-hl .token.builtin,
+.code-hl .token.important {
+  color: hsl(var(--code-keyword));
+}
+.code-hl .token.string,
+.code-hl .token.char,
+.code-hl .token.attr-value,
+.code-hl .token.inserted {
+  color: hsl(var(--code-string));
+}
+.code-hl .token.number,
+.code-hl .token.constant,
+.code-hl .token.symbol {
+  color: hsl(var(--code-number));
+}
+.code-hl .token.function,
+.code-hl .token.class-name {
+  color: hsl(var(--code-function));
+}
+.code-hl .token.property,
+.code-hl .token.tag,
+.code-hl .token.attr-name {
+  color: hsl(var(--code-property));
+}
+.code-hl .token.operator,
+.code-hl .token.entity,
+.code-hl .token.url {
+  color: hsl(var(--code-operator));
+}
+.code-hl .token.variable {
+  color: hsl(var(--code-variable));
 }
 
 * {

@@ -35,12 +35,34 @@ src/
   components/     shared UI primitives (ui.tsx) + ModelCard
   surfaces/       → future apps, one folder per surface
     marketing/    landing, pricing, docs (public)
-    models/       catalog, model page (Playground / API / Examples / Pricing / Changelog)
+    models/       catalog (gallery/table views, rank + sort), model page + gallery + playground
     rankings/     the Rankings product — overview, per-media pages, model detail
     auth/         login, signup, password reset
     dashboard/    overview, requests, keys, billing, settings (mock logged-in)
     admin/        placeholder for the internal console
 ```
+
+## Model page
+
+- **URL-synced tabs** — Overview / Playground / API / Examples / Pricing / Changelog each live at a
+  hash (`/models/:slug#api`), so tabs are linkable and use browser back/forward.
+- **API section** — a **cURL / JavaScript / Python** code switcher with **theme-aware syntax
+  highlighting** (Prism tokenizes; token colors are CSS variables that flip with light/dark), a
+  copy button, the endpoint table, and a **Built-for-agents CTA** (llms.txt · MCP server · coding
+  agents). Snippets are generated per model (`src/lib/codegen.ts`) — chat models hit
+  `/v1/chat/completions`, others the model-specific `/generate`.
+
+## Catalog index (`/models`)
+
+- **Gallery ⇄ Table view** toggle — cards, or one model per row.
+- **Rank + usage sparkline** on every model in both views.
+- **Sort/rank selector**: Volume (generations), Volume (output), Volume (price-weighted), Cost
+  (high→low), Cost (low→high), Trending (WoW), Newest.
+- Backed by `src/lib/model-stats.ts` — the frontend stand-in for the design's **hot catalog data**
+  (`model_rankings_and_reports.md` §3.3 / §5 `model_usage_summary`, served as `catalog_stats.json`),
+  so sorting all models is an instant client-side re-sort over one payload. Numbers are
+  deterministic from the slug (dummy data). Price-weighted "value" is list-price × volume — public,
+  not revenue (privacy line preserved).
 
 ## Prompt Gallery (curated per-model examples)
 
