@@ -10,10 +10,14 @@
  * pipeline uses a proper parser.
  */
 
+export type Reference = { key: string; label: string; url: string };
+
 export type Example = {
   id: string;
   model: string;
   task: string;
+  /** Section within the model's gallery (e.g. "Editing", "Image-to-video"). */
+  category: string;
   title: string;
   techniques: string[];
   aspect: string;
@@ -24,8 +28,8 @@ export type Example = {
   assetUrl: string;
   poster?: string;
   posterUrl?: string;
-  sourceAsset?: string;
-  sourceAssetUrl?: string;
+  /** Input / reference images shown alongside the output (edits, i2v, ref2video, composition). */
+  references: Reference[];
   isVideo: boolean;
   featured: boolean;
   weight: number;
@@ -92,13 +96,26 @@ function parseExample(raw: string): Example | null {
 
   const asset = String(fm.asset ?? "");
   const poster = fm.poster ? String(fm.poster) : undefined;
-  const sourceAsset = fm.source_asset ? String(fm.source_asset) : undefined;
   const isVideo = /\.(mp4|webm|mov)$/i.test(asset);
+
+  // references: array of "key=Label" items (plus legacy single source_asset)
+  const refItems = (fm.references as string[] | undefined) ?? [];
+  const references: Reference[] = refItems.map((item) => {
+    const eq = item.indexOf("=");
+    const key = eq >= 0 ? item.slice(0, eq).trim() : item.trim();
+    const label = eq >= 0 ? item.slice(eq + 1).trim() : "Reference";
+    return { key, label, url: cdnUrl(key) };
+  });
+  if (fm.source_asset) {
+    const key = String(fm.source_asset);
+    references.unshift({ key, label: "Input", url: cdnUrl(key) });
+  }
 
   return {
     id: String(fm.id),
     model: String(fm.model),
     task: String(fm.task),
+    category: String(fm.category ?? "Examples"),
     title: String(fm.title),
     techniques: (fm.techniques as string[]) ?? [],
     aspect: String(fm.aspect ?? "1:1"),
@@ -108,8 +125,7 @@ function parseExample(raw: string): Example | null {
     assetUrl: cdnUrl(asset),
     poster,
     posterUrl: poster ? cdnUrl(poster) : undefined,
-    sourceAsset,
-    sourceAssetUrl: sourceAsset ? cdnUrl(sourceAsset) : undefined,
+    references,
     isVideo,
     featured: Boolean(fm.featured),
     weight: Number(fm.weight ?? 0),
@@ -126,6 +142,19 @@ export const EXAMPLES: Example[] = Object.values(RAW)
 
 export function examplesForModel(slug: string): Example[] {
   return EXAMPLES.filter((e) => e.model === slug).sort((a, b) => b.weight - a.weight);
+}
+
+/** Categories for a model, ordered by the weight of their heaviest example (headline first). */
+export function categoriesForModel(slug: string): string[] {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  for (const e of examplesForModel(slug)) {
+    if (!seen.has(e.category)) {
+      seen.add(e.category);
+      order.push(e.category);
+    }
+  }
+  return order;
 }
 
 export function exampleById(model: string, id: string): Example | undefined {

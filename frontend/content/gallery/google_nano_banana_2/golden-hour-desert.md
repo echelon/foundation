@@ -2,6 +2,7 @@
 id: golden-hour-desert
 model: google_nano_banana_2
 task: text_to_image
+category: Photorealistic
 title: Golden-hour desert dunes
 techniques: [golden-hour, landscape, wide-angle, photorealistic]
 aspect: "16:9"
@@ -11,8 +12,7 @@ params:
   guidance: 4
   seed: 77410
 asset: samples/google_nano_banana_2/golden-hour-desert.png
-job_id: job_01JABCDUNE
 featured: true
-weight: 88
+weight: 92
 ---
-"Long soft shadows raking across the sand ripples" is the trick — describe **what the light does**, not just the time of day. The footprints give scale; drop them and the dunes lose their sense of size.
+Describe **what the light does** ("long soft shadows raking across the ripples"), not just the hour. The footprints give scale — remove them and the dunes lose their sense of size.

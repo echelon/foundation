@@ -54,11 +54,19 @@ model can do and *how each effect is achieved* (the `awesome-*-prompts` pattern,
   (`design/subsystems/prompt_gallery.md`).
 - **Assets** are fake images (`ffmpeg`-generated abstract art) and short videos (mp4 + poster)
   under `public/cdn/samples/...`, referenced by CDN object key exactly as the design specifies.
-- **UI**: filterable masonry grid (by technique), hover-to-play video previews, a lightbox with
-  the full prompt/params/prose, **"Remix in playground"** (loads the example's params into the
-  playground form), and deep-linkable SEO example pages at `/models/:slug/gallery/:exampleId`.
-- Prototyped for **Nano Banana 2** (8 image examples) and **Seedance 2.0** (6 video examples,
-  incl. an image-to-video whose source is a Nano Banana still).
+- **Model-specific categories**: examples are grouped into sections that match how each model is
+  used — Nano Banana: *Photorealistic · Stylized · Editing · Multi-reference composition · Text &
+  branding*; Seedance: *Text-to-video · Image-to-video · Reference-to-video · Camera control*.
+- **Reference images** (the Seedance-guide pattern): edits show the **input → result**,
+  image-to-video shows the source still, and multi-reference composition shows each labeled
+  reference (e.g. *Product* + *Scene*) → result. Cards carry an input-thumbnail strip; the
+  lightbox lays out references → result.
+- **UI**: technique filter, hover-to-play video previews, lightbox with full prompt/params/prose,
+  **"Remix in playground"** (loads the example's params into the form), and deep-linkable SEO
+  example pages at `/models/:slug/gallery/:exampleId`.
+- Prototyped for **Nano Banana 2** (13 image examples inc. edits + composition) and **Seedance
+  2.0** (9 video examples inc. i2v + reference-to-video). Assets are `ffmpeg`-generated, with
+  before/after edit pairs derived via filters.
 
 The playground also has a **request history** panel (like Fal): recent runs for the model with a
 scope toggle — **My runs** vs **All account traffic** (everything that transited the account for

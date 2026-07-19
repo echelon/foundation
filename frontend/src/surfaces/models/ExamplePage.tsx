@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Link, Navigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Container, Badge } from "@/components/ui";
-import { ExampleDetailBody } from "./Gallery";
+import { ExampleDetailBody, ReferenceFlow } from "./Gallery";
 import { exampleById } from "@/lib/gallery";
 import { MODEL_BY_SLUG } from "@/lib/catalog";
 
@@ -45,19 +45,7 @@ export default function ExamplePage() {
 
       <div className="grid gap-6 overflow-hidden rounded-2xl border border-border bg-surface lg:grid-cols-[1.2fr_1fr]">
         <div className="bg-surface2/40 p-4">
-          <div className="overflow-hidden rounded-xl border border-border">
-            {example.isVideo ? (
-              <video src={example.assetUrl} poster={example.posterUrl} controls loop muted playsInline className="w-full" />
-            ) : (
-              <img src={example.assetUrl} alt={example.title} className="w-full" />
-            )}
-          </div>
-          {example.sourceAssetUrl && (
-            <div className="mt-3">
-              <p className="mb-1 text-xs text-muted">Input image (image-to-video)</p>
-              <img src={example.sourceAssetUrl} alt="source" className="h-24 rounded-lg border border-border object-cover" />
-            </div>
-          )}
+          <ReferenceFlow example={example} />
         </div>
         <ExampleDetailBody example={example} />
       </div>

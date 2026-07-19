@@ -2,6 +2,7 @@
 id: dialogue-cafe-scene
 model: bytedance_seedance_v2
 task: text_to_video
+category: Text-to-video
 title: Two friends talking in a sunlit café
 techniques: [dialogue, cinematic-lighting, shallow-depth]
 aspect: "16:9"
@@ -14,8 +15,7 @@ params:
   seed: 30012
 asset: samples/bytedance_seedance_v2/dialogue-cafe-scene.mp4
 poster: samples/bytedance_seedance_v2/dialogue-cafe-scene.poster.jpg
-job_id: job_01JABCCAFE
 featured: true
 weight: 100
 ---
-Dialogue scenes live and die on **motion restraint**: "gentle handheld" plus "subtle rack focus" keeps it human without the model inventing chaotic camera moves. Ask for "natural skin tones" to avoid the waxy look t2v models drift toward.
+Dialogue scenes live on **motion restraint**: "gentle handheld" plus "subtle rack focus" keeps it human without the model inventing chaotic camera moves. Ask for "natural skin tones" to dodge the waxy look.

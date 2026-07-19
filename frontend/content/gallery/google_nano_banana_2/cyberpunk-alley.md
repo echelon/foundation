@@ -2,6 +2,7 @@
 id: cyberpunk-alley
 model: google_nano_banana_2
 task: text_to_image
+category: Photorealistic
 title: Rain-soaked cyberpunk alley
 techniques: [neon, low-key, photorealistic, wide-angle]
 aspect: "16:9"
@@ -11,8 +12,7 @@ params:
   guidance: 5.5
   seed: 57123
 asset: samples/google_nano_banana_2/cyberpunk-alley.png
-job_id: job_01JABCPUNK
 featured: false
-weight: 70
+weight: 86
 ---
-Low-key lighting ("pools of magenta and teal") plus a single subject walking away creates depth and mystery. Keep the palette to two neon hues — listing five colors muddies the reflections.
+Low-key lighting plus a single subject walking away builds depth and mystery. Hold the palette to two neon hues — five colors muddy the reflections.

@@ -2,6 +2,7 @@
 id: neon-ramen-shop
 model: google_nano_banana_2
 task: text_to_image
+category: Photorealistic
 title: Neon-lit ramen shop at night
 techniques: [neon, cinematic-lighting, photorealistic, shallow-depth]
 aspect: "16:9"
@@ -11,8 +12,7 @@ params:
   guidance: 4.5
   seed: 128773
 asset: samples/google_nano_banana_2/neon-ramen-shop.png
-job_id: job_01JABCNEON
 featured: true
 weight: 100
 ---
-Neon reads as neon because the prompt names **specific light sources** ("neon", "reflections on wet asphalt") instead of asking for "a colorful scene". Drop *shallow depth of field* and the background sharpens; push `guidance` past ~7 and the reflections over-saturate into noise. Swap "Tokyo" for "Hong Kong" to shift the signage language and neon palette.
+Neon reads as neon because the prompt names **specific light sources** ("neon", "reflections on wet asphalt") instead of "a colorful scene". Drop *shallow depth of field* and the background sharpens; push guidance past ~7 and reflections over-saturate.
