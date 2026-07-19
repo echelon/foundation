@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2, Play, RotateCcw, Sparkles } from "lucide-react";
 import { Badge, Button, Card, Input, Label, Select, Slider, Textarea } from "@/components/ui";
-import { mockGenerate, type GenerateResult } from "@/lib/mock-api";
+import { mockGenerate, playgroundHistory, type GenerateResult, type PlayRun } from "@/lib/mock-api";
 import { MODALITY_LABEL, priceLabel, type Control, type Model } from "@/lib/catalog";
 import { cn } from "@/lib/cn";
 
 type Values = Record<string, unknown>;
 
-function defaults(model: Model): Values {
+function defaults(model: Model, initial?: Values): Values {
   const v: Values = {};
   for (const c of model.controls) {
     if (c.type === "slider") v[c.key] = c.default;
@@ -15,14 +15,17 @@ function defaults(model: Model): Values {
     else if (c.type === "select") v[c.key] = c.default ?? c.options[0]?.value;
     else if (c.type === "text" || c.type === "textarea") v[c.key] = c.default ?? "";
     else if (c.type === "seed") v[c.key] = "";
+    // remix: overlay any provided value for a control this model actually has
+    if (initial && initial[c.key] !== undefined && initial[c.key] !== null) v[c.key] = initial[c.key];
   }
   return v;
 }
 
-export function Playground({ model }: { model: Model }) {
-  const [values, setValues] = useState<Values>(() => defaults(model));
+export function Playground({ model, initialValues }: { model: Model; initialValues?: Values }) {
+  const [values, setValues] = useState<Values>(() => defaults(model, initialValues));
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");
   const [result, setResult] = useState<GenerateResult | null>(null);
+  const [sessionRuns, setSessionRuns] = useState<PlayRun[]>([]);
 
   const set = (k: string, val: unknown) => setValues((v) => ({ ...v, [k]: val }));
 
@@ -32,6 +35,20 @@ export function Playground({ model }: { model: Model }) {
     const r = await mockGenerate(model, values);
     setResult(r);
     setStatus("done");
+    setSessionRuns((prev) => [
+      {
+        id: r.requestId,
+        modelSlug: model.slug,
+        status: "succeeded",
+        createdAt: new Date(Date.parse("2026-07-19T14:32:00Z") + prev.length * 60_000).toISOString(),
+        costUsd: r.costUsd,
+        latencyMs: r.latencyMs,
+        mine: true,
+        endUser: null,
+        hue: (prev.length * 47 + 200) % 360,
+      },
+      ...prev,
+    ]);
   };
 
   const reset = () => {
@@ -41,6 +58,7 @@ export function Playground({ model }: { model: Model }) {
   };
 
   return (
+    <div className="space-y-6">
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
       {/* ── Controls ── */}
       <Card className="p-5">
@@ -108,7 +126,92 @@ export function Playground({ model }: { model: Model }) {
         </div>
       </Card>
     </div>
+
+    <PlaygroundHistory model={model} sessionRuns={sessionRuns} />
+    </div>
   );
+}
+
+function PlaygroundHistory({ model, sessionRuns }: { model: Model; sessionRuns: PlayRun[] }) {
+  const [scope, setScope] = useState<"mine" | "account">("mine");
+  const seeded = useMemo(() => playgroundHistory(model.slug), [model.slug]);
+
+  const all = [...sessionRuns, ...seeded];
+  const rows = (scope === "mine" ? all.filter((r) => r.mine) : all).slice(0, 12);
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="font-display font-semibold">Request history</h3>
+          <p className="text-xs text-muted">Recent {model.name} runs, newest first.</p>
+        </div>
+        <div className="inline-flex rounded-lg border border-border bg-surface p-1">
+          {(["mine", "account"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setScope(s)}
+              className={cn(
+                "rounded-md px-3 py-1.5 text-xs font-medium transition",
+                scope === s ? "brand-gradient text-white shadow-glow" : "text-muted hover:text-fg",
+              )}
+            >
+              {s === "mine" ? "My runs" : "All account traffic"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {scope === "account" && (
+        <p className="border-b border-border bg-brand/[0.05] px-5 py-2 text-xs text-muted">
+          Everything that transited the account for this model — including your customers' end-users (via{" "}
+          <code className="rounded bg-surface2 px-1 py-0.5">end_user</code>).
+        </p>
+      )}
+      <div className="scrollbar-thin overflow-x-auto">
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
+                <td className="py-3 pl-5 pr-3">
+                  <div
+                    className="h-10 w-10 shrink-0 rounded-lg"
+                    style={{ background: `linear-gradient(135deg, hsl(${r.hue} 80% 55%), hsl(${(r.hue + 60) % 360} 80% 55%))` }}
+                  />
+                </td>
+                <td className="px-3 py-3">
+                  <div className="font-mono text-[13px] text-fg">{r.id}</div>
+                  <div className="text-xs text-muted">{shortTime(r.createdAt)}</div>
+                </td>
+                <td className="px-3 py-3">
+                  {r.endUser ? (
+                    <span className="font-mono text-xs text-muted">{r.endUser}</span>
+                  ) : r.mine ? (
+                    <span className="text-xs text-brand">you</span>
+                  ) : (
+                    <span className="text-xs text-muted">API</span>
+                  )}
+                </td>
+                <td className="px-3 py-3">
+                  {r.status === "succeeded" && <Badge tone="green">succeeded</Badge>}
+                  {r.status === "running" && <Badge tone="amber">running</Badge>}
+                  {r.status === "failed" && <Badge tone="red">failed</Badge>}
+                </td>
+                <td className="hidden px-3 py-3 text-right text-xs text-muted sm:table-cell">{(r.latencyMs / 1000).toFixed(1)}s</td>
+                <td className="py-3 pl-3 pr-5 text-right font-medium text-fg">${r.costUsd.toFixed(3)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function shortTime(iso: string): string {
+  const [date, time] = iso.replace("Z", "").split("T");
+  const [, m, d] = date.split("-");
+  const months = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${months[Number(m)]} ${Number(d)}, ${time.slice(0, 5)}`;
 }
 
 function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {

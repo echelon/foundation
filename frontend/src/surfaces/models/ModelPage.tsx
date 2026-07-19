@@ -4,8 +4,10 @@ import { ArrowLeft, BarChart3, ImageOff } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
 import { Playground } from "./Playground";
+import { Gallery, type RemixValues } from "./Gallery";
 import { MODEL_BY_SLUG, MODALITY_LABEL, priceLabel, type Model } from "@/lib/catalog";
 import { endpointsForModel } from "@/lib/mock-api";
+import { examplesForModel } from "@/lib/gallery";
 import { cn } from "@/lib/cn";
 
 const TABS = ["Overview", "Playground", "API", "Examples", "Pricing", "Changelog"] as const;
@@ -15,8 +17,14 @@ export default function ModelPage() {
   const { slug } = useParams();
   const model = slug ? MODEL_BY_SLUG[slug] : undefined;
   const [tab, setTab] = useState<Tab>("Playground");
+  const [remix, setRemix] = useState<{ values: RemixValues; nonce: number } | null>(null);
 
   if (!model) return <Navigate to="/models" replace />;
+
+  const applyRemix = (values: RemixValues) => {
+    setRemix((r) => ({ values, nonce: (r?.nonce ?? 0) + 1 }));
+    setTab("Playground");
+  };
 
   const related = model.related.map((s) => MODEL_BY_SLUG[s]).filter(Boolean);
   const endpoints = endpointsForModel(model);
@@ -123,7 +131,7 @@ export default function ModelPage() {
           </div>
         )}
 
-        {tab === "Playground" && <Playground model={model} />}
+        {tab === "Playground" && <Playground key={remix?.nonce ?? 0} model={model} initialValues={remix?.values} />}
 
         {tab === "API" && (
           <div className="space-y-6">
@@ -157,18 +165,21 @@ export default function ModelPage() {
           </div>
         )}
 
-        {tab === "Examples" && (
-          <div className="rounded-2xl border border-dashed border-border py-24 text-center">
-            <ImageOff className="mx-auto mb-4 h-10 w-10 text-muted/60" />
-            <h3 className="font-display text-lg font-semibold">No example outputs yet</h3>
-            <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
-              Curated example generations will appear here. Until then, try the model yourself in the playground.
-            </p>
-            <Button variant="outline" className="mt-5" onClick={() => setTab("Playground")}>
-              Open playground
-            </Button>
-          </div>
-        )}
+        {tab === "Examples" &&
+          (examplesForModel(model.slug).length ? (
+            <Gallery slug={model.slug} onRemix={applyRemix} />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border py-24 text-center">
+              <ImageOff className="mx-auto mb-4 h-10 w-10 text-muted/60" />
+              <h3 className="font-display text-lg font-semibold">No example outputs yet</h3>
+              <p className="mx-auto mt-2 max-w-sm text-sm text-muted">
+                Curated example generations will appear here. Until then, try the model yourself in the playground.
+              </p>
+              <Button variant="outline" className="mt-5" onClick={() => setTab("Playground")}>
+                Open playground
+              </Button>
+            </div>
+          ))}
 
         {tab === "Pricing" && (
           <Card className="overflow-hidden">

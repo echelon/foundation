@@ -7,6 +7,7 @@ import Pricing from "@/surfaces/marketing/Pricing";
 import Docs from "@/surfaces/marketing/Docs";
 import Catalog from "@/surfaces/models/Catalog";
 import ModelPage from "@/surfaces/models/ModelPage";
+import ExamplePage from "@/surfaces/models/ExamplePage";
 import RankingsOverview from "@/surfaces/rankings/Overview";
 import MediaRankings from "@/surfaces/rankings/MediaRankings";
 import RankingModel from "@/surfaces/rankings/RankingModel";
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/docs" element={<Docs />} />
         <Route path="/models" element={<Catalog />} />
         <Route path="/models/:slug" element={<ModelPage />} />
+        <Route path="/models/:slug/gallery/:exampleId" element={<ExamplePage />} />
         <Route path="/rankings" element={<RankingsOverview />} />
         <Route path="/rankings/models/:slug" element={<RankingModel />} />
         <Route path="/rankings/:media" element={<MediaRankings />} />

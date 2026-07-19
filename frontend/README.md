@@ -42,6 +42,28 @@ src/
     admin/        placeholder for the internal console
 ```
 
+## Prompt Gallery (curated per-model examples)
+
+The model page's **Examples** tab is a **Prompt Gallery** — curated examples showing what a
+model can do and *how each effect is achieved* (the `awesome-*-prompts` pattern, productized).
+
+- **Content-as-code**: examples are markdown files in `content/gallery/{model}/*.md`
+  (frontmatter — model, task, prompt, params, technique tags, CDN asset key, provenance
+  `job_id` — plus a prose "how it's done" body). Loaded via `import.meta.glob` in
+  `src/lib/gallery.ts`; in production this is the `gallery.json` compile step
+  (`design/subsystems/prompt_gallery.md`).
+- **Assets** are fake images (`ffmpeg`-generated abstract art) and short videos (mp4 + poster)
+  under `public/cdn/samples/...`, referenced by CDN object key exactly as the design specifies.
+- **UI**: filterable masonry grid (by technique), hover-to-play video previews, a lightbox with
+  the full prompt/params/prose, **"Remix in playground"** (loads the example's params into the
+  playground form), and deep-linkable SEO example pages at `/models/:slug/gallery/:exampleId`.
+- Prototyped for **Nano Banana 2** (8 image examples) and **Seedance 2.0** (6 video examples,
+  incl. an image-to-video whose source is a Nano Banana still).
+
+The playground also has a **request history** panel (like Fal): recent runs for the model with a
+scope toggle — **My runs** vs **All account traffic** (everything that transited the account for
+this model, including customers' end-users via `end_user`).
+
 ## Rankings (a headline feature)
 
 `/rankings` is a full generative-media usage index — our answer to (and a superset of)

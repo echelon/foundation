@@ -205,6 +205,61 @@ export function mockGenerate(model: Model, params: Record<string, unknown>): Pro
   });
 }
 
+/* ── Playground request history (like Fal) ── */
+export type PlayRun = {
+  id: string;
+  modelSlug: string;
+  status: JobStatus;
+  createdAt: string;
+  costUsd: number;
+  latencyMs: number;
+  /** true = this logged-in user ran it in the dashboard; false = API / other. */
+  mine: boolean;
+  /** customer-of-our-customer id when the run came from an end-user. */
+  endUser: string | null;
+  /** deterministic hue for the mock output thumbnail. */
+  hue: number;
+};
+
+function seedHash(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % 100000;
+}
+
+/**
+ * Deterministic per-model history so every model's playground has a populated
+ * "recent runs" panel. Mixes the logged-in user's own dashboard runs with
+ * account-wide traffic (API calls + our customers' end-users) — the same two
+ * scopes as the dashboard Requests view, filtered to this one model.
+ */
+export function playgroundHistory(modelSlug: string): PlayRun[] {
+  const endUsers = ["cust_a2f_user_5512", "cust_b71_user_0090", "cust_c04_user_3120", "cust_a2f_user_7781"];
+  const runs: PlayRun[] = [];
+  for (let i = 0; i < 9; i++) {
+    const h = seedHash(`${modelSlug}|${i}`);
+    const mine = i < 4; // first four are the current user's dashboard runs
+    const minsAgo = 6 + i * 47 + (h % 40);
+    const t = new Date(Date.parse("2026-07-19T14:30:00Z") - minsAgo * 60_000);
+    const status: JobStatus = i === 1 ? "running" : h % 17 === 0 ? "failed" : "succeeded";
+    runs.push({
+      id: `req_pg${(h % 1_000_000).toString(36)}`,
+      modelSlug,
+      status,
+      createdAt: t.toISOString(),
+      costUsd: Number((((h % 90) + 2) / 1000).toFixed(3)),
+      latencyMs: 1200 + (h % 40000),
+      mine,
+      endUser: mine ? null : endUsers[h % endUsers.length],
+      hue: h % 360,
+    });
+  }
+  return runs;
+}
+
 /* ── Endpoint reference (documented on model pages + docs surface) ── */
 export type EndpointDoc = { method: string; path: string; kind: "model" | "modality" | "catalog" | "chat" | "cost"; blurb: string };
 
