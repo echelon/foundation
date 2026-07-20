@@ -56,19 +56,28 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /* ── Types (mirror the gateway's JSON) ── */
 
+/** CDN links to an avatar image. `thumbnail_template` carries a `{WIDTH}` placeholder (in dev
+ * it's just the full-image URL — no resizer in front of the bucket). */
+export type AvatarLinks = {
+  cdn_url: string;
+  thumbnail_template: string;
+};
+
+/** The avatar as APIs report it: display source + CDN links (null → render the monogram). */
+export type ApiAvatar = {
+  source: string;
+  links: AvatarLinks | null;
+};
+
 export type ApiUser = {
   id: string;
   email: string;
   display_name: string | null;
   is_staff: boolean;
   email_verified: boolean;
-  /** Avatar display source (`custom` / `gravatar` / `letter` / `generated`). Only present on
-   * `/me` responses; absent right after login/signup (refreshed on next load). */
-  avatar_source?: string;
+  /** Only present on `/me` responses; absent right after login/signup (refreshed on next load). */
+  avatar?: ApiAvatar;
 };
-
-/** The caller's avatar image (gravatar proxied through the gateway; 404 → use the monogram). */
-export const AVATAR_URL = `${API_BASE_URL}/v1/auth/avatar`;
 
 export type ApiSession = {
   id: string;

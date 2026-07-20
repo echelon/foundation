@@ -9,7 +9,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "admin-cli"
+name = "admin_cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -47,7 +47,7 @@ name = "anthropic_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "client-core",
+ "client_core",
  "money",
  "reqwest",
  "serde",
@@ -64,7 +64,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
-name = "api-gateway"
+name = "api_gateway"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -74,7 +74,7 @@ dependencies = [
  "bucket_paths",
  "catalog",
  "chrono",
- "client-core",
+ "client_core",
  "config",
  "db",
  "db_queries",
@@ -383,7 +383,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "client-core"
+name = "client_core"
 version = "0.1.0"
 dependencies = [
  "money",
@@ -627,7 +627,7 @@ name = "email_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "client-core",
+ "client_core",
  "reqwest",
  "serde",
  "serde_json",
@@ -887,7 +887,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
- "client-core",
+ "client_core",
  "money",
  "reqwest",
  "serde",
@@ -898,13 +898,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "gravatar-job"
+name = "gravatar_job"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bucket_client",
  "bucket_paths",
- "client-core",
+ "client_core",
  "config",
  "db",
  "db_queries",
@@ -1319,7 +1319,7 @@ name = "kinovi_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "client-core",
+ "client_core",
  "money",
  "reqwest",
  "serde",
@@ -1592,7 +1592,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
- "client-core",
+ "client_core",
  "money",
  "reqwest",
  "serde",

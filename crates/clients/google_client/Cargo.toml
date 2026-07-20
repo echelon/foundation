@@ -7,7 +7,7 @@ publish.workspace = true
 
 [dependencies]
 # Internal
-client-core.workspace = true
+client_core.workspace = true
 money.workspace = true
 
 # External

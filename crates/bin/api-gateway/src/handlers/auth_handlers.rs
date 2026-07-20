@@ -76,12 +76,12 @@ pub async fn logout(State(state): State<AppState>, auth: AuthContext) -> ApiResu
 }
 
 /// `GET /v1/auth/me` — the authenticated user (proves the middleware works end-to-end).
-/// Includes the avatar display `source` (accounts.md §2 precedence) so the frontend knows
-/// whether to load `/v1/auth/avatar` or fall back to the letter monogram.
+/// Includes the avatar (display source + CDN links — the gateway never serves bytes) so
+/// clients render the image straight from the CDN, or the monogram when there's none.
 pub async fn me(State(state): State<AppState>, auth: AuthContext) -> crate::error::ApiResult<Json<Value>> {
-  let avatar = db_queries::user_avatars::find_user_avatar_by_user(&state.pool, &auth.user.id).await?;
+  let avatar = crate::avatar_links::avatar_info(&state, &auth.user.id).await?;
   let mut user = user_json(&auth.user);
-  user["avatar_source"] = avatar.map(|a| a.source).unwrap_or_else(|| "letter".into()).into();
+  user["avatar"] = serde_json::to_value(avatar).unwrap_or(Value::Null);
   Ok(Json(json!({
     "user": user,
     "session_id": auth.session.id,

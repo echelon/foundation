@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AVATAR_URL, type ApiUser } from "@/lib/api";
+import type { ApiUser } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 /** Monogram initials from the display name (fallback: email). */
@@ -15,20 +15,18 @@ export function userInitials(user: ApiUser): string {
 }
 
 /**
- * The user's avatar. When the gravatar-job has confirmed a gravatar
- * (`avatar_source === "gravatar"`), loads the image through the gateway proxy
- * (cookie-authed, hence `use-credentials`); otherwise — or if the image fails —
+ * The user's avatar. When the API reports CDN links (custom upload or mirrored gravatar),
+ * renders the image straight from the CDN; otherwise — or if the image fails to load —
  * renders the letter monogram.
  */
 export function UserAvatar({ user, className }: { user: ApiUser; className?: string }) {
   const [failed, setFailed] = useState(false);
-  const showImage = user.avatar_source === "gravatar" && !failed;
+  const links = user.avatar?.links ?? null;
 
-  if (showImage) {
+  if (links && !failed) {
     return (
       <img
-        src={AVATAR_URL}
-        crossOrigin="use-credentials"
+        src={links.cdn_url}
         alt=""
         onError={() => setFailed(true)}
         className={cn("rounded-full object-cover", className)}

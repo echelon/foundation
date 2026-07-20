@@ -6,7 +6,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-client-core.workspace = true
+client_core.workspace = true
 money.workspace = true
 reqwest = { workspace = true, features = ["multipart"] }
 serde = { workspace = true }

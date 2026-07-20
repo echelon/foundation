@@ -1,5 +1,5 @@
 //! api-gateway binary — thin: load env files (by convention), init tracing, hand off to the
-//! library. `cargo run -p api-gateway` needs no hand-supplied env vars.
+//! library. `cargo run -p api_gateway` needs no hand-supplied env vars.
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

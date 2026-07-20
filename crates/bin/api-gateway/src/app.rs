@@ -45,6 +45,8 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       ),
       None => None,
     },
+    cdn_base_url: cfg.cdn_base_url.clone(),
+    environment: cfg.environment.clone(),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -104,12 +106,11 @@ pub fn build_router(state: AppState) -> Router {
       get(account_handlers::list_sessions).delete(account_handlers::revoke_sessions),
     )
     .route("/v1/auth/sessions/:id", delete(account_handlers::revoke_session))
-    // avatar: serve / upload+crop / remove / gravatar dismiss+restore
+    // avatar: upload+crop / remove / gravatar dismiss+restore. (No GET — clients render the
+    // CDN links returned by /me and these mutations; the gateway never serves bytes.)
     .route(
       "/v1/auth/avatar",
-      get(avatar_handlers::get_my_avatar)
-        .post(avatar_handlers::upload_my_avatar)
-        .delete(avatar_handlers::remove_my_avatar),
+      post(avatar_handlers::upload_my_avatar).delete(avatar_handlers::remove_my_avatar),
     )
     .route("/v1/auth/avatar/gravatar/dismiss", post(avatar_handlers::dismiss_my_gravatar))
     .route("/v1/auth/avatar/gravatar/restore", post(avatar_handlers::restore_my_gravatar))

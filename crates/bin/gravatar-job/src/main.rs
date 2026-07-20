@@ -13,7 +13,7 @@
 use std::time::Duration;
 
 use bucket_client::{BucketClient, BucketClientBuilder, UploadBytesArgs};
-use bucket_paths::{mint_bucket_hash, object_key, BucketFolder};
+use bucket_paths::{mint_bucket_hash, object_key, BucketFolder, ObjectKeyParts};
 use db_queries::{user_avatar_files, user_avatars};
 use sha2::{Digest, Sha256};
 
@@ -27,7 +27,7 @@ const ERROR_BACKOFF: Duration = Duration::from_secs(30);
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   // Env files first (convention: crates/bin/gravatar-job/config/gravatar-job.{env}.env), so
-  // `cargo run -p gravatar-job` needs no hand-supplied env vars and RUST_LOG from a file works.
+  // `cargo run -p gravatar_job` needs no hand-supplied env vars and RUST_LOG from a file works.
   let loaded = config::load_env_files("gravatar-job");
 
   tracing_subscriber::fmt()
@@ -186,7 +186,14 @@ async fn mirror_gravatar(
 ) -> anyhow::Result<()> {
   let extension = extension_for(content_type);
   let bucket_hash = mint_bucket_hash();
-  let key = object_key(BucketFolder::Avatars, &bucket_hash, None, None, None, Some(extension));
+  let key = object_key(ObjectKeyParts {
+    folder: BucketFolder::Avatars,
+    hash: &bucket_hash,
+    prefix: None,
+    suffix: None,
+    version: None,
+    extension: Some(extension),
+  });
 
   bucket
     .upload_bytes(UploadBytesArgs { object_key: &key, bytes, content_type: Some(content_type) })

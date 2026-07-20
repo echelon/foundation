@@ -1,5 +1,7 @@
 [package]
-name = "admin-cli"
+# Package names are snake_case; the BINARY keeps the kebab name (bins can be hostnames,
+# and hostnames allow dashes but not underscores).
+name = "admin_cli"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true

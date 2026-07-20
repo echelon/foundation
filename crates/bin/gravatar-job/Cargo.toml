@@ -1,16 +1,22 @@
 [package]
-name = "gravatar-job"
+# Package names are snake_case; the BINARY keeps the kebab name (bins can be hostnames,
+# and hostnames allow dashes but not underscores).
+name = "gravatar_job"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
+
+[[bin]]
+name = "gravatar-job"
+path = "src/main.rs"
 
 [dependencies]
 config.workspace = true
 db.workspace = true
 db_queries.workspace = true
 ids.workspace = true
-client-core.workspace = true
+client_core.workspace = true
 bucket_client.workspace = true
 bucket_paths.workspace = true
 reqwest.workspace = true
