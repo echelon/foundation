@@ -9,6 +9,10 @@ publish.workspace = true
 name = "api-gateway"
 path = "src/main.rs"
 
+[lib]
+name = "api_gateway"
+path = "src/lib.rs"
+
 [dependencies]
 tokio.workspace = true
 axum.workspace = true
@@ -18,6 +22,20 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+sqlx.workspace = true
+# auth
+argon2.workspace = true
+jsonwebtoken.workspace = true
+rand.workspace = true
+sha2.workspace = true
+hex.workspace = true
+# internal
 config.workspace = true
 catalog.workspace = true
 db.workspace = true
+db_queries.workspace = true
+ids.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

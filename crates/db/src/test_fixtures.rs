@@ -14,11 +14,14 @@ pub const TEST_DB_ENV: &str = "FOUNDATION_TEST_DATABASE_URL";
 /// Databases a test must NEVER touch.
 const FORBIDDEN_DATABASES: &[&str] = &["foundation_development", "foundation_production"];
 
+/// The standard local test database URL, used when `FOUNDATION_TEST_DATABASE_URL` is unset.
+/// Always a `*_test` database — the [`guard_test_db`] check still runs on it.
+const DEFAULT_TEST_DATABASE_URL: &str = "postgres://foundation:foundation@localhost:5432/foundation_test";
+
 /// Connect to the test database (migrating it up first). Panics unless the URL is a test db.
+/// Reads `FOUNDATION_TEST_DATABASE_URL`; falls back to the standard `foundation_test` URL.
 pub async fn create_test_pool() -> PgPool {
-    let url = std::env::var(TEST_DB_ENV).unwrap_or_else(|_| {
-        panic!("{TEST_DB_ENV} must be set for DB tests (see .env.test) — tests never read DATABASE_URL")
-    });
+    let url = std::env::var(TEST_DB_ENV).unwrap_or_else(|_| DEFAULT_TEST_DATABASE_URL.to_string());
     guard_test_db(&url);
     let pool = connect(&url).await.expect("connect to test database");
     MIGRATOR.run(&pool).await.expect("migrate test database");

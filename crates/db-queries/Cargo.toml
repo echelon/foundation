@@ -1,0 +1,17 @@
+[package]
+name = "db_queries"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+sqlx.workspace = true
+chrono.workspace = true
+serde.workspace = true
+ids.workspace = true
+
+[dev-dependencies]
+db.workspace = true
+tokio.workspace = true
+anyhow.workspace = true

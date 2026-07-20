@@ -32,6 +32,12 @@ pub struct Config {
     pub database_url: String,
     pub api_gateway_port: u16,
     pub cdn_base_url: String,
+    /// HMAC secret for signing session JWTs (auth.md §1). Rotate in prod.
+    pub session_secret: String,
+    /// Cookie `Domain` attribute — `.example.com` in prod so it spans the apex (auth.md §1).
+    pub cookie_domain: String,
+    /// Whether to set the `Secure` cookie attribute (off for plain-http local dev).
+    pub cookie_secure: bool,
     pub providers: ProviderKeys,
 }
 
@@ -58,6 +64,10 @@ impl Config {
                 .unwrap_or(4000),
             cdn_base_url: std::env::var("CDN_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:9000/foundation".into()),
+            session_secret: std::env::var("SESSION_SECRET")
+                .unwrap_or_else(|_| "dev-insecure-session-secret-change-me".into()),
+            cookie_domain: std::env::var("COOKIE_DOMAIN").unwrap_or_else(|_| "localhost".into()),
+            cookie_secure: opt("COOKIE_SECURE").map(|v| v == "true").unwrap_or(false),
             providers: ProviderKeys {
                 kinovi: opt("KINOVI_API_KEY"),
                 openai: opt("OPENAI_API_KEY"),

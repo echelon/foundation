@@ -10,9 +10,12 @@ members = [
   "crates/db",
   # ── provider clients (pure HTTP) ──
   "crates/clients/client-core",
-  "crates/clients/kinovi",
-  "crates/clients/openai",
-  "crates/clients/google",
+  "crates/clients/kinovi_client",
+  "crates/clients/openai_client",
+  "crates/clients/google_client",
+  "crates/clients/anthropic_client",
+  # data-layer query crate
+  "crates/db-queries",
   # ── deployables ──
   "crates/bin/api-gateway",
   "crates/bin/admin-cli",
@@ -47,6 +50,12 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"
+# auth
+argon2 = "0.5"
+jsonwebtoken = "9"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
 
 # internal
 ids = { path = "crates/core/ids" }
@@ -55,9 +64,11 @@ config = { path = "crates/core/config" }
 catalog = { path = "crates/core/catalog" }
 db = { path = "crates/db" }
 client-core = { path = "crates/clients/client-core" }
-kinovi = { path = "crates/clients/kinovi" }
-openai = { path = "crates/clients/openai" }
-google = { path = "crates/clients/google" }
+kinovi_client = { path = "crates/clients/kinovi_client" }
+openai_client = { path = "crates/clients/openai_client" }
+google_client = { path = "crates/clients/google_client" }
+anthropic_client = { path = "crates/clients/anthropic_client" }
+db_queries = { path = "crates/db-queries" }
 
 [profile.dev]
 # faster incremental link on macOS

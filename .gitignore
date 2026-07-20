@@ -1,2 +1,9 @@
-*~
-external/
+/target
+**/target
+.env
+.env.test
+.DS_Store
+# local test credentials
+external/credentials/*.txt
+external/credentials/*.yaml
+external/credentials/*.yml
