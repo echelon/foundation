@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict nLwdzkk4NsDDa95oWYNh3WAFyhopK1VxwlgNADvkoPC5NbWhDGq9khhBdKigQs5
+\restrict gmhumnxYgJOkqFhlNiv2XF9dAbGn4SIdRxl842A4OCsQSPHR5ySTGQVHQSMKKLS
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -2379,6 +2379,13 @@ CREATE INDEX billing_events_job ON public.billing_events USING btree (job_id);
 
 
 --
+-- Name: invitations_one_live_per_account_email; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX invitations_one_live_per_account_email ON public.invitations USING btree (account_id, email) WHERE ((accepted_at IS NULL) AND (revoked_at IS NULL));
+
+
+--
 -- Name: invoices_account_period; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2592,5 +2599,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict nLwdzkk4NsDDa95oWYNh3WAFyhopK1VxwlgNADvkoPC5NbWhDGq9khhBdKigQs5
+\unrestrict gmhumnxYgJOkqFhlNiv2XF9dAbGn4SIdRxl842A4OCsQSPHR5ySTGQVHQSMKKLS
 

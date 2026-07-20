@@ -12,7 +12,8 @@ type AuthContextValue = {
   user: ApiUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<ApiUser>;
-  signup: (email: string, password: string, displayName?: string) => Promise<ApiUser>;
+  /** `invitation` (code or token) redeems an invite during signup — see api.signup. */
+  signup: (email: string, password: string, displayName?: string, invitation?: string) => Promise<ApiUser>;
   logout: () => Promise<void>;
   /** Re-fetch `/me` (e.g. after changing email so `email_verified` refreshes). */
   refresh: () => Promise<void>;
@@ -63,8 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return r.user;
   }, []);
 
-  const signup = useCallback(async (email: string, password: string, displayName?: string) => {
-    const r = await api.signup(email, password, displayName);
+  const signup = useCallback(async (email: string, password: string, displayName?: string, invitation?: string) => {
+    const r = await api.signup(email, password, displayName, invitation);
     setUser(r.user);
     backfill();
     return r.user;

@@ -44,6 +44,48 @@ pub async fn send_verification_email(state: &AppState, user_id: &UserId, to_emai
   deliver(state, Some(user_id), to_email, EmailTemplate::EmailVerify, subject, &html).await;
 }
 
+/// Everything the invitation email needs (named fields — four `&str`s in a row is exactly the
+/// transposition hazard the args-struct rule exists for).
+pub struct InvitationEmailArgs<'a> {
+  pub to_email: &'a str,
+  /// Who invited them (display name, falling back to their email).
+  pub inviter: &'a str,
+  /// The inviting organization's name (unnamed accounts → generic copy).
+  pub account_name: Option<&'a str>,
+  pub role: &'a str,
+  /// The plaintext magic-link token (only its hash is stored).
+  pub token: &'a str,
+  /// The short human code (shown for the "join with code" path).
+  pub code: &'a str,
+}
+
+/// Send the invitation email (email.md §3: template `invite` — carries the magic link AND the
+/// short code). `user_id` is None: invites are bound to an email, which may predate any user.
+pub async fn send_invitation_email(state: &AppState, args: InvitationEmailArgs<'_>) {
+  let link = format!("{}/join?token={}", state.app_base_url.trim_end_matches('/'), args.token);
+  let org = args.account_name.map(|n| format!("the {n} organization")).unwrap_or_else(|| "an organization".into());
+  let subject = format!("{} invited you to join {org} on Foundation", args.inviter);
+  // Inviter and org names are user-controlled — escape them (tokens/codes are server-minted).
+  let html = format!(
+    r#"<p>{inviter} invited you to join {org} on Foundation as {role}.</p>
+       <p><a href="{link}">Click here to accept the invitation</a>. It expires in 7 days.</p>
+       <p>If the link doesn't work, paste this into your browser:<br>{link}</p>
+       <p>Or go to the join page and enter this code: <b>{code}</b></p>
+       <p>If you weren't expecting this, you can safely ignore this email.</p>
+       <p>— The Foundation team</p>"#,
+    inviter = escape_html(args.inviter),
+    org = escape_html(&org),
+    role = escape_html(args.role),
+    code = args.code,
+  );
+  deliver(state, None, args.to_email, EmailTemplate::Invite, &subject, &html).await;
+}
+
+/// Minimal HTML escape for user-controlled text interpolated into email bodies.
+fn escape_html(s: &str) -> String {
+  s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
 /// Record + attempt one send. Swallows all errors (logs them); the `email_sends` row carries the
 /// outcome for later inspection.
 async fn deliver(state: &AppState, user_id: Option<&UserId>, to_email: &str, template: EmailTemplate, subject: &str, html: &str) {

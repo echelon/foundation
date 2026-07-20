@@ -1,0 +1,347 @@
+//! End-to-end invitation flows (accounts.md §4) through the real router against
+//! `foundation_test`: the join page's resolve, invited signup (new user), signup-as-login
+//! redemption (existing user), and the no-double-invites rules.
+
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::http::{header, Request, StatusCode};
+use axum::Router;
+use serde_json::{json, Value};
+use tower::ServiceExt; // oneshot
+
+use api_gateway::auth::token::JwtKeys;
+use api_gateway::AppState;
+
+async fn app_and_pool() -> (Router, db::PgPool) {
+  let pool = db::test_fixtures::create_test_pool().await;
+  let state = AppState {
+    pool: pool.clone(),
+    jwt: Arc::new(JwtKeys::new("test-secret")),
+    cookie_domain: "localhost".into(),
+    cookie_secure: false,
+    app_base_url: "http://localhost:3000".into(),
+    email_from: "Foundation <noreply@localhost>".into(),
+    resend_api_key: None,
+    bucket: None,
+    cdn_base_url: "http://localhost:9000/foundation".into(),
+    environment: config::Environment::Test,
+  };
+  (api_gateway::build_router(state), pool)
+}
+
+fn unique_email() -> String {
+  format!("user-{}@example.com", id_core::mint("t"))
+}
+
+fn post(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
+  let mut b = Request::builder().method("POST").uri(uri).header("content-type", "application/json");
+  if let Some(c) = cookie {
+    b = b.header(header::COOKIE, c);
+  }
+  b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
+}
+
+fn get(uri: &str, cookie: Option<&str>) -> Request<Body> {
+  let mut b = Request::builder().method("GET").uri(uri);
+  if let Some(c) = cookie {
+    b = b.header(header::COOKIE, c);
+  }
+  b.body(Body::empty()).unwrap()
+}
+
+fn session_cookie(resp: &axum::response::Response) -> Option<String> {
+  for v in resp.headers().get_all(header::SET_COOKIE) {
+    let s = v.to_str().ok()?;
+    if let Some(rest) = s.strip_prefix("foundation_session=") {
+      let token = rest.split(';').next().unwrap_or("");
+      if token.is_empty() {
+        return None;
+      }
+      return Some(format!("foundation_session={token}"));
+    }
+  }
+  None
+}
+
+async fn body_json(resp: axum::response::Response) -> Value {
+  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
+}
+
+/// Sign up a fresh owner and invite `invitee_email`; returns (app, pool, owner account id,
+/// invite response body).
+async fn owner_with_invite(invitee_email: &str, role: &str) -> (Router, db::PgPool, ids::AccountId, Value) {
+  let (app, pool) = app_and_pool().await;
+  let owner_email = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": owner_email, "password": "ownerpass1" }), None))
+    .await
+    .unwrap();
+  assert_eq!(signup.status(), StatusCode::CREATED);
+  let owner_cookie = session_cookie(&signup).unwrap();
+  let owner_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+  let account_id = db_queries::members::list_memberships_for_user(&pool, &owner_id).await.unwrap()[0]
+    .account_id
+    .clone();
+
+  let inv = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": invitee_email, "role": role }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(inv.status(), StatusCode::OK);
+  let inv_body = body_json(inv).await;
+  (app, pool, account_id, inv_body)
+}
+
+#[tokio::test]
+async fn resolve_reports_join_page_context() {
+  let invitee_email = unique_email();
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let code = inv["code"].as_str().unwrap();
+
+  // The invite email was recorded (email.md §3 — template `invite`, bound to the address,
+  // no user row yet). Without RESEND_API_KEY in tests the row stays `queued`.
+  let sends: i64 =
+    sqlx::query_scalar("SELECT count(*) FROM email_sends WHERE to_email = $1 AND template = 'invite'")
+      .bind(&invitee_email)
+      .fetch_one(&pool)
+      .await
+      .unwrap();
+  assert_eq!(sends, 1);
+
+  // By code — a brand-new email, so no user exists yet.
+  let resolved = app.clone().oneshot(get(&format!("/v1/invitations/{code}"), None)).await.unwrap();
+  assert_eq!(resolved.status(), StatusCode::OK);
+  let body = body_json(resolved).await;
+  assert_eq!(body["invitation_id"], inv["invitation_id"]);
+  assert_eq!(body["account_id"], account_id.to_string());
+  assert_eq!(body["email"], invitee_email);
+  assert_eq!(body["role"], "member");
+  assert_eq!(body["invitee_user_exists"], false);
+
+  // By the magic-link token (what join_url carries).
+  let token = inv["join_url"].as_str().unwrap().strip_prefix("/join?token=").unwrap().to_string();
+  let resolved = app.clone().oneshot(get(&format!("/v1/invitations/{token}"), None)).await.unwrap();
+  assert_eq!(resolved.status(), StatusCode::OK);
+  assert_eq!(body_json(resolved).await["invitation_id"], inv["invitation_id"]);
+}
+
+#[tokio::test]
+async fn invited_signup_joins_the_inviting_org_without_a_personal_one() {
+  let invitee_email = unique_email();
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "admin").await;
+  let code = inv["code"].as_str().unwrap();
+
+  // Email is locked to the invite's.
+  let mismatched = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": unique_email(), "password": "joinerpass1", "invitation": code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(mismatched.status(), StatusCode::BAD_REQUEST);
+
+  // Signup with the invitation: user created, member of the inviting org, logged in.
+  let signup = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": invitee_email, "password": "joinerpass1", "invitation": code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(signup.status(), StatusCode::CREATED);
+  let cookie = session_cookie(&signup).unwrap();
+  let joiner_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+
+  // Exactly ONE membership — the inviting account, in the invite's role. No personal org
+  // (invites never create accounts, accounts.md §4).
+  let memberships = db_queries::members::list_memberships_for_user(&pool, &joiner_id).await.unwrap();
+  assert_eq!(memberships.len(), 1);
+  assert_eq!(memberships[0].account_id, account_id);
+  assert_eq!(memberships[0].role, "admin");
+
+  // The session is live and the invitation is spent.
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  assert_eq!(me.status(), StatusCode::OK);
+  let dead = app.clone().oneshot(get(&format!("/v1/invitations/{code}"), None)).await.unwrap();
+  assert_eq!(dead.status(), StatusCode::BAD_REQUEST); // already accepted
+}
+
+#[tokio::test]
+async fn existing_user_redeems_invite_via_signup_as_login() {
+  let (app, pool) = app_and_pool().await;
+
+  // An existing user with their own org.
+  let joiner_email = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": joiner_email, "password": "joinerpass1" }), None))
+    .await
+    .unwrap();
+  assert_eq!(signup.status(), StatusCode::CREATED);
+  let joiner_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+
+  // A second org's owner invites that email.
+  let owner_email = unique_email();
+  let owner_signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": owner_email, "password": "ownerpass1" }), None))
+    .await
+    .unwrap();
+  let owner_cookie = session_cookie(&owner_signup).unwrap();
+  let owner_id: ids::UserId = body_json(owner_signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+  let account_id = db_queries::members::list_memberships_for_user(&pool, &owner_id).await.unwrap()[0]
+    .account_id
+    .clone();
+  let inv = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": joiner_email, "role": "member" }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(inv.status(), StatusCode::OK);
+  let inv_body = body_json(inv).await;
+  let code = inv_body["code"].as_str().unwrap();
+
+  // The join page reports the user exists → it shows login; the login-shaped signup call
+  // (signup-as-login) with the invitation attached accepts it.
+  let resolved = app.clone().oneshot(get(&format!("/v1/invitations/{code}"), None)).await.unwrap();
+  assert_eq!(body_json(resolved).await["invitee_user_exists"], true);
+
+  let redeem = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": joiner_email, "password": "joinerpass1", "invitation": code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(redeem.status(), StatusCode::CREATED);
+
+  // Now a member of BOTH orgs — their own plus the inviting one.
+  let memberships = db_queries::members::list_memberships_for_user(&pool, &joiner_id).await.unwrap();
+  assert_eq!(memberships.len(), 2);
+  assert!(memberships.iter().any(|m| m.account_id == account_id && m.role == "member"));
+}
+
+#[tokio::test]
+async fn no_double_invites() {
+  let invitee_email = unique_email();
+  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, "member").await;
+  let first_code = first_inv["code"].as_str().unwrap().to_string();
+
+  // Re-inviting the same email revokes the outstanding invitation and issues a fresh one.
+  let owner = db_queries::members::list_members_of_account(&pool, &account_id)
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|m| m.role == "owner")
+    .unwrap();
+  let owner_login = app
+    .clone()
+    .oneshot(post("/v1/auth/login", json!({ "email": owner.email, "password": "ownerpass1" }), None))
+    .await
+    .unwrap();
+  let owner_cookie = session_cookie(&owner_login).unwrap();
+
+  let second = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": invitee_email, "role": "member" }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(second.status(), StatusCode::OK);
+  let second_code = body_json(second).await["code"].as_str().unwrap().to_string();
+
+  // The first invite is dead (revoked), the second resolves.
+  let dead = app.clone().oneshot(get(&format!("/v1/invitations/{first_code}"), None)).await.unwrap();
+  assert_eq!(dead.status(), StatusCode::BAD_REQUEST);
+  let live = app.clone().oneshot(get(&format!("/v1/invitations/{second_code}"), None)).await.unwrap();
+  assert_eq!(live.status(), StatusCode::OK);
+
+  // Once the invitee is a member, inviting them again is a 409 (accounts.md §4).
+  let joiner = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": invitee_email, "password": "joinerpass1", "invitation": second_code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(joiner.status(), StatusCode::CREATED);
+  let again = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": invitee_email, "role": "member" }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(again.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn database_rejects_concurrent_duplicate_live_invitations() {
+  // The service's revoke-then-insert closes the common path; the partial unique index is the
+  // race-proof last line. Insert two live invitations directly — the second must fail.
+  let (_app, pool) = app_and_pool().await;
+  let owner_email = unique_email();
+  let invitee_email = unique_email();
+
+  let mut tx = pool.begin().await.unwrap();
+  let user = db_queries::users::create_user(
+    &mut *tx,
+    db_queries::users::NewUser {
+      email: owner_email.clone(),
+      email_clean: owner_email.clone(),
+      email_original: owner_email.clone(),
+      password_hash: None,
+      display_name: None,
+      email_verified_at: None,
+    },
+  )
+  .await
+  .unwrap();
+  let account = db_queries::accounts::create_account(&mut *tx, None).await.unwrap();
+
+  let new_invitation = |code: &'static str| db_queries::invitations::NewInvitation {
+    account_id: &account.id,
+    invited_by_user_id: &user.id,
+    email: &invitee_email,
+    role: "member",
+    code,
+    token_hash: "test-hash",
+    expires_at: chrono::Utc::now() + chrono::Duration::days(7),
+  };
+  db_queries::invitations::create_invitation(&mut *tx, new_invitation("TEST-DUP1")).await.unwrap();
+  let dup = db_queries::invitations::create_invitation(&mut *tx, new_invitation("TEST-DUP2")).await;
+  let err = dup.expect_err("second live invitation for the same account+email must be rejected");
+  match err {
+    sqlx::Error::Database(db) => {
+      assert_eq!(db.constraint(), Some("invitations_one_live_per_account_email"));
+    }
+    other => panic!("expected a unique-violation database error, got: {other:?}"),
+  }
+  // tx dropped → rolled back; nothing persists.
+}

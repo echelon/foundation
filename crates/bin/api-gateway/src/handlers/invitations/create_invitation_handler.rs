@@ -11,6 +11,7 @@ use ids::{AccountId, InvitationId};
 use crate::auth::service;
 use crate::authz::require_account_role;
 use crate::error::{ApiError, ApiResult};
+use crate::mailer;
 use crate::middleware::AuthContext;
 use crate::state::AppState;
 
@@ -42,9 +43,10 @@ pub struct CreateInvitationResponse {
   params(("account_id" = String, Path, description = "Account id (`acct_…`)")),
   request_body = CreateInvitationBody,
   responses(
-    (status = 200, description = "Invitation created", body = CreateInvitationResponse),
+    (status = 200, description = "Invitation created (any outstanding invite for this email was revoked)", body = CreateInvitationResponse),
     (status = 400, description = "Invalid account id, email, or role"),
-    (status = 404, description = "Not a member, or not admin/owner")
+    (status = 404, description = "Not a member, or not admin/owner"),
+    (status = 409, description = "That email is already a member of this account")
   )
 )]
 pub async fn create_invitation_handler(
@@ -59,6 +61,24 @@ pub async fn create_invitation_handler(
   require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
 
   let created = service::create_invitation(&state.pool, &account_id, &auth.user.id, &body.email, &body.role).await?;
+
+  // The invite email (magic link + code) — best-effort: a mail failure never fails the
+  // request; the console still shows the code/link, and `email_sends` records the outcome.
+  let account_name = db_queries::accounts::find_account_by_id(&state.pool, &account_id)
+    .await?
+    .and_then(|a| a.name);
+  mailer::send_invitation_email(
+    &state,
+    mailer::InvitationEmailArgs {
+      to_email: &created.invitation.email,
+      inviter: auth.user.display_name.as_deref().unwrap_or(&auth.user.email),
+      account_name: account_name.as_deref(),
+      role: &created.invitation.role,
+      token: &created.token,
+      code: &created.code,
+    },
+  )
+  .await;
 
   Ok(Json(CreateInvitationResponse {
     invitation_id: created.invitation.id.clone(),

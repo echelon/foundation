@@ -34,24 +34,51 @@ pub struct AuthOutcome {
 
 const MIN_PASSWORD_LEN: usize = 8;
 
-/// Email + password signup (accounts.md §3A), including the signup-as-login rule.
-pub async fn signup(
-  pool: &db::PgPool,
-  jwt: &JwtKeys,
-  email: &str,
-  password: &str,
-  display_name: Option<&str>,
-  meta: &ReqMeta,
-) -> ApiResult<AuthOutcome> {
-  if password.len() < MIN_PASSWORD_LEN {
+/// Everything `signup` needs beyond connections (named fields — the email/password/name run
+/// of `&str`s is exactly the transposition hazard the args-struct rule exists for).
+pub struct SignupArgs<'a> {
+  pub email: &'a str,
+  pub password: &'a str,
+  pub display_name: Option<&'a str>,
+  /// An invitation code or magic-link token to redeem during signup (accounts.md §4 flow 1).
+  /// When set, the email is LOCKED to the invite's email, and the new user gets a membership
+  /// in the inviting account INSTEAD of a personal organization (invites never create
+  /// accounts — only memberships).
+  pub invitation: Option<&'a str>,
+}
+
+/// Email + password signup (accounts.md §3A), including the signup-as-login rule and the
+/// invite-redemption flows (accounts.md §4).
+pub async fn signup(pool: &db::PgPool, jwt: &JwtKeys, args: SignupArgs<'_>, meta: &ReqMeta) -> ApiResult<AuthOutcome> {
+  if args.password.len() < MIN_PASSWORD_LEN {
     return Err(ApiError::BadRequest(format!("password must be at least {MIN_PASSWORD_LEN} characters")));
   }
-  let email_canon = canonicalize(email);
+  let email_canon = canonicalize(args.email);
+
+  // Resolve the invitation up front so a dead invite fails before any user is created, and
+  // enforce the email lock (the join page pre-fills and locks the field; the API is the
+  // actual gate).
+  let invitation = match args.invitation {
+    Some(code_or_token) => {
+      let inv = resolve_invitation(pool, code_or_token).await?;
+      if inv.email != email_canon {
+        return Err(ApiError::BadRequest("this invitation was issued to a different email address".into()));
+      }
+      Some(inv)
+    }
+    None => None,
+  };
 
   // Existing user? signup-as-login when the password is correct; otherwise route to login.
   if let Some(user) = users::find_user_by_email(pool, &email_canon).await? {
     match &user.password_hash {
-      Some(hash) if verify_password(password, hash) => {
+      Some(hash) if verify_password(args.password, hash) => {
+        // Flow 2 (accounts.md §4): an existing user redeeming an invite — accept, then log in.
+        if let Some(inv) = &invitation {
+          let mut tx = pool.begin().await?;
+          accept_open_invitation(&mut tx, inv, &user.id, meta.ip.as_deref()).await?;
+          tx.commit().await?;
+        }
         return start_session(pool, jwt, user, None, meta).await;
       }
       _ => {
@@ -63,24 +90,36 @@ pub async fn signup(
   }
 
   // Genuinely new — create everything atomically.
-  let hash = hash_password(password).map_err(ApiError::Internal)?;
+  let hash = hash_password(args.password).map_err(ApiError::Internal)?;
   let mut tx = pool.begin().await?;
 
   let user = users::create_user(
     &mut *tx,
     users::NewUser {
       email: email_canon,
-      email_clean: canonicalize_clean(email),
-      email_original: email.trim().to_string(),
+      email_clean: canonicalize_clean(args.email),
+      email_original: args.email.trim().to_string(),
       password_hash: Some(hash),
-      display_name: display_name.map(str::to_string),
+      display_name: args.display_name.map(str::to_string),
       email_verified_at: None,
     },
   )
   .await?;
-  let account = accounts::create_account(&mut *tx, None).await?;
-  members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
-  provision_new_user(&mut tx, &user, &account, meta).await?;
+  match &invitation {
+    // Normal signup: the user's own organization, with them as owner.
+    None => {
+      let account = accounts::create_account(&mut *tx, None).await?;
+      members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
+      provision_new_user(&mut tx, &user, &account, meta).await?;
+    }
+    // Invited signup (flow 1): membership in the INVITING account only — no personal org.
+    // The accept writes the member_added/invitation_accepted audit rows; account_created
+    // would be a lie here, so provisioning is just the avatar.
+    Some(inv) => {
+      create_default_avatar(&mut tx, &user).await?;
+      accept_open_invitation(&mut tx, inv, &user.id, meta.ip.as_deref()).await?;
+    }
+  }
   let session = new_session(&mut tx, &user.id, meta).await?;
 
   tx.commit().await?;
@@ -578,7 +617,15 @@ pub async fn create_invitation(
       expires_at,
     },
   )
-  .await?;
+  .await
+  .map_err(|e| match &e {
+    // The partial unique index (one live invitation per account+email) caught a concurrent
+    // create that this transaction's revoke-then-insert couldn't see.
+    sqlx::Error::Database(db) if db.constraint() == Some("invitations_one_live_per_account_email") => {
+      ApiError::Conflict("an invitation for this email is already outstanding".into())
+    }
+    _ => ApiError::from(e),
+  })?;
   // invitation_sent — account log (audit_logs.md §3), same transaction.
   account_audit_logs::create_account_audit_log(
     &mut *tx,
@@ -613,6 +660,28 @@ pub async fn resolve_invitation(pool: &db::PgPool, code_or_token: &str) -> ApiRe
   Ok(inv)
 }
 
+/// An open invitation enriched with what the join page needs to branch (accounts.md §4):
+/// the account's name for "join {account} as {role}?", and whether a user already exists for
+/// the invited email (existing user → login screen; no user → locked-email signup).
+pub struct ResolvedInvitation {
+  pub invitation: Invitation,
+  pub account_name: Option<String>,
+  pub invitee_user_exists: bool,
+}
+
+/// [`resolve_invitation`] plus the join-page context.
+pub async fn resolve_invitation_for_join_page(
+  pool: &db::PgPool,
+  code_or_token: &str,
+) -> ApiResult<ResolvedInvitation> {
+  let invitation = resolve_invitation(pool, code_or_token).await?;
+  let account_name = accounts::find_account_by_id(pool, &invitation.account_id)
+    .await?
+    .and_then(|a| a.name);
+  let invitee_user_exists = users::find_user_by_email(pool, &invitation.email).await?.is_some();
+  Ok(ResolvedInvitation { invitation, account_name, invitee_user_exists })
+}
+
 /// Accept an invitation as an authenticated user → create the membership (accounts.md §4).
 pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, user_id: &UserId) -> ApiResult<()> {
   let inv = invitations::find_invitation_by_id(pool, invitation_id)
@@ -621,24 +690,38 @@ pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, 
   ensure_invitation_open(&inv)?;
 
   let mut tx = pool.begin().await?;
-  let marked = invitations::mark_invitation_accepted(&mut *tx, &inv.id, user_id).await?;
+  accept_open_invitation(&mut tx, &inv, user_id, None).await?;
+  tx.commit().await?;
+  Ok(())
+}
+
+/// The accept itself, composable into a larger transaction (plain accept, or invited signup):
+/// atomically claim the invitation, create the membership (idempotent — the user may already
+/// be a member via another route), and write the audit rows.
+async fn accept_open_invitation(
+  tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+  inv: &Invitation,
+  user_id: &UserId,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  let marked = invitations::mark_invitation_accepted(&mut **tx, &inv.id, user_id).await?;
   if marked == 0 {
     return Err(ApiError::BadRequest("invitation is no longer acceptable".into()));
   }
   // Idempotent membership: skip if it already exists.
-  if members::find_membership(&mut *tx, &inv.account_id, user_id).await?.is_none() {
-    members::create_membership(&mut *tx, &inv.account_id, user_id, &inv.role).await?;
+  if members::find_membership(&mut **tx, &inv.account_id, user_id).await?.is_none() {
+    members::create_membership(&mut **tx, &inv.account_id, user_id, &inv.role).await?;
     // member_added — U-row for the new member + A-row (audit_logs.md §3).
     write_user_event(
-      &mut *tx,
+      &mut **tx,
       user_id,
       AuditEvent::MemberAdded,
       Some(serde_json::json!({ "account_id": inv.account_id, "role": inv.role })),
-      None,
+      ip,
     )
     .await?;
     account_audit_logs::create_account_audit_log(
-      &mut *tx,
+      &mut **tx,
       account_audit_logs::NewAccountAuditLog {
         account_id: &inv.account_id,
         actor_user_id: Some(user_id),
@@ -647,14 +730,14 @@ pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, 
         target_type: None,
         target_id: None,
         data: Some(serde_json::json!({ "role": inv.role })),
-        ip: None,
+        ip,
       },
     )
     .await?;
   }
   // invitation_accepted — account log, alongside member_added (audit_logs.md §3).
   account_audit_logs::create_account_audit_log(
-    &mut *tx,
+    &mut **tx,
     account_audit_logs::NewAccountAuditLog {
       account_id: &inv.account_id,
       actor_user_id: Some(user_id),
@@ -663,11 +746,10 @@ pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, 
       target_type: Some("invitation"),
       target_id: Some(inv.id.as_str()),
       data: None,
-      ip: None,
+      ip,
     },
   )
   .await?;
-  tx.commit().await?;
   Ok(())
 }
 
@@ -783,19 +865,7 @@ async fn provision_new_user(
   account: &Account,
   meta: &ReqMeta,
 ) -> ApiResult<()> {
-  let (first, last) = email_letters(&user.email);
-  // preferred_source defaults to `gravatar` — the monogram shows until a mirror lands.
-  user_avatars::create_user_avatar(
-    &mut **tx,
-    user_avatars::NewUserAvatar {
-      user_id: &user.id,
-      gravatar_hash: &sha256_hex(&user.email),
-      generated_seed: user.id.as_str(),
-      email_first_letter: first.as_deref(),
-      email_last_letter: last.as_deref(),
-    },
-  )
-  .await?;
+  create_default_avatar(tx, user).await?;
 
   let ip = meta.ip.as_deref();
   write_user_event(&mut **tx, &user.id, AuditEvent::AccountCreated, None, ip).await?;
@@ -810,6 +880,25 @@ async fn provision_new_user(
       target_id: None,
       data: None,
       ip,
+    },
+  )
+  .await?;
+  Ok(())
+}
+
+/// The avatar row every new user gets (computed gravatar hash + monogram letters, left
+/// UNPOLLED so the gravatar-job picks it up) — shared by normal and invited signup.
+async fn create_default_avatar(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, user: &User) -> ApiResult<()> {
+  let (first, last) = email_letters(&user.email);
+  // preferred_source defaults to `gravatar` — the monogram shows until a mirror lands.
+  user_avatars::create_user_avatar(
+    &mut **tx,
+    user_avatars::NewUserAvatar {
+      user_id: &user.id,
+      gravatar_hash: &sha256_hex(&user.email),
+      generated_seed: user.id.as_str(),
+      email_first_letter: first.as_deref(),
+      email_last_letter: last.as_deref(),
     },
   )
   .await?;

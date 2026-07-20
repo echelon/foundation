@@ -17,6 +17,7 @@ import RankingModel from "@/surfaces/rankings/RankingModel";
 import AuthLayout from "@/surfaces/auth/AuthLayout";
 import Login from "@/surfaces/auth/Login";
 import Signup from "@/surfaces/auth/Signup";
+import Join from "@/surfaces/auth/Join";
 import Reset from "@/surfaces/auth/Reset";
 import ResetConfirm from "@/surfaces/auth/ResetConfirm";
 import VerifyEmail from "@/surfaces/auth/VerifyEmail";
@@ -65,6 +66,8 @@ export default function App() {
       >
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        {/* Invite links land here with ?token=… (or ?code=…); bare /join offers code entry */}
+        <Route path="/join" element={<Join />} />
         <Route path="/reset" element={<Reset />} />
         {/* The emailed reset link lands here with ?token=… */}
         <Route path="/reset-password" element={<ResetConfirm />} />

@@ -140,6 +140,18 @@ export type ApiMember = {
   is_you: boolean;
 };
 
+/** A resolved invitation, with what the join page needs to branch (see /join). */
+export type ApiInvitation = {
+  invitation_id: string;
+  account_id: string;
+  account_name: string | null;
+  email: string;
+  role: string;
+  expires_at: string;
+  /** A user already exists for the invited email → show login, not signup. */
+  invitee_user_exists: boolean;
+};
+
 /** One audit-log row (user or account trail). */
 export type AuditItem = {
   id: string;
@@ -166,11 +178,15 @@ function pageQuery(before?: string, limit = 25): string {
 /* ── Auth ── */
 
 export const api = {
-  signup: (email: string, password: string, displayName?: string) =>
+  /** `invitation` (a code or magic-link token) redeems an invite during signup: the email
+   * must match the invite's, and the user joins the inviting org instead of getting their
+   * own. */
+  signup: (email: string, password: string, displayName?: string, invitation?: string) =>
     request<AuthResponse>("POST", "/v1/auth/signup", {
       email,
       password,
       display_name: displayName || undefined,
+      invitation: invitation || undefined,
     }),
 
   login: (email: string, password: string) =>
@@ -262,6 +278,14 @@ export const api = {
   /** Remove a member (owner/admin; owner is immovable, admins can't remove admins). */
   removeMember: (accountId: string, userId: string) =>
     request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/members/${userId}`),
+
+  /** Resolve an invitation (public) for the join page — by short code or magic-link token. */
+  resolveInvitation: (codeOrToken: string) =>
+    request<ApiInvitation>("GET", `/v1/invitations/${encodeURIComponent(codeOrToken)}`),
+
+  /** Accept an invitation as the logged-in user (creates the membership). */
+  acceptInvitation: (invitationId: string) =>
+    request<{ ok: boolean; invitation_id: string }>("POST", `/v1/invitations/${invitationId}/accept`),
 
   /* ── Audit logs (keyset-paginated) ── */
 
