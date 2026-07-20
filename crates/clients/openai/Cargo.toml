@@ -7,8 +7,14 @@ publish.workspace = true
 
 [dependencies]
 client-core.workspace = true
-reqwest.workspace = true
-serde.workspace = true
+money.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
+serde = { workspace = true }
 serde_json.workspace = true
 base64.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
 tokio.workspace = true
+anyhow.workspace = true
+tracing-subscriber.workspace = true
