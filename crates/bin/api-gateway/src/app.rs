@@ -52,7 +52,20 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
   }
   if state.bucket.is_none() {
-    tracing::warn!("R2 storage not configured — avatar uploads disabled, gravatars proxied");
+    tracing::warn!("R2 storage not configured — avatar uploads disabled");
+  }
+  // Asset URLs are derived from this base — surface what we resolved, and catch the classic
+  // dev misconfig: R2 secrets set but CDN base still pointing at the (dead) local-minio default.
+  tracing::info!(cdn_base_url = %state.cdn_base_url, "asset links will use this CDN base");
+  if state.bucket.is_some()
+    && state.environment == config::Environment::Dev
+    && state.cdn_base_url.contains("localhost:9000")
+  {
+    tracing::warn!(
+      "R2 is configured but CDN_BASE_URL is still the local-minio default — avatar links will 404. \
+       Set CDN_BASE_URL to your bucket's public URL (e.g. https://pub-<hash>.r2.dev) in \
+       api-gateway.development-secrets.env"
+    );
   }
 
   let app = build_router(state);

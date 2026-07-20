@@ -66,14 +66,19 @@ pub fn links_for_file(state: &AppState, file: &UserAvatarFile) -> AvatarLinks {
     version: None,
     extension: Some(&file.bucket_extension),
   });
-  let host = state.cdn_base_url.trim_end_matches('/');
+  // `cdn_base_url` is normalized at config load (absolute, scheme guaranteed, no trailing
+  // slash) — every URL we emit here is a FULL URL, never a relative path.
+  let host = state.cdn_base_url.as_str();
   let cdn_url = format!("{host}/{key}");
 
-  let thumbnail_template = if state.environment == config::Environment::Prod {
-    format!("{host}/cdn-cgi/image/width={{WIDTH}},quality={THUMBNAIL_QUALITY}/{key}")
-  } else {
-    // No image resizer in development — serve the full image.
-    cdn_url.clone()
+  let thumbnail_template = match state.environment {
+    // Production: Cloudflare Image Resizing in front of the bucket.
+    config::Environment::Prod => {
+      format!("{host}/cdn-cgi/image/width={{WIDTH}},quality={THUMBNAIL_QUALITY}/{key}")
+    }
+    // Development / test / staging: a bare bucket (R2 public dev URL or minio) with no
+    // resizer — the template is simply the full image.
+    config::Environment::Dev | config::Environment::Test | config::Environment::Stage => cdn_url.clone(),
   };
 
   AvatarLinks { cdn_url, thumbnail_template }

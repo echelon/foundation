@@ -108,6 +108,21 @@ fn opt(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
+/// Normalize a base URL so derived asset/link URLs are ALWAYS absolute:
+/// blank-safe via [`opt`], trailing slash trimmed, and a scheme guaranteed (a scheme-less value
+/// like `pub-xxx.r2.dev` would otherwise reach browsers as a *relative* path). Localhost gets
+/// `http://`; anything else `https://`.
+pub fn normalize_base_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    if trimmed.contains("://") {
+        trimmed.to_string()
+    } else if trimmed.starts_with("localhost") || trimmed.starts_with("127.") {
+        format!("http://{trimmed}")
+    } else {
+        format!("https://{trimmed}")
+    }
+}
+
 /// Load the convention-named env files for `app_name` (see the crate docs for the file set).
 /// Call this FIRST in every binary's `main`, before initializing logging (so `RUST_LOG` from a
 /// file takes effect) and before [`Config::load`].
@@ -165,13 +180,16 @@ impl Config {
             api_gateway_port: opt("API_GATEWAY_PORT")
                 .and_then(|p| p.parse().ok())
                 .unwrap_or(4000),
-            cdn_base_url: std::env::var("CDN_BASE_URL")
-                .unwrap_or_else(|_| "http://localhost:9000/foundation".into()),
+            cdn_base_url: normalize_base_url(
+                &opt("CDN_BASE_URL").unwrap_or_else(|| "http://localhost:9000/foundation".into()),
+            ),
             session_secret: std::env::var("SESSION_SECRET")
                 .unwrap_or_else(|_| "dev-insecure-session-secret-change-me".into()),
             cookie_domain: std::env::var("COOKIE_DOMAIN").unwrap_or_else(|_| "localhost".into()),
             cookie_secure: opt("COOKIE_SECURE").map(|v| v == "true").unwrap_or(false),
-            app_base_url: std::env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into()),
+            app_base_url: normalize_base_url(
+                &opt("APP_BASE_URL").unwrap_or_else(|| "http://localhost:3000".into()),
+            ),
             email: EmailConfig {
                 resend_api_key: opt("RESEND_API_KEY"),
                 from_address: std::env::var("EMAIL_FROM_ADDRESS")
@@ -195,5 +213,29 @@ impl Config {
                 gemini: opt("GEMINI_API_KEY"),
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_url_keeps_absolute_urls() {
+        assert_eq!(normalize_base_url("https://pub-abc.r2.dev"), "https://pub-abc.r2.dev");
+        assert_eq!(normalize_base_url("http://localhost:9000/foundation"), "http://localhost:9000/foundation");
+    }
+
+    #[test]
+    fn base_url_trims_trailing_slash() {
+        assert_eq!(normalize_base_url("https://cdn.foundation.ai/"), "https://cdn.foundation.ai");
+    }
+
+    #[test]
+    fn base_url_adds_missing_scheme() {
+        // A scheme-less host would reach browsers as a RELATIVE path — never allow it.
+        assert_eq!(normalize_base_url("pub-abc.r2.dev"), "https://pub-abc.r2.dev");
+        assert_eq!(normalize_base_url("localhost:9000/foundation"), "http://localhost:9000/foundation");
+        assert_eq!(normalize_base_url("127.0.0.1:9000/x"), "http://127.0.0.1:9000/x");
     }
 }
