@@ -1,0 +1,68 @@
+//! Environment / config loading (environments.md). Reads `.env` in dev, then the
+//! process environment. Provider credential pools are optional — a missing key means
+//! that provider is simply unroutable, not a boot failure.
+
+use anyhow::{Context, Result};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Environment {
+    Dev,
+    Stage,
+    Prod,
+    Test,
+}
+
+impl Environment {
+    fn parse(s: &str) -> Environment {
+        match s {
+            "prod" | "production" => Environment::Prod,
+            "stage" | "staging" => Environment::Stage,
+            "test" => Environment::Test,
+            _ => Environment::Dev,
+        }
+    }
+    pub fn is_dev(&self) -> bool {
+        matches!(self, Environment::Dev)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Config {
+    pub environment: Environment,
+    pub database_url: String,
+    pub api_gateway_port: u16,
+    pub cdn_base_url: String,
+    pub providers: ProviderKeys,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ProviderKeys {
+    pub kinovi: Option<String>,
+    pub openai: Option<String>,
+    pub gemini: Option<String>,
+}
+
+fn opt(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
+}
+
+impl Config {
+    /// Load config, sourcing `.env` first (best-effort — absent file is fine).
+    pub fn load() -> Result<Config> {
+        let _ = dotenvy::dotenv();
+        Ok(Config {
+            environment: Environment::parse(&std::env::var("FOUNDATION_ENV").unwrap_or_default()),
+            database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is required")?,
+            api_gateway_port: opt("API_GATEWAY_PORT")
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(4000),
+            cdn_base_url: std::env::var("CDN_BASE_URL")
+                .unwrap_or_else(|_| "http://localhost:9000/foundation".into()),
+            providers: ProviderKeys {
+                kinovi: opt("KINOVI_API_KEY"),
+                openai: opt("OPENAI_API_KEY"),
+                gemini: opt("GEMINI_API_KEY"),
+            },
+        })
+    }
+}
