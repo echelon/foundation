@@ -8,7 +8,7 @@ import { Playground } from "./Playground";
 import { Gallery, type RemixValues } from "./Gallery";
 import { MODEL_BY_SLUG, MODALITY_LABEL, priceLabel, type Model } from "@/lib/catalog";
 import { endpointsForModel, type EndpointDoc } from "@/lib/mock-api";
-import { curlSnippet, jsSnippet, pySnippet } from "@/lib/codegen";
+import { snippets } from "@/lib/codegen";
 import { examplesForModel } from "@/lib/gallery";
 import { cn } from "@/lib/cn";
 
@@ -249,14 +249,7 @@ function ApiTab({ model, endpoints }: { model: Model; endpoints: EndpointDoc[] }
           with the <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">/cost</code> twin. One key
           authenticates everything.
         </p>
-        <CodeTabs
-          className="mt-4"
-          tabs={[
-            { label: "cURL", lang: "bash", code: curlSnippet(model) },
-            { label: "JavaScript", lang: "javascript", code: jsSnippet(model) },
-            { label: "Python", lang: "python", code: pySnippet(model) },
-          ]}
-        />
+        <CodeTabs className="mt-4" tabs={snippets(model)} />
       </div>
 
       <div>

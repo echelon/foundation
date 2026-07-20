@@ -46,11 +46,12 @@ src/
 
 - **URL-synced tabs** — Overview / Playground / API / Examples / Pricing / Changelog each live at a
   hash (`/models/:slug#api`), so tabs are linkable and use browser back/forward.
-- **API section** — a **cURL / JavaScript / Python** code switcher with **theme-aware syntax
-  highlighting** (Prism tokenizes; token colors are CSS variables that flip with light/dark), a
-  copy button, the endpoint table, and a **Built-for-agents CTA** (llms.txt · MCP server · coding
-  agents). Snippets are generated per model (`src/lib/codegen.ts`) — chat models hit
-  `/v1/chat/completions`, others the model-specific `/generate`.
+- **API section** — a **10-language** code switcher (cURL, JavaScript, Python, PHP, C#, Java, Go,
+  Rust, Kotlin, Swift) with **theme-aware syntax highlighting** (Prism tokenizes; token colors are
+  CSS variables that flip with light/dark), a copy button, the endpoint table, and a
+  **Built-for-agents CTA** (llms.txt · MCP server · coding agents). Snippets are generated per
+  model (`src/lib/codegen.ts`) — chat models hit `/v1/chat/completions`, others the model-specific
+  `/generate`; each uses that language's idiomatic HTTP client + raw-string/heredoc JSON body.
 
 ## Catalog index (`/models`)
 

@@ -3,10 +3,29 @@ import Prism from "prismjs";
 import "prismjs/components/prism-bash";
 import "prismjs/components/prism-json";
 import "prismjs/components/prism-python";
+import "prismjs/components/prism-markup-templating"; // dependency of php
+import "prismjs/components/prism-php";
+import "prismjs/components/prism-csharp";
+import "prismjs/components/prism-java";
+import "prismjs/components/prism-go";
+import "prismjs/components/prism-rust";
+import "prismjs/components/prism-kotlin";
+import "prismjs/components/prism-swift";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-export type CodeLang = "bash" | "javascript" | "python" | "json";
+export type CodeLang =
+  | "bash"
+  | "javascript"
+  | "python"
+  | "json"
+  | "php"
+  | "csharp"
+  | "java"
+  | "go"
+  | "rust"
+  | "kotlin"
+  | "swift";
 
 /** A single syntax-highlighted code block. Token colors are theme-aware (see index.css). */
 export function CodeBlock({ code, lang, className }: { code: string; lang: CodeLang; className?: string }) {
@@ -39,14 +58,14 @@ export function CodeTabs({ tabs, className }: { tabs: CodeTab[]; className?: str
 
   return (
     <div className={cn("overflow-hidden rounded-xl border border-border bg-surface", className)}>
-      <div className="flex items-center justify-between border-b border-border bg-surface2/40 pr-2">
-        <div className="flex">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface2/40 pr-2">
+        <div className="scrollbar-thin flex min-w-0 overflow-x-auto">
           {tabs.map((t, i) => (
             <button
               key={t.label}
               onClick={() => setActive(i)}
               className={cn(
-                "relative px-4 py-2.5 text-xs font-medium transition",
+                "relative whitespace-nowrap px-4 py-2.5 text-xs font-medium transition",
                 i === active ? "text-fg" : "text-muted hover:text-fg",
               )}
             >
@@ -55,7 +74,7 @@ export function CodeTabs({ tabs, className }: { tabs: CodeTab[]; className?: str
             </button>
           ))}
         </div>
-        <button onClick={copy} className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted transition hover:text-fg">
+        <button onClick={copy} className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-muted transition hover:text-fg">
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           {copied ? "Copied" : "Copy"}
         </button>
