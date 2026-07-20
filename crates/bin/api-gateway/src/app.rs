@@ -10,7 +10,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
-use crate::handlers::{account_handlers, auth_handlers, catalog_handlers, invitation_handlers};
+use crate::handlers::{account_handlers, auth_handlers, catalog_handlers, invitation_handlers, root_handlers};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
@@ -64,6 +64,8 @@ pub fn build_router(state: AppState) -> Router {
     .allow_headers([CONTENT_TYPE]);
 
   Router::new()
+    // hello, human (embedded landing page)
+    .route("/", get(root_handlers::index))
     // health + public catalog
     .route("/health", get(catalog_handlers::health))
     .route("/v1/models", get(catalog_handlers::list_models))
