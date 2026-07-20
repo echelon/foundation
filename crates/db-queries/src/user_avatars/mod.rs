@@ -11,6 +11,7 @@
 //! it's NULL on signup, reset on email change, and reset by an explicit refresh request.
 
 use chrono::{DateTime, Utc};
+use enums::AvatarSource;
 use ids::{UserAvatarId, UserAvatarFileId, UserId};
 
 mod create_user_avatar;
@@ -23,6 +24,7 @@ mod request_gravatar_repoll;
 mod reset_avatar_for_email_change;
 mod set_custom_avatar;
 mod set_gravatar_mirrored;
+mod set_person_letters;
 mod set_preferred_source;
 
 pub use create_user_avatar::{create_user_avatar, NewUserAvatar};
@@ -35,6 +37,7 @@ pub use request_gravatar_repoll::request_gravatar_repoll;
 pub use reset_avatar_for_email_change::reset_avatar_for_email_change;
 pub use set_custom_avatar::set_custom_avatar;
 pub use set_gravatar_mirrored::set_gravatar_mirrored;
+pub use set_person_letters::set_person_letters;
 pub use set_preferred_source::set_preferred_source;
 
 #[derive(Debug, Clone)]
@@ -44,7 +47,7 @@ pub struct UserAvatar {
   pub custom_file_id: Option<UserAvatarFileId>,
   pub gravatar_file_id: Option<UserAvatarFileId>,
   /// The user's display choice — NOT necessarily what's shown (see module docs).
-  pub preferred_source: String,
+  pub preferred_source: AvatarSource,
   pub gravatar_hash: Option<String>,
   pub gravatar_checked_at: Option<DateTime<Utc>>,
   pub generated_seed: String,

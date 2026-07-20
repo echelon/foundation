@@ -38,6 +38,7 @@ bucket_client.workspace = true
 bucket_paths.workspace = true
 config.workspace = true
 catalog.workspace = true
+enums.workspace = true
 db.workspace = true
 db_queries.workspace = true
 email_client.workspace = true

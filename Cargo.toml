@@ -19,6 +19,7 @@ members = [
   "crates/clients/bucket_client",
   # ── storage pathing (pure) ──
   "crates/core/bucket-paths",
+  "crates/core/enums",
   # data-layer query crate
   "crates/db-queries",
   # ── deployables ──
@@ -73,6 +74,7 @@ ids = { path = "crates/core/ids" }
 money = { path = "crates/core/money" }
 config = { path = "crates/core/config" }
 catalog = { path = "crates/core/catalog" }
+enums = { path = "crates/core/enums" }
 db = { path = "crates/db" }
 client_core = { path = "crates/clients/client-core" }
 kinovi_client = { path = "crates/clients/kinovi_client" }

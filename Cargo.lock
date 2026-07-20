@@ -79,6 +79,7 @@ dependencies = [
  "db",
  "db_queries",
  "email_client",
+ "enums",
  "hex",
  "id_core",
  "ids",
@@ -548,6 +549,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "db",
+ "enums",
  "id_core",
  "ids",
  "serde_json",
@@ -634,6 +636,15 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "enums"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sqlx",
 ]
 
 [[package]]
@@ -908,6 +919,7 @@ dependencies = [
  "config",
  "db",
  "db_queries",
+ "enums",
  "hex",
  "ids",
  "image",

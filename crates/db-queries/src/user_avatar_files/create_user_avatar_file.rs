@@ -1,3 +1,4 @@
+use enums::AvatarFileSource;
 use ids::{UserAvatarFileId, UserId};
 use sqlx::PgExecutor;
 
@@ -8,8 +9,7 @@ pub struct NewUserAvatarFile<'a> {
   pub user_id: &'a UserId,
   /// Set when this row is a baked crop of another row.
   pub original_user_avatar_file_id: Option<&'a UserAvatarFileId>,
-  /// CHECK-constrained: `custom_upload` / `gravatar_mirror`.
-  pub avatar_source: &'a str,
+  pub avatar_source: AvatarFileSource,
   /// 32-char Crockford entropy (`bucket_paths::mint_bucket_hash`).
   pub bucket_hash: &'a str,
   /// sha256 of the content (integrity — distinct job from the entropy hash).
@@ -37,12 +37,12 @@ pub async fn create_user_avatar_file<'e, E: PgExecutor<'e>>(
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id AS "id: UserAvatarFileId", user_id AS "user_id: UserId",
                  original_user_avatar_file_id AS "original_user_avatar_file_id?: UserAvatarFileId",
-                 avatar_source, bucket_hash, content_hash, bucket_suffix, bucket_extension,
+                 avatar_source AS "avatar_source: AvatarFileSource", bucket_hash, content_hash, bucket_suffix, bucket_extension,
                  width, height, bytes, created_at"#,
     id.as_str(),
     new.user_id.as_str(),
     original,
-    new.avatar_source,
+    new.avatar_source.as_str(),
     new.bucket_hash,
     new.content_hash,
     new.bucket_suffix,

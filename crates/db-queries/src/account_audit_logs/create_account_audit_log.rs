@@ -1,3 +1,4 @@
+use enums::AuditEvent;
 use ids::{AccountAuditLogId, AccountId, UserId};
 use sqlx::PgExecutor;
 
@@ -9,7 +10,7 @@ pub struct NewAccountAuditLog<'a> {
   pub actor_user_id: Option<&'a UserId>,
   /// The member the event is about (e.g. the added/removed user), if any.
   pub user_id: Option<&'a UserId>,
-  pub event: &'a str,
+  pub event: AuditEvent,
   pub target_type: Option<&'a str>,
   pub target_id: Option<&'a str>,
   pub data: Option<serde_json::Value>,
@@ -37,7 +38,7 @@ pub async fn create_account_audit_log<'e, E: PgExecutor<'e>>(
     new.account_id.as_str(),
     actor,
     about,
-    new.event,
+    new.event.as_str(),
     new.target_type,
     new.target_id,
     new.data,

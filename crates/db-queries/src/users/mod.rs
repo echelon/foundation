@@ -9,6 +9,7 @@ mod find_user_by_email;
 mod find_user_by_id;
 mod mark_email_verified;
 mod set_password_hash;
+mod update_display_name;
 mod update_email;
 
 pub use bump_session_version::bump_session_version;
@@ -17,6 +18,7 @@ pub use find_user_by_email::find_user_by_email;
 pub use find_user_by_id::find_user_by_id;
 pub use mark_email_verified::mark_email_verified;
 pub use set_password_hash::set_password_hash;
+pub use update_display_name::update_display_name;
 pub use update_email::update_email;
 
 /// A row from `users`. Field order MUST match the query column order.

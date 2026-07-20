@@ -1,17 +1,17 @@
+use enums::AuditEvent;
 use ids::{UserAuditLogId, UserId};
 use sqlx::PgExecutor;
 
 use super::UserAuditLog;
 
-/// A user-audit event. `event` is an `AuditEvent` string (e.g. `password_changed`, `email_changed`,
-/// `session_revoked`); `is_org_visible` is that event's verdict. `actor_user_id` is the user who
-/// caused it (usually the subject; NULL for a system action).
+/// A user-audit event. `is_org_visible` is derived from the event (`AuditEvent::is_org_visible`
+/// — audit_logs.md §3), never passed. `actor_user_id` is the user who caused it (usually the
+/// subject; NULL for a system action).
 #[derive(Debug, Clone)]
 pub struct NewUserAuditLog<'a> {
   pub user_id: &'a UserId,
   pub actor_user_id: Option<&'a UserId>,
-  pub event: &'a str,
-  pub is_org_visible: bool,
+  pub event: AuditEvent,
   pub target_type: Option<&'a str>,
   pub target_id: Option<&'a str>,
   pub data: Option<serde_json::Value>,
@@ -37,11 +37,11 @@ pub async fn create_user_audit_log<'e, E: PgExecutor<'e>>(
     id.as_str(),
     new.user_id.as_str(),
     actor,
-    new.event,
+    new.event.as_str(),
     new.target_type,
     new.target_id,
     new.data,
-    new.is_org_visible,
+    new.event.is_org_visible(),
     new.ip,
   )
   .fetch_one(exec)

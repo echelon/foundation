@@ -209,7 +209,7 @@ async fn mirror_gravatar(
     user_avatar_files::NewUserAvatarFile {
       user_id,
       original_user_avatar_file_id: None,
-      avatar_source: "gravatar_mirror",
+      avatar_source: enums::AvatarFileSource::GravatarMirror,
       bucket_hash: &bucket_hash,
       content_hash: &content_hash,
       bucket_suffix: None,

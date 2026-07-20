@@ -76,13 +76,17 @@ export type AvatarLinks = {
 /** What a user can choose to display. */
 export type AvatarSource = "custom" | "gravatar" | "letter";
 
+/** `preferred_source` values: a choice, or `not_yet_set` (system auto-picks: gravatar when
+ * mirrored, else the monogram). */
+export type PreferredSource = AvatarSource | "not_yet_set" | "generated";
+
 /** The avatar as APIs report it: the user's preference, the derived effective source (what
  * actually displays), CDN links (null → render the monogram), and availability flags. */
 export type ApiAvatar = {
   /** What's actually displaying: the preference when satisfiable, else "letter". */
   source: string;
-  /** The user's stated choice. */
-  preferred_source: string;
+  /** The user's stated choice; "not_yet_set" until they pick (system auto-picks meanwhile). */
+  preferred_source: PreferredSource;
   links: AvatarLinks | null;
   /** A custom upload exists (choosable even when not displaying). */
   has_custom: boolean;
@@ -158,6 +162,22 @@ export const api = {
       token,
       new_password: newPassword,
       logout_other_sessions: logoutOtherSessions,
+    }),
+
+  /** Send (or re-send) the verification email for the current address. */
+  requestEmailVerification: () =>
+    request<{ ok: boolean; message: string }>("POST", "/v1/auth/email/verification"),
+
+  /** Consume a verification token (from the emailed link). Writes the org-visible
+   * `email_verified` audit event. */
+  confirmEmailVerification: (token: string) =>
+    request<{ ok: boolean }>("POST", "/v1/auth/email/verification/confirm", { token }),
+
+  /** Update the display name (empty/undefined clears it). Writes the org-visible
+   * `display_name_changed` audit event. */
+  updateProfile: (displayName: string | null) =>
+    request<{ ok: boolean; display_name: string | null }>("PUT", "/v1/auth/profile", {
+      display_name: displayName,
     }),
 
   /* ── Avatar ── */

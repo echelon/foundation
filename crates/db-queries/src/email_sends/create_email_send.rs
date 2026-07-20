@@ -1,3 +1,4 @@
+use enums::{EmailStatus, EmailTemplate};
 use ids::{EmailSendId, UserId};
 use sqlx::PgExecutor;
 
@@ -8,11 +9,9 @@ pub struct NewEmailSend<'a> {
   /// NULL for pre-user sends (e.g. an invite to a not-yet-registered address).
   pub user_id: Option<&'a UserId>,
   pub to_email: &'a str,
-  /// CHECK-constrained: `invite` / `password_reset` / `email_verify` / `autorefill_failed` /
-  /// `account_suspended`.
-  pub template: &'a str,
-  /// Initial status, typically `queued`.
-  pub status: &'a str,
+  pub template: EmailTemplate,
+  /// Initial status, typically `Queued`.
+  pub status: EmailStatus,
 }
 
 pub async fn create_email_send<'e, E: PgExecutor<'e>>(
@@ -26,12 +25,12 @@ pub async fn create_email_send<'e, E: PgExecutor<'e>>(
     r#"INSERT INTO email_sends (id, user_id, to_email, template, status)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id AS "id: EmailSendId", user_id AS "user_id?: UserId",
-                 to_email, template, status, provider_message_id, error, created_at, updated_at"#,
+                 to_email, template AS "template: EmailTemplate", status AS "status: EmailStatus", provider_message_id, error, created_at, updated_at"#,
     id.as_str(),
     user,
     new.to_email,
-    new.template,
-    new.status,
+    new.template.as_str(),
+    new.status.as_str(),
   )
   .fetch_one(exec)
   .await

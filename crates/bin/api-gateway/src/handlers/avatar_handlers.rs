@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use bucket_client::UploadBytesArgs;
+use enums::{AvatarFileSource, AvatarSource};
 use bucket_paths::{mint_bucket_hash, object_key, BucketFolder, ObjectKeyParts};
 use db_queries::{user_avatar_files, user_avatars};
 
@@ -136,7 +137,7 @@ pub async fn upload_my_avatar(
     user_avatar_files::NewUserAvatarFile {
       user_id: &auth.user.id,
       original_user_avatar_file_id: None,
-      avatar_source: "custom_upload",
+      avatar_source: AvatarFileSource::CustomUpload,
       bucket_hash: &orig_hash,
       content_hash: &hex::encode(Sha256::digest(&body)),
       bucket_suffix: None,
@@ -152,7 +153,7 @@ pub async fn upload_my_avatar(
     user_avatar_files::NewUserAvatarFile {
       user_id: &auth.user.id,
       original_user_avatar_file_id: Some(&original.id),
-      avatar_source: "custom_upload",
+      avatar_source: AvatarFileSource::CustomUpload,
       bucket_hash: &baked_hash,
       content_hash: &hex::encode(Sha256::digest(&baked_png)),
       bucket_suffix: Some("_512"),
@@ -174,8 +175,8 @@ pub async fn upload_my_avatar(
 /// Body for `PUT /v1/auth/avatar/preference`.
 #[derive(Deserialize)]
 pub struct PreferenceBody {
-  /// `custom` | `gravatar` | `letter`.
-  pub source: String,
+  /// Typed via `enums::AvatarSource` — unknown values are rejected at deserialization.
+  pub source: AvatarSource,
 }
 
 /// `PUT /v1/auth/avatar/preference` — choose what displays. `custom` requires an upload to
@@ -185,8 +186,8 @@ pub async fn set_my_avatar_preference(
   auth: AuthContext,
   Json(body): Json<PreferenceBody>,
 ) -> ApiResult<Json<Value>> {
-  match body.source.as_str() {
-    "custom" => {
+  match body.source {
+    AvatarSource::Custom => {
       let has_custom = user_avatars::find_user_avatar_by_user(&state.pool, &auth.user.id)
         .await?
         .is_some_and(|a| a.custom_file_id.is_some());
@@ -194,10 +195,12 @@ pub async fn set_my_avatar_preference(
         return Err(ApiError::BadRequest("upload a photo before choosing it".into()));
       }
     }
-    "gravatar" | "letter" => {}
-    other => return Err(ApiError::BadRequest(format!("unknown avatar source: {other}"))),
+    AvatarSource::Gravatar | AvatarSource::Letter => {}
+    AvatarSource::NotYetSet | AvatarSource::Generated => {
+      return Err(ApiError::BadRequest(format!("{} is not a choosable source", body.source)));
+    }
   }
-  user_avatars::set_preferred_source(&state.pool, &auth.user.id, &body.source).await?;
+  user_avatars::set_preferred_source(&state.pool, &auth.user.id, body.source).await?;
   respond(&state, &auth).await
 }
 

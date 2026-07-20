@@ -54,6 +54,26 @@ pub async fn change_password(
 }
 
 #[derive(Deserialize)]
+pub struct UpdateProfileBody {
+  /// New display name; empty/absent clears it.
+  pub display_name: Option<String>,
+}
+
+/// `PUT /v1/auth/profile` — update the display name. Writes the org-visible
+/// `display_name_changed` audit event (visible to accounts the user belongs to).
+pub async fn update_profile(
+  State(state): State<AppState>,
+  auth: AuthContext,
+  headers: HeaderMap,
+  Json(body): Json<UpdateProfileBody>,
+) -> ApiResult<Json<Value>> {
+  let meta = req_meta(&headers);
+  let name =
+    service::change_display_name(&state.pool, &auth.user, body.display_name.as_deref(), meta.ip.as_deref()).await?;
+  Ok(Json(json!({ "ok": true, "display_name": name })))
+}
+
+#[derive(Deserialize)]
 pub struct ChangeEmailBody {
   pub new_email: String,
   pub current_password: String,
@@ -71,6 +91,35 @@ pub async fn change_email(
     service::change_email(&state.pool, &auth.user, &body.new_email, &body.current_password, meta.ip.as_deref()).await?;
   // Email is now unverified again; the frontend re-fetches /me to reflect it.
   Ok(Json(json!({ "ok": true, "email": new_email, "email_verified": false })))
+}
+
+/// `POST /v1/auth/email/verification` — send (or re-send) the verification email for the
+/// caller's current address.
+pub async fn request_email_verification(
+  State(state): State<AppState>,
+  auth: AuthContext,
+) -> ApiResult<Json<Value>> {
+  let pending = service::request_email_verification(&state.pool, &auth.user).await?;
+  mailer::send_verification_email(&state, &auth.user.id, &pending.to_email, &pending.token).await;
+  Ok(Json(json!({ "ok": true, "message": "Verification email sent — check your inbox." })))
+}
+
+#[derive(Deserialize)]
+pub struct EmailVerificationConfirmBody {
+  pub token: String,
+}
+
+/// `POST /v1/auth/email/verification/confirm` — consume a verification token (public: the link
+/// can be opened in any browser; the token itself is the proof). Sets `email_verified_at` and
+/// writes the org-visible `email_verified` audit event.
+pub async fn confirm_email_verification(
+  State(state): State<AppState>,
+  headers: HeaderMap,
+  Json(body): Json<EmailVerificationConfirmBody>,
+) -> ApiResult<Json<Value>> {
+  let meta = req_meta(&headers);
+  service::confirm_email_verification(&state.pool, &body.token, meta.ip.as_deref()).await?;
+  Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Deserialize)]

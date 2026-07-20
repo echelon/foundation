@@ -112,6 +112,9 @@ pub fn build_router(state: AppState) -> Router {
     // account security: password, email, forgot/reset, sessions
     .route("/v1/auth/password", put(account_handlers::change_password))
     .route("/v1/auth/email", put(account_handlers::change_email))
+    .route("/v1/auth/profile", put(account_handlers::update_profile))
+    .route("/v1/auth/email/verification", post(account_handlers::request_email_verification))
+    .route("/v1/auth/email/verification/confirm", post(account_handlers::confirm_email_verification))
     .route("/v1/auth/password-reset", post(account_handlers::request_password_reset))
     .route("/v1/auth/password-reset/confirm", post(account_handlers::confirm_password_reset))
     .route(

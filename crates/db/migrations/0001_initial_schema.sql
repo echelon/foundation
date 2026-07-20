@@ -172,10 +172,12 @@ CREATE TABLE user_avatars (
     custom_file_id           text,
     gravatar_file_id         text,
     -- The USER'S CHOICE of what to display (REVISED 2026-07-20: replaces the derived `source`
-    -- + `is_gravatar_dismissed` pair). The effective display is this preference when it's
-    -- satisfiable (custom needs custom_file_id, gravatar needs gravatar_file_id), else the
-    -- letter monogram. Default 'gravatar': show one automatically once mirrored.
-    preferred_source         text not null default 'gravatar' CHECK (preferred_source IN ('custom', 'gravatar', 'letter', 'generated')),
+    -- + `is_gravatar_dismissed` pair). `not_yet_set` = the signup default, meaning the system
+    -- auto-picks: gravatar when one is mirrored, else the letter monogram. An explicit user
+    -- choice replaces it and is honored from then on; the effective display is the choice when
+    -- it's satisfiable (custom needs custom_file_id, gravatar needs gravatar_file_id), else
+    -- the letter monogram.
+    preferred_source         text not null default 'not_yet_set' CHECK (preferred_source IN ('not_yet_set', 'custom', 'gravatar', 'letter', 'generated')),
     gravatar_hash            text,
     gravatar_checked_at      timestamptz,
     generated_seed           text not null,

@@ -3,6 +3,7 @@
 //! failed`). `provider_message_id` links to Resend for delivery-event reconciliation.
 
 use chrono::{DateTime, Utc};
+use enums::{EmailStatus, EmailTemplate};
 use ids::{EmailSendId, UserId};
 
 mod create_email_send;
@@ -16,8 +17,8 @@ pub struct EmailSend {
   pub id: EmailSendId,
   pub user_id: Option<UserId>,
   pub to_email: String,
-  pub template: String,
-  pub status: String,
+  pub template: EmailTemplate,
+  pub status: EmailStatus,
   pub provider_message_id: Option<String>,
   pub error: Option<String>,
   pub created_at: DateTime<Utc>,

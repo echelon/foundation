@@ -19,6 +19,7 @@ import Login from "@/surfaces/auth/Login";
 import Signup from "@/surfaces/auth/Signup";
 import Reset from "@/surfaces/auth/Reset";
 import ResetConfirm from "@/surfaces/auth/ResetConfirm";
+import VerifyEmail from "@/surfaces/auth/VerifyEmail";
 
 import DashboardLayout from "@/surfaces/dashboard/DashboardLayout";
 import Overview from "@/surfaces/dashboard/Overview";
@@ -65,6 +66,8 @@ export default function App() {
         <Route path="/reset" element={<Reset />} />
         {/* The emailed reset link lands here with ?token=… */}
         <Route path="/reset-password" element={<ResetConfirm />} />
+        {/* The emailed verification link lands here with ?token=… */}
+        <Route path="/verify-email" element={<VerifyEmail />} />
       </Route>
 
       {/* ── Dashboard (requires login) ── */}

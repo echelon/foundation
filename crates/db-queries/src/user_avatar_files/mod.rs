@@ -3,6 +3,7 @@
 //! immutable: crops become NEW rows linked via `original_user_avatar_file_id`.
 
 use chrono::{DateTime, Utc};
+use enums::AvatarFileSource;
 use ids::{UserAvatarFileId, UserId};
 
 mod create_user_avatar_file;
@@ -17,8 +18,7 @@ pub struct UserAvatarFile {
   pub user_id: UserId,
   /// Crop lineage: the uncropped source row, when this row is a baked crop.
   pub original_user_avatar_file_id: Option<UserAvatarFileId>,
-  /// `custom_upload` / `gravatar_mirror`.
-  pub avatar_source: String,
+  pub avatar_source: AvatarFileSource,
   pub bucket_hash: String,
   pub content_hash: String,
   pub bucket_suffix: Option<String>,

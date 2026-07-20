@@ -5,6 +5,7 @@
 //!   - production: Cloudflare Image Resizing — `{host}/cdn-cgi/image/width={WIDTH},quality=90/{key}`
 //!   - development: no resizer in front of the bucket, so the template is just the full-image URL
 
+use enums::AvatarSource;
 use serde::Serialize;
 
 use bucket_paths::{object_key, BucketFolder, ObjectKeyParts};
@@ -32,10 +33,11 @@ pub struct AvatarLinks {
 /// the settings UI needs to offer choose/upload/remove/refresh.
 #[derive(Debug, Clone, Serialize)]
 pub struct AvatarInfo {
-  /// What's actually displaying: the preference when satisfiable, else `letter`.
-  pub source: String,
-  /// The user's stated choice (`custom` / `gravatar` / `letter`).
-  pub preferred_source: String,
+  /// What's actually displaying: the preference when satisfiable, else the monogram. Never
+  /// `NotYetSet` (that's a preference, not a display).
+  pub source: AvatarSource,
+  /// The user's stated choice; `NotYetSet` until they pick (the system auto-picks meanwhile).
+  pub preferred_source: AvatarSource,
   pub links: Option<AvatarLinks>,
   /// A custom upload exists (choosable even when not displaying).
   pub has_custom: bool,
@@ -51,8 +53,8 @@ pub struct AvatarInfo {
 pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<AvatarInfo> {
   let Some(avatar) = user_avatars::find_user_avatar_by_user(&state.pool, user_id).await? else {
     return Ok(AvatarInfo {
-      source: "letter".into(),
-      preferred_source: "letter".into(),
+      source: AvatarSource::Letter,
+      preferred_source: AvatarSource::Letter,
       links: None,
       has_custom: false,
       has_gravatar: false,
@@ -60,12 +62,15 @@ pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<Avatar
     });
   };
 
-  // Effective display: the preference if a file backs it, else the monogram.
-  let (source, file_id): (&str, Option<UserAvatarFileId>) = match avatar.preferred_source.as_str() {
-    "custom" if avatar.custom_file_id.is_some() => ("custom", avatar.custom_file_id.clone()),
-    "gravatar" if avatar.gravatar_file_id.is_some() => ("gravatar", avatar.gravatar_file_id.clone()),
-    "generated" => ("generated", None),
-    _ => ("letter", None),
+  // Effective display: the preference if a file backs it; NotYetSet auto-picks the gravatar
+  // when one is mirrored, else the letter monogram.
+  let (source, file_id): (AvatarSource, Option<UserAvatarFileId>) = match avatar.preferred_source {
+    AvatarSource::Custom if avatar.custom_file_id.is_some() => (AvatarSource::Custom, avatar.custom_file_id.clone()),
+    AvatarSource::Gravatar | AvatarSource::NotYetSet if avatar.gravatar_file_id.is_some() => {
+      (AvatarSource::Gravatar, avatar.gravatar_file_id.clone())
+    }
+    AvatarSource::Generated => (AvatarSource::Generated, None),
+    _ => (AvatarSource::Letter, None),
   };
 
   let links = match file_id {
@@ -75,7 +80,7 @@ pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<Avatar
     None => None,
   };
   Ok(AvatarInfo {
-    source: source.to_string(),
+    source,
     preferred_source: avatar.preferred_source,
     links,
     has_custom: avatar.custom_file_id.is_some(),

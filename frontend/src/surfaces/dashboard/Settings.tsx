@@ -34,6 +34,8 @@ export default function Settings() {
             </div>
           </div>
         </div>
+        {!user.email_verified && <VerifyEmailRow />}
+        <NameEditor />
         <AvatarManager />
       </Card>
 
@@ -41,6 +43,80 @@ export default function Settings() {
       <ChangePasswordCard />
       <SessionsCard />
     </div>
+  );
+}
+
+/* ── Email verification ── */
+
+function VerifyEmailRow() {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const send = async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await api.requestEmailVerification();
+      setNotice({ tone: "ok", text: r.message });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted">
+          Your email isn't verified yet — we'll send a one-click confirmation link.
+        </p>
+        <Button variant="outline" size="sm" onClick={send} disabled={busy}>
+          {busy ? "Sending…" : "Send verification email"}
+        </Button>
+      </div>
+      <NoticeRow notice={notice} />
+    </div>
+  );
+}
+
+/* ── Display name ── */
+
+function NameEditor() {
+  const { user, refresh } = useAuth();
+  const [name, setName] = useState(user?.display_name ?? "");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const trimmed = name.trim();
+      await api.updateProfile(trimmed === "" ? null : trimmed);
+      await refresh();
+      setNotice({ tone: "ok", text: "Name updated. This change is visible in your account's audit log." });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="mt-5 border-t border-border pt-4" onSubmit={save}>
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <Label hint="shown to your team; changes are audit-logged">Name</Label>
+          <Input placeholder="Ada Rivera" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+        </div>
+        <Button type="submit" size="sm" disabled={busy || (name.trim() || null) === (user?.display_name ?? null)}>
+          {busy ? "Saving…" : "Save name"}
+        </Button>
+      </div>
+      <NoticeRow notice={notice} />
+    </form>
   );
 }
 
@@ -112,7 +188,8 @@ function AvatarManager() {
             </button>
           ))}
         </div>
-        {avatar && avatar.preferred_source !== avatar.source && (
+        {avatar?.preferred_source === "not_yet_set" && <Badge tone="muted">auto</Badge>}
+        {avatar && avatar.preferred_source !== "not_yet_set" && avatar.preferred_source !== avatar.source && (
           <Badge tone="amber">showing initials until it's ready</Badge>
         )}
       </div>

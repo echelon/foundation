@@ -9,6 +9,7 @@ use db_queries::{
   account_audit_logs, accounts, email_changes, email_verifications, invitations, members, password_resets, sessions,
   sso, user_audit_logs, user_avatars, users, Account, Invitation, Session, User,
 };
+use enums::AuditEvent;
 use ids::{AccountId, InvitationId, SessionId, UserId};
 
 use crate::auth::email::{canonicalize, canonicalize_clean};
@@ -230,7 +231,7 @@ pub async fn change_password(
   let new_hash = hash_password(new_password).map_err(ApiError::Internal)?;
   let mut tx = pool.begin().await?;
   users::set_password_hash(&mut *tx, &user.id, &new_hash).await?;
-  write_user_event(&mut *tx, &user.id, "password_changed", true, None, ip).await?;
+  write_user_event(&mut *tx, &user.id, AuditEvent::PasswordChanged, None, ip).await?;
 
   let new_token = if logout_others {
     let new_sv = users::bump_session_version(&mut *tx, &user.id).await?;
@@ -299,7 +300,7 @@ pub async fn change_email(
   .await?;
   // (2) the org-visible audit event
   let data = serde_json::json!({ "old_email": user.email, "new_email": new_canon });
-  write_user_event(&mut *tx, &user.id, "email_changed", true, Some(data), ip).await?;
+  write_user_event(&mut *tx, &user.id, AuditEvent::EmailChanged, Some(data), ip).await?;
   // (3) re-derive the tiers on `users` (also resets email_verified_at)
   users::update_email(&mut *tx, &user.id, &new_canon, &new_clean, &new_original).await?;
   // (4) invalidate any outstanding verification tokens
@@ -309,6 +310,117 @@ pub async fn change_email(
     .await?;
   tx.commit().await?;
   Ok(new_canon)
+}
+
+/// Change the user's display name (nullable — empty clears it). Atomically: update `users`,
+/// refresh the avatar's person-letter monogram, and write the ORG-VISIBLE
+/// `display_name_changed` audit event (audit_logs.md §3 — accounts the user belongs to can see
+/// it). Returns the new name.
+pub async fn change_display_name(
+  pool: &db::PgPool,
+  user: &User,
+  new_name: Option<&str>,
+  ip: Option<&str>,
+) -> ApiResult<Option<String>> {
+  let new_name = new_name.map(str::trim).filter(|s| !s.is_empty());
+  if let Some(name) = new_name {
+    if name.len() > 100 {
+      return Err(ApiError::BadRequest("name must be 100 characters or fewer".into()));
+    }
+  }
+  if new_name == user.display_name.as_deref() {
+    return Ok(user.display_name.clone()); // no-op; no audit noise
+  }
+
+  let (first, last) = person_letters(new_name);
+  let mut tx = pool.begin().await?;
+  users::update_display_name(&mut *tx, &user.id, new_name).await?;
+  user_avatars::set_person_letters(&mut *tx, &user.id, first.as_deref(), last.as_deref()).await?;
+  let data = serde_json::json!({ "from": user.display_name, "to": new_name });
+  write_user_event(&mut *tx, &user.id, AuditEvent::DisplayNameChanged, Some(data), ip).await?;
+  tx.commit().await?;
+  Ok(new_name.map(str::to_string))
+}
+
+/// First letter of the first word and first letter of the last word, uppercased — the
+/// person-name monogram (accounts.md §2).
+fn person_letters(name: Option<&str>) -> (Option<String>, Option<String>) {
+  let Some(name) = name else { return (None, None) };
+  let words: Vec<&str> = name.split_whitespace().collect();
+  let first = words.first().and_then(|w| w.chars().next()).map(|c| c.to_uppercase().to_string());
+  let last = if words.len() > 1 {
+    words.last().and_then(|w| w.chars().next()).map(|c| c.to_uppercase().to_string())
+  } else {
+    None
+  };
+  (first, last)
+}
+
+/// A minted email verification ready to send: the plaintext token for the link (only its sha256
+/// is stored) and the address it verifies.
+pub struct PendingVerification {
+  pub to_email: String,
+  pub token: String,
+}
+
+/// Start email verification (accounts.md §2): invalidate outstanding tokens, mint a fresh one
+/// (24h, single-use), snapshotting the current email — a token can never verify an address it
+/// wasn't minted for. Errors if the email is already verified.
+pub async fn request_email_verification(pool: &db::PgPool, user: &User) -> ApiResult<PendingVerification> {
+  if user.email_verified_at.is_some() {
+    return Err(ApiError::BadRequest("this email is already verified".into()));
+  }
+  let token = gen_token();
+  let token_hash = sha256_hex(&token);
+  let expires_at = Utc::now() + chrono::Duration::hours(24);
+
+  let mut tx = pool.begin().await?;
+  email_verifications::invalidate_email_verifications_for_user(&mut *tx, &user.id).await?;
+  email_verifications::create_email_verification(
+    &mut *tx,
+    email_verifications::NewEmailVerification {
+      user_id: &user.id,
+      email: &user.email,
+      token_hash: &token_hash,
+      expires_at,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(PendingVerification { to_email: user.email.clone(), token })
+}
+
+/// Consume a verification token (accounts.md §2): single-use, unexpired, and the snapshotted
+/// email must STILL be the user's email. Sets `email_verified_at` and writes the ORG-VISIBLE
+/// `email_verified` audit event (audit_logs.md §3) atomically.
+pub async fn confirm_email_verification(pool: &db::PgPool, token: &str, ip: Option<&str>) -> ApiResult<()> {
+  const BAD: &str = "this verification link is invalid or has expired";
+  let token_hash = sha256_hex(token);
+  let verification = email_verifications::find_email_verification_by_token_hash(pool, &token_hash)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest(BAD.into()))?;
+  let user = users::find_user_by_id(pool, &verification.user_id)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest(BAD.into()))?;
+
+  // The snapshot guard: a token minted for an old address can't verify a new one.
+  if verification.email != user.email {
+    return Err(ApiError::BadRequest(BAD.into()));
+  }
+  if user.email_verified_at.is_some() {
+    return Ok(()); // idempotent — clicking the link twice isn't an error
+  }
+
+  let mut tx = pool.begin().await?;
+  // Atomically claim the token — false means already used/expired.
+  if !email_verifications::mark_email_verification_validated(&mut *tx, &verification.id).await? {
+    return Err(ApiError::BadRequest(BAD.into()));
+  }
+  users::mark_email_verified(&mut *tx, &user.id).await?;
+  let data = serde_json::json!({ "email": user.email });
+  write_user_event(&mut *tx, &user.id, AuditEvent::EmailVerified, Some(data), ip).await?;
+  tx.commit().await?;
+  Ok(())
 }
 
 /// A minted password reset ready to email. Returned by [`begin_password_reset`] only when the
@@ -363,7 +475,7 @@ pub async fn consume_password_reset(
     return Err(ApiError::BadRequest("this reset link is invalid or has expired".into()));
   }
   users::set_password_hash(&mut *tx, &user.id, &new_hash).await?;
-  write_user_event(&mut *tx, &user.id, "password_reset", true, None, ip).await?;
+  write_user_event(&mut *tx, &user.id, AuditEvent::PasswordReset, None, ip).await?;
   if logout_others {
     // No "current" session in an unauthenticated reset — bumping sv ends every existing session.
     users::bump_session_version(&mut *tx, &user.id).await?;
@@ -392,7 +504,7 @@ pub async fn revoke_session(
 
   let mut tx = pool.begin().await?;
   sessions::revoke_session(&mut *tx, &session.id).await?;
-  write_user_event(&mut *tx, &user.id, "session_revoked", false, None, ip).await?;
+  write_user_event(&mut *tx, &user.id, AuditEvent::SessionRevoked, None, ip).await?;
   tx.commit().await?;
   Ok(())
 }
@@ -410,7 +522,7 @@ pub async fn revoke_other_sessions(
   let new_sv = users::bump_session_version(&mut *tx, &user.id).await?;
   sessions::revoke_other_sessions(&mut *tx, &user.id, current_session_id).await?;
   let data = serde_json::json!({ "scope": "others" });
-  write_user_event(&mut *tx, &user.id, "session_revoked", false, Some(data), ip).await?;
+  write_user_event(&mut *tx, &user.id, AuditEvent::SessionRevoked, Some(data), ip).await?;
   tx.commit().await?;
   jwt.mint(current_session_id.as_str(), user.id.as_str(), new_sv).map_err(ApiError::Internal)
 }
@@ -571,14 +683,14 @@ async fn provision_new_user(
   .await?;
 
   let ip = meta.ip.as_deref();
-  write_user_event(&mut **tx, &user.id, "account_created", false, None, ip).await?;
+  write_user_event(&mut **tx, &user.id, AuditEvent::AccountCreated, None, ip).await?;
   account_audit_logs::create_account_audit_log(
     &mut **tx,
     account_audit_logs::NewAccountAuditLog {
       account_id: &account.id,
       actor_user_id: Some(&user.id),
       user_id: Some(&user.id),
-      event: "account_created",
+      event: AuditEvent::AccountCreated,
       target_type: None,
       target_id: None,
       data: None,
@@ -589,13 +701,12 @@ async fn provision_new_user(
   Ok(())
 }
 
-/// Write one `user_audit_logs` row (the actor is the subject themselves). `is_org_visible` is the
-/// `AuditEvent::is_org_visible` verdict for `event`.
+/// Write one `user_audit_logs` row (the actor is the subject themselves); org visibility is
+/// derived from the event (`AuditEvent::is_org_visible`, audit_logs.md §3).
 async fn write_user_event<'e, E: sqlx::PgExecutor<'e>>(
   exec: E,
   user_id: &UserId,
-  event: &str,
-  is_org_visible: bool,
+  event: AuditEvent,
   data: Option<serde_json::Value>,
   ip: Option<&str>,
 ) -> ApiResult<()> {
@@ -605,7 +716,6 @@ async fn write_user_event<'e, E: sqlx::PgExecutor<'e>>(
       user_id,
       actor_user_id: Some(user_id),
       event,
-      is_org_visible,
       target_type: None,
       target_id: None,
       data,

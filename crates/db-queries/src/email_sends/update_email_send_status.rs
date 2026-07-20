@@ -1,3 +1,4 @@
+use enums::EmailStatus;
 use ids::EmailSendId;
 use sqlx::PgExecutor;
 
@@ -6,7 +7,7 @@ use sqlx::PgExecutor;
 pub async fn update_email_send_status<'e, E: PgExecutor<'e>>(
   exec: E,
   id: &EmailSendId,
-  status: &str,
+  status: EmailStatus,
   provider_message_id: Option<&str>,
   error: Option<&str>,
 ) -> sqlx::Result<u64> {
@@ -18,7 +19,7 @@ pub async fn update_email_send_status<'e, E: PgExecutor<'e>>(
            updated_at = now()
        WHERE id = $1"#,
     id.as_str(),
-    status,
+    status.as_str(),
     provider_message_id,
     error,
   )
