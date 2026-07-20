@@ -124,13 +124,13 @@ fn auth_success(state: &AppState, outcome: AuthOutcome, status: StatusCode) -> R
   resp
 }
 
-fn set_cookie_header(resp: &mut Response, cookie: &str) {
+pub(crate) fn set_cookie_header(resp: &mut Response, cookie: &str) {
   if let Ok(value) = HeaderValue::from_str(cookie) {
     resp.headers_mut().append(SET_COOKIE, value);
   }
 }
 
-fn req_meta(headers: &HeaderMap) -> ReqMeta {
+pub(crate) fn req_meta(headers: &HeaderMap) -> ReqMeta {
   let ip = headers
     .get("x-forwarded-for")
     .and_then(|v| v.to_str().ok())

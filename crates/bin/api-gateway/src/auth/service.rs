@@ -5,7 +5,10 @@
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 
-use db_queries::{accounts, invitations, members, sessions, sso, users, Invitation, Session, User};
+use db_queries::{
+  account_audit_logs, accounts, email_changes, email_verifications, invitations, members, password_resets, sessions,
+  sso, user_audit_logs, user_avatars, users, Account, Invitation, Session, User,
+};
 use ids::{AccountId, InvitationId, SessionId, UserId};
 
 use crate::auth::email::{canonicalize, canonicalize_clean};
@@ -76,6 +79,7 @@ pub async fn signup(
   .await?;
   let account = accounts::create_account(&mut *tx, None).await?;
   members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
+  provision_new_user(&mut tx, &user, &account, meta).await?;
   let session = new_session(&mut tx, &user.id, meta).await?;
 
   tx.commit().await?;
@@ -173,6 +177,7 @@ pub async fn oauth_login(
   .await?;
   let account = accounts::create_account(&mut *tx, None).await?;
   members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
+  provision_new_user(&mut tx, &user, &account, meta).await?;
   let session = new_session(&mut tx, &user.id, meta).await?;
   tx.commit().await?;
 
@@ -186,6 +191,228 @@ pub async fn oauth_login(
 pub async fn logout(pool: &db::PgPool, session_id: &SessionId) -> ApiResult<()> {
   sessions::revoke_session(pool, session_id).await?;
   Ok(())
+}
+
+/// The result of a flow that may re-mint the current session cookie. When the user opts to "log
+/// out my other devices", we bump `session_version` — which would also invalidate the CURRENT
+/// session's JWT — so we hand back a freshly-minted token to re-set the cookie at the new `sv`
+/// (auth.md §3).
+pub struct SessionReminted {
+  /// A new token to set as the cookie, present only when other sessions were purged.
+  pub new_token: Option<String>,
+}
+
+/// Change password for an authenticated user (accounts.md §6, auth.md §3). Requires fresh re-auth
+/// (the current password). Always bumps `password_version` (a record). Other sessions are revoked
+/// ONLY if the user opts in — and that opt-in is what bumps `session_version`.
+pub async fn change_password(
+  pool: &db::PgPool,
+  jwt: &JwtKeys,
+  user: &User,
+  current_password: &str,
+  new_password: &str,
+  logout_others: bool,
+  current_session_id: &SessionId,
+  ip: Option<&str>,
+) -> ApiResult<SessionReminted> {
+  if new_password.len() < MIN_PASSWORD_LEN {
+    return Err(ApiError::BadRequest(format!("password must be at least {MIN_PASSWORD_LEN} characters")));
+  }
+  // Fresh re-auth: confirm the current password.
+  let current_hash = user
+    .password_hash
+    .as_deref()
+    .ok_or_else(|| ApiError::BadRequest("set a password via reset before changing it".into()))?;
+  if !verify_password(current_password, current_hash) {
+    return Err(ApiError::Unauthorized("current password is incorrect".into()));
+  }
+
+  let new_hash = hash_password(new_password).map_err(ApiError::Internal)?;
+  let mut tx = pool.begin().await?;
+  users::set_password_hash(&mut *tx, &user.id, &new_hash).await?;
+  write_user_event(&mut *tx, &user.id, "password_changed", true, None, ip).await?;
+
+  let new_token = if logout_others {
+    let new_sv = users::bump_session_version(&mut *tx, &user.id).await?;
+    sessions::revoke_other_sessions(&mut *tx, &user.id, current_session_id).await?;
+    Some(jwt.mint(current_session_id.as_str(), user.id.as_str(), new_sv).map_err(ApiError::Internal)?)
+  } else {
+    None
+  };
+  tx.commit().await?;
+  Ok(SessionReminted { new_token })
+}
+
+/// Change a user's email (accounts.md §2 — the five atomic steps). Requires re-auth (current
+/// password). Resets the verified flag, records the change + audit event, invalidates outstanding
+/// verifications, and re-runs the avatar pipeline (which re-queues the gravatar probe). Returns the
+/// new canonical email.
+pub async fn change_email(
+  pool: &db::PgPool,
+  user: &User,
+  new_email: &str,
+  current_password: &str,
+  ip: Option<&str>,
+) -> ApiResult<String> {
+  if !new_email.contains('@') {
+    return Err(ApiError::BadRequest("that doesn't look like an email address".into()));
+  }
+  let current_hash = user
+    .password_hash
+    .as_deref()
+    .ok_or_else(|| ApiError::BadRequest("set a password before changing your email".into()))?;
+  if !verify_password(current_password, current_hash) {
+    return Err(ApiError::Unauthorized("current password is incorrect".into()));
+  }
+
+  let new_canon = canonicalize(new_email);
+  let new_clean = canonicalize_clean(new_email);
+  let new_original = new_email.trim().to_string();
+
+  if new_canon == user.email {
+    return Err(ApiError::BadRequest("that is already your email".into()));
+  }
+  if let Some(existing) = users::find_user_by_email(pool, &new_canon).await? {
+    if existing.id != user.id {
+      return Err(ApiError::Conflict("that email is already in use".into()));
+    }
+  }
+
+  let (first, last) = email_letters(&new_canon);
+  let gravatar_hash = sha256_hex(&new_canon);
+
+  let mut tx = pool.begin().await?;
+  // (1) the email-change history row
+  email_changes::create_email_change(
+    &mut *tx,
+    email_changes::NewEmailChange {
+      user_id: &user.id,
+      old_email: &user.email,
+      old_email_clean: &user.email_clean,
+      old_email_original: &user.email_original,
+      new_email: &new_canon,
+      new_email_clean: &new_clean,
+      new_email_original: &new_original,
+      change_source: "user",
+    },
+  )
+  .await?;
+  // (2) the org-visible audit event
+  let data = serde_json::json!({ "old_email": user.email, "new_email": new_canon });
+  write_user_event(&mut *tx, &user.id, "email_changed", true, Some(data), ip).await?;
+  // (3) re-derive the tiers on `users` (also resets email_verified_at)
+  users::update_email(&mut *tx, &user.id, &new_canon, &new_clean, &new_original).await?;
+  // (4) invalidate any outstanding verification tokens
+  email_verifications::invalidate_email_verifications_for_user(&mut *tx, &user.id).await?;
+  // (5) re-run the avatar pipeline → re-queues the gravatar probe (gravatar_checked_at = NULL)
+  user_avatars::reset_avatar_for_email_change(&mut *tx, &user.id, &gravatar_hash, first.as_deref(), last.as_deref())
+    .await?;
+  tx.commit().await?;
+  Ok(new_canon)
+}
+
+/// A minted password reset ready to email. Returned by [`begin_password_reset`] only when the
+/// address actually maps to a user — the handler sends the email and, either way, returns an
+/// identical response so existence is never revealed.
+pub struct PendingReset {
+  pub user_id: UserId,
+  pub to_email: String,
+  /// Plaintext token for the emailed link (DB stores only its sha256).
+  pub token: String,
+}
+
+/// Start a password reset (accounts.md §2, auth.md §3). Creates a single-use, ~1h token if the
+/// email maps to a user; returns `None` otherwise (the caller responds the same either way).
+pub async fn begin_password_reset(pool: &db::PgPool, email: &str) -> ApiResult<Option<PendingReset>> {
+  let email_canon = canonicalize(email);
+  let Some(user) = users::find_user_by_email(pool, &email_canon).await? else {
+    return Ok(None);
+  };
+  let token = gen_token();
+  let token_hash = sha256_hex(&token);
+  let expires_at = Utc::now() + chrono::Duration::hours(1);
+  password_resets::create_password_reset(pool, &user.id, &token_hash, expires_at).await?;
+  Ok(Some(PendingReset { user_id: user.id, to_email: user.email, token }))
+}
+
+/// Consume a password-reset token (accounts.md §2). Single-use + unexpired; sets the new password,
+/// bumps `password_version` (record), writes `password_reset` audit, and — only if the user asked —
+/// bumps `session_version` to end all existing sessions.
+pub async fn consume_password_reset(
+  pool: &db::PgPool,
+  token: &str,
+  new_password: &str,
+  logout_others: bool,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  if new_password.len() < MIN_PASSWORD_LEN {
+    return Err(ApiError::BadRequest(format!("password must be at least {MIN_PASSWORD_LEN} characters")));
+  }
+  let token_hash = sha256_hex(token);
+  let reset = password_resets::find_password_reset_by_token_hash(pool, &token_hash)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("this reset link is invalid or has expired".into()))?;
+  let user = users::find_user_by_id(pool, &reset.user_id)
+    .await?
+    .ok_or_else(|| ApiError::BadRequest("this reset link is invalid or has expired".into()))?;
+
+  let new_hash = hash_password(new_password).map_err(ApiError::Internal)?;
+  let mut tx = pool.begin().await?;
+  // Atomically claim the token — 0 rows means already used/expired.
+  if !password_resets::mark_password_reset_used(&mut *tx, &reset.id).await? {
+    return Err(ApiError::BadRequest("this reset link is invalid or has expired".into()));
+  }
+  users::set_password_hash(&mut *tx, &user.id, &new_hash).await?;
+  write_user_event(&mut *tx, &user.id, "password_reset", true, None, ip).await?;
+  if logout_others {
+    // No "current" session in an unauthenticated reset — bumping sv ends every existing session.
+    users::bump_session_version(&mut *tx, &user.id).await?;
+  }
+  tx.commit().await?;
+  Ok(())
+}
+
+/// List a user's live sessions for the devices screen (auth.md §3).
+pub async fn list_sessions(pool: &db::PgPool, user_id: &UserId) -> ApiResult<Vec<Session>> {
+  Ok(sessions::list_live_sessions_for_user(pool, user_id).await?)
+}
+
+/// Revoke one of the user's sessions by id (auth.md §3). 404s if it isn't theirs. Writes a
+/// (user-private) `session_revoked` audit event.
+pub async fn revoke_session(
+  pool: &db::PgPool,
+  user: &User,
+  target_session_id: &SessionId,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  let session = sessions::find_session_by_id(pool, target_session_id)
+    .await?
+    .filter(|s| s.user_id == user.id)
+    .ok_or_else(|| ApiError::NotFound("session not found".into()))?;
+
+  let mut tx = pool.begin().await?;
+  sessions::revoke_session(&mut *tx, &session.id).await?;
+  write_user_event(&mut *tx, &user.id, "session_revoked", false, None, ip).await?;
+  tx.commit().await?;
+  Ok(())
+}
+
+/// "Log out all other sessions" (auth.md §3): bump `session_version`, revoke every other session
+/// row, and re-mint the current cookie at the new `sv`. Returns the new token.
+pub async fn revoke_other_sessions(
+  pool: &db::PgPool,
+  jwt: &JwtKeys,
+  user: &User,
+  current_session_id: &SessionId,
+  ip: Option<&str>,
+) -> ApiResult<String> {
+  let mut tx = pool.begin().await?;
+  let new_sv = users::bump_session_version(&mut *tx, &user.id).await?;
+  sessions::revoke_other_sessions(&mut *tx, &user.id, current_session_id).await?;
+  let data = serde_json::json!({ "scope": "others" });
+  write_user_event(&mut *tx, &user.id, "session_revoked", false, Some(data), ip).await?;
+  tx.commit().await?;
+  jwt.mint(current_session_id.as_str(), user.id.as_str(), new_sv).map_err(ApiError::Internal)
 }
 
 /// A created invitation plus the plaintext token/code to hand to the invitee (the token is
@@ -318,6 +545,85 @@ async fn start_session(
     .mint(session.id.as_str(), user.id.as_str(), user.session_version)
     .map_err(ApiError::Internal)?;
   Ok(AuthOutcome { user, session, token })
+}
+
+/// Provision the non-essential-but-standard bits of a new user, inside the signup transaction:
+/// the avatar row (with a computed gravatar hash + letters, left UNPOLLED so the gravatar-job
+/// picks it up) and the `account_created` audit events (U + A — accounts.md, audit_logs.md §3).
+async fn provision_new_user(
+  tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+  user: &User,
+  account: &Account,
+  meta: &ReqMeta,
+) -> ApiResult<()> {
+  let (first, last) = email_letters(&user.email);
+  user_avatars::create_user_avatar(
+    &mut **tx,
+    user_avatars::NewUserAvatar {
+      user_id: &user.id,
+      source: "letter",
+      gravatar_hash: &sha256_hex(&user.email),
+      generated_seed: user.id.as_str(),
+      email_first_letter: first.as_deref(),
+      email_last_letter: last.as_deref(),
+    },
+  )
+  .await?;
+
+  let ip = meta.ip.as_deref();
+  write_user_event(&mut **tx, &user.id, "account_created", false, None, ip).await?;
+  account_audit_logs::create_account_audit_log(
+    &mut **tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id: &account.id,
+      actor_user_id: Some(&user.id),
+      user_id: Some(&user.id),
+      event: "account_created",
+      target_type: None,
+      target_id: None,
+      data: None,
+      ip,
+    },
+  )
+  .await?;
+  Ok(())
+}
+
+/// Write one `user_audit_logs` row (the actor is the subject themselves). `is_org_visible` is the
+/// `AuditEvent::is_org_visible` verdict for `event`.
+async fn write_user_event<'e, E: sqlx::PgExecutor<'e>>(
+  exec: E,
+  user_id: &UserId,
+  event: &str,
+  is_org_visible: bool,
+  data: Option<serde_json::Value>,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  user_audit_logs::create_user_audit_log(
+    exec,
+    user_audit_logs::NewUserAuditLog {
+      user_id,
+      actor_user_id: Some(user_id),
+      event,
+      is_org_visible,
+      target_type: None,
+      target_id: None,
+      data,
+      ip,
+    },
+  )
+  .await?;
+  Ok(())
+}
+
+/// First and last letter of the email's local part (before `@`), uppercased, for the monogram
+/// fallback avatar. Returns `(None, None)` for a degenerate address.
+fn email_letters(email: &str) -> (Option<String>, Option<String>) {
+  let local = email.split('@').next().unwrap_or("");
+  let chars: Vec<char> = local.chars().filter(|c| c.is_alphanumeric()).collect();
+  let first = chars.first().map(|c| c.to_uppercase().to_string());
+  let last = chars.last().map(|c| c.to_uppercase().to_string());
+  (first, last)
 }
 
 /// Create a session inside an open transaction (signup flows).

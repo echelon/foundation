@@ -24,6 +24,7 @@ pub async fn create_session<'e, E: PgExecutor<'e>>(exec: E, new: NewSession<'_>)
        VALUES ($1, $2, $3, ($4::text)::inet, $5, $6, $7)
        RETURNING id AS "id: SessionId", user_id AS "user_id: UserId",
                  impersonator_user_id AS "impersonator_user_id?: UserId",
+                 ip::text AS "ip?: String", user_agent, device,
                  created_at, expires_at, revoked_at"#,
     id.as_str(),
     new.user_id.as_str(),

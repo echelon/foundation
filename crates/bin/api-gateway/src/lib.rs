@@ -15,6 +15,7 @@ pub mod auth;
 pub mod authz;
 pub mod error;
 pub mod handlers;
+pub mod mailer;
 pub mod middleware;
 pub mod state;
 

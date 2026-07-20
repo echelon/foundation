@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use db::PgPool;
+use email_client::ResendApiKey;
 
 use crate::auth::token::JwtKeys;
 
@@ -15,4 +16,11 @@ pub struct AppState {
   pub cookie_domain: String,
   /// Whether to set the `Secure` cookie attribute.
   pub cookie_secure: bool,
+  /// Public base URL of the frontend, used to build emailed links.
+  pub app_base_url: String,
+  /// Sender in display form for outbound email, e.g. `"Foundation <noreply@…>"`.
+  pub email_from: String,
+  /// Resend API key. `None` when email is unconfigured — flows that would send just log + no-op
+  /// (the request still succeeds), which keeps local dev testable without a key.
+  pub resend_api_key: Option<Arc<ResendApiKey>>,
 }

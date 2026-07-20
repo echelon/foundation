@@ -35,6 +35,7 @@ config.workspace = true
 catalog.workspace = true
 db.workspace = true
 db_queries.workspace = true
+email_client.workspace = true
 ids.workspace = true
 
 [dev-dependencies]

@@ -38,7 +38,21 @@ pub struct Config {
     pub cookie_domain: String,
     /// Whether to set the `Secure` cookie attribute (off for plain-http local dev).
     pub cookie_secure: bool,
+    /// Public base URL of the frontend app, used to build emailed links (e.g. the password-reset
+    /// link `{app_base_url}/reset-password?token=…`).
+    pub app_base_url: String,
+    pub email: EmailConfig,
     pub providers: ProviderKeys,
+}
+
+/// Email-sending config (email.md §1). A missing `resend_api_key` means email is unconfigured —
+/// flows that would send just log and no-op rather than failing the request.
+#[derive(Clone, Debug, Default)]
+pub struct EmailConfig {
+    pub resend_api_key: Option<String>,
+    /// Sender in display form, e.g. `"Foundation <noreply@example.com>"`. Must be a Resend-verified
+    /// sender domain.
+    pub from_address: String,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -68,6 +82,12 @@ impl Config {
                 .unwrap_or_else(|_| "dev-insecure-session-secret-change-me".into()),
             cookie_domain: std::env::var("COOKIE_DOMAIN").unwrap_or_else(|_| "localhost".into()),
             cookie_secure: opt("COOKIE_SECURE").map(|v| v == "true").unwrap_or(false),
+            app_base_url: std::env::var("APP_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into()),
+            email: EmailConfig {
+                resend_api_key: opt("RESEND_API_KEY"),
+                from_address: std::env::var("EMAIL_FROM_ADDRESS")
+                    .unwrap_or_else(|_| "Foundation <noreply@localhost>".into()),
+            },
             providers: ProviderKeys {
                 kinovi: opt("KINOVI_API_KEY"),
                 openai: opt("OPENAI_API_KEY"),

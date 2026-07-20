@@ -21,6 +21,10 @@ pub struct Session {
   pub id: SessionId,
   pub user_id: UserId,
   pub impersonator_user_id: Option<UserId>,
+  /// Creation IP, rendered as text (`inet` → `String`). Shown in the session/devices list.
+  pub ip: Option<String>,
+  pub user_agent: Option<String>,
+  pub device: Option<String>,
   pub created_at: DateTime<Utc>,
   pub expires_at: DateTime<Utc>,
   pub revoked_at: Option<DateTime<Utc>>,
