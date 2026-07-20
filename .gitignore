@@ -7,3 +7,7 @@
 external/credentials/*.txt
 external/credentials/*.yaml
 external/credentials/*.yml
+external/*
+# per-service dev secrets (config crate convention — see crates/core/config)
+*.development-secrets.env
+
