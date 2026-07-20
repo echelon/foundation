@@ -55,7 +55,7 @@ async fn signup_transaction_creates_user_account_and_owner_membership() {
   let mut tx = pool.begin().await.unwrap();
 
   let user = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
-  let account = accounts::create_account(&mut *tx, Some("Acme")).await.unwrap();
+  let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Acme"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
   assert!(account.id.as_str().starts_with("acct_"));
   assert_eq!(account.status, "active");
 
@@ -75,7 +75,7 @@ async fn second_owner_is_rejected_by_partial_unique_index() {
   let pool = test_pool().await;
   let mut tx = pool.begin().await.unwrap();
 
-  let account = accounts::create_account(&mut *tx, None).await.unwrap();
+  let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: None, placeholder_business_name: "Placeholder Business" }).await.unwrap();
   let u1 = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
   let u2 = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
 
@@ -89,7 +89,7 @@ async fn second_owner_is_rejected_by_partial_unique_index() {
 async fn invalid_role_is_rejected_by_check_constraint() {
   let pool = test_pool().await;
   let mut tx = pool.begin().await.unwrap();
-  let account = accounts::create_account(&mut *tx, None).await.unwrap();
+  let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: None, placeholder_business_name: "Placeholder Business" }).await.unwrap();
   let user = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
   let err = members::create_membership(&mut *tx, &account.id, &user.id, "supervisor").await;
   assert!(err.is_err(), "role 'supervisor' should violate the CHECK constraint");
@@ -171,7 +171,7 @@ async fn invitation_create_resolve_and_accept() {
   let mut tx = pool.begin().await.unwrap();
 
   let inviter = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
-  let account = accounts::create_account(&mut *tx, Some("Team")).await.unwrap();
+  let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Team"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
   members::create_membership(&mut *tx, &account.id, &inviter.id, "owner").await.unwrap();
 
   let code = "7F3K-QT9M";
@@ -209,4 +209,74 @@ async fn invitation_create_resolve_and_accept() {
   let mems = members::list_memberships_for_user(&mut *tx, &joiner.id).await.unwrap();
   assert_eq!(mems.len(), 1);
   assert_eq!(mems[0].role, "member");
+}
+
+#[tokio::test]
+async fn create_account_stores_placeholder_and_null_business_name() {
+  let pool = test_pool().await;
+  let mut tx = pool.begin().await.unwrap();
+
+  let account = accounts::create_account(
+    &mut *tx,
+    accounts::NewAccount { name: None, placeholder_business_name: "Radiant Compass" },
+  )
+  .await
+  .unwrap();
+  assert_eq!(account.placeholder_business_name, "Radiant Compass");
+  assert_eq!(account.business_name, None);
+
+  let found = accounts::find_account_by_id(&mut *tx, &account.id).await.unwrap().unwrap();
+  assert_eq!(found.placeholder_business_name, "Radiant Compass");
+  assert_eq!(found.business_name, None);
+}
+
+#[tokio::test]
+async fn set_business_name_sets_clears_and_misses_unknown_accounts() {
+  let pool = test_pool().await;
+  let mut tx = pool.begin().await.unwrap();
+
+  let account = accounts::create_account(
+    &mut *tx,
+    accounts::NewAccount { name: None, placeholder_business_name: "Radiant Compass" },
+  )
+  .await
+  .unwrap();
+
+  // Set.
+  let updated = accounts::set_business_name(&mut *tx, &account.id, Some("Acme Corp")).await.unwrap().unwrap();
+  assert_eq!(updated.business_name.as_deref(), Some("Acme Corp"));
+  // The placeholder survives as the fallback.
+  assert_eq!(updated.placeholder_business_name, "Radiant Compass");
+
+  // Clear → back to null (clients fall back to the placeholder).
+  let cleared = accounts::set_business_name(&mut *tx, &account.id, None).await.unwrap().unwrap();
+  assert_eq!(cleared.business_name, None);
+
+  // Unknown account → None, no rows touched.
+  let ghost: ids::AccountId = ids::AccountId::generate();
+  assert!(accounts::set_business_name(&mut *tx, &ghost, Some("X")).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn memberships_with_accounts_carry_business_names() {
+  let pool = test_pool().await;
+  let mut tx = pool.begin().await.unwrap();
+
+  let user = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
+  let account = accounts::create_account(
+    &mut *tx,
+    accounts::NewAccount { name: None, placeholder_business_name: "Radiant Compass" },
+  )
+  .await
+  .unwrap();
+  members::create_membership(&mut *tx, &account.id, &user.id, "owner").await.unwrap();
+
+  let rows = members::list_memberships_with_accounts(&mut *tx, &user.id).await.unwrap();
+  assert_eq!(rows.len(), 1);
+  assert_eq!(rows[0].business_name, None);
+  assert_eq!(rows[0].placeholder_business_name, "Radiant Compass");
+
+  accounts::set_business_name(&mut *tx, &account.id, Some("Acme Corp")).await.unwrap();
+  let rows = members::list_memberships_with_accounts(&mut *tx, &user.id).await.unwrap();
+  assert_eq!(rows[0].business_name.as_deref(), Some("Acme Corp"));
 }

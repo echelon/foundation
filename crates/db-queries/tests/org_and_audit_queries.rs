@@ -51,8 +51,8 @@ async fn memberships_with_accounts_joins_names_and_roles() {
   let mut tx = pool.begin().await.unwrap();
 
   let user = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
-  let acme = accounts::create_account(&mut *tx, Some("Acme")).await.unwrap();
-  let globex = accounts::create_account(&mut *tx, Some("Globex")).await.unwrap();
+  let acme = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Acme"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
+  let globex = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Globex"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
   members::create_membership(&mut *tx, &acme.id, &user.id, "owner").await.unwrap();
   members::create_membership(&mut *tx, &globex.id, &user.id, "member").await.unwrap();
 
@@ -73,7 +73,7 @@ async fn roster_join_and_member_removal() {
 
   let owner = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
   let member = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
-  let org = accounts::create_account(&mut *tx, Some("Team")).await.unwrap();
+  let org = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Team"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
   members::create_membership(&mut *tx, &org.id, &owner.id, "owner").await.unwrap();
   members::create_membership(&mut *tx, &org.id, &member.id, "member").await.unwrap();
 
@@ -139,7 +139,7 @@ async fn account_audit_log_pagination() {
   let pool = test_pool().await;
   let mut tx = pool.begin().await.unwrap();
   let owner = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
-  let org = accounts::create_account(&mut *tx, Some("Audited Org")).await.unwrap();
+  let org = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Audited Org"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
 
   for _ in 0..3 {
     account_audit_logs::create_account_audit_log(

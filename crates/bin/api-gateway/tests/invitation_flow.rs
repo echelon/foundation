@@ -323,7 +323,10 @@ async fn database_rejects_concurrent_duplicate_live_invitations() {
   )
   .await
   .unwrap();
-  let account = db_queries::accounts::create_account(&mut *tx, None).await.unwrap();
+  let account = db_queries::accounts::create_account(
+    &mut *tx,
+    db_queries::accounts::NewAccount { name: None, placeholder_business_name: "Placeholder Business" },
+  ).await.unwrap();
 
   let new_invitation = |code: &'static str| db_queries::invitations::NewInvitation {
     account_id: &account.id,

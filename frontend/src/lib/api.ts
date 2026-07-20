@@ -126,9 +126,18 @@ type MeResponse = { user: ApiUser; session_id: string; impersonation: boolean };
 export type ApiAccount = {
   account_id: string;
   name: string | null;
+  /** Owner/admin-set; null → display `placeholder_business_name`. */
+  business_name: string | null;
+  /** Random "Adjective Noun" minted at account creation; immutable. */
+  placeholder_business_name: string;
   role: string;
   joined_at: string;
 };
+
+/** What clients should render as the org's name. */
+export function accountDisplayName(a: ApiAccount): string {
+  return a.business_name ?? a.placeholder_business_name;
+}
 
 /** A row in an organization's member roster. */
 export type ApiMember = {
@@ -278,6 +287,15 @@ export const api = {
   /** Remove a member (owner/admin; owner is immovable, admins can't remove admins). */
   removeMember: (accountId: string, userId: string) =>
     request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/members/${userId}`),
+
+  /** Set or clear the business name (owner/admin only; null/blank clears back to the
+   * placeholder). The placeholder itself is immutable. */
+  updateBusinessName: (accountId: string, businessName: string | null) =>
+    request<{ ok: boolean; business_name: string | null; placeholder_business_name: string }>(
+      "PUT",
+      `/v1/accounts/${accountId}/business`,
+      { business_name: businessName },
+    ),
 
   /** Resolve an invitation (public) for the join page — by short code or magic-link token. */
   resolveInvitation: (codeOrToken: string) =>

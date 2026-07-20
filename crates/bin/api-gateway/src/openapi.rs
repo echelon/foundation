@@ -45,6 +45,7 @@ use crate::handlers::{account, audit_logs, auth, avatar, catalog, invitations, o
     org::list_my_accounts_handler,
     org::list_account_members_handler,
     org::remove_account_member_handler,
+    org::update_business_name_handler,
     audit_logs::list_my_audit_logs_handler,
     audit_logs::list_account_audit_logs_handler,
     audit_logs::list_member_audit_logs_handler,
@@ -95,7 +96,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 33 operations over 31 paths (`/v1/auth/sessions` and `/v1/auth/avatar` each carry two).
-    assert_eq!(documented.len(), 31, "unexpected number of documented paths: {documented:#?}");
+    // 34 operations over 32 paths (`/v1/auth/sessions` and `/v1/auth/avatar` each carry two).
+    assert_eq!(documented.len(), 32, "unexpected number of documented paths: {documented:#?}");
   }
 }

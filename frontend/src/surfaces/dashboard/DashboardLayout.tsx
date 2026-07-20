@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
+  Building2,
   CreditCard,
   KeyRound,
   LayoutDashboard,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { Badge, Logo, ThemeToggle } from "@/components/ui";
 import { UserAvatar } from "@/components/UserAvatar";
+import { accountDisplayName } from "@/lib/api";
 import { BALANCE } from "@/lib/mock-api";
 import { useAuth } from "@/lib/auth";
 import { OrgProvider, useOrg } from "@/lib/org";
@@ -27,6 +29,7 @@ const NAV = [
   { rest: "/keys", label: "API keys", icon: KeyRound },
   { rest: "/billing", label: "Billing", icon: CreditCard },
   { rest: "/organization", label: "Organization", icon: Users },
+  { rest: "/business", label: "Business", icon: Building2 },
   { rest: "/audit", label: "Audit log", icon: ScrollText },
 ];
 
@@ -35,7 +38,7 @@ function OrgSwitcher() {
   const { accounts, current, select } = useOrg();
   if (!current) return null;
   if (accounts.length === 1) {
-    return <span className="font-display font-semibold">{current.name ?? "My organization"}</span>;
+    return <span className="font-display font-semibold">{accountDisplayName(current)}</span>;
   }
   return (
     <select
@@ -45,7 +48,7 @@ function OrgSwitcher() {
     >
       {accounts.map((a) => (
         <option key={a.account_id} value={a.account_id}>
-          {a.name ?? a.account_id.slice(0, 13)} ({a.role})
+          {accountDisplayName(a)} ({a.role})
         </option>
       ))}
     </select>

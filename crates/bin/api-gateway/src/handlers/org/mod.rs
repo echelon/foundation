@@ -5,7 +5,9 @@
 mod list_account_members_handler;
 mod list_my_accounts_handler;
 mod remove_account_member_handler;
+mod update_business_name_handler;
 
 pub use list_account_members_handler::*;
 pub use list_my_accounts_handler::*;
 pub use remove_account_member_handler::*;
+pub use update_business_name_handler::*;

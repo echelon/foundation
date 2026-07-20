@@ -15,6 +15,9 @@ CREATE TABLE accounts (
     sid                     bigint generated always as identity,
     id                      text primary key,                       -- acct_{ulid}
     name                    text,
+    business_name           text,                                   -- owner/admin-set; null → show the placeholder
+    placeholder_business_name text not null,                        -- random "Adjective Noun", minted at creation
+
     billing_email           text,
     billing_invoice_email   text,
     billing_phone           text,

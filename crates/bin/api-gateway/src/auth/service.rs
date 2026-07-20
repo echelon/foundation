@@ -108,7 +108,11 @@ pub async fn signup(pool: &db::PgPool, jwt: &JwtKeys, args: SignupArgs<'_>, meta
   match &invitation {
     // Normal signup: the user's own organization, with them as owner.
     None => {
-      let account = accounts::create_account(&mut *tx, None).await?;
+      let account = accounts::create_account(
+        &mut *tx,
+        accounts::NewAccount { name: None, placeholder_business_name: &crate::business_names::random_business_name() },
+      )
+      .await?;
       members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
       provision_new_user(&mut tx, &user, &account, meta).await?;
     }
@@ -215,7 +219,11 @@ pub async fn oauth_login(
     },
   )
   .await?;
-  let account = accounts::create_account(&mut *tx, None).await?;
+  let account = accounts::create_account(
+    &mut *tx,
+    accounts::NewAccount { name: None, placeholder_business_name: &crate::business_names::random_business_name() },
+  )
+  .await?;
   members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
   provision_new_user(&mut tx, &user, &account, meta).await?;
   let session = new_session(&mut tx, &user.id, meta).await?;
@@ -675,9 +683,11 @@ pub async fn resolve_invitation_for_join_page(
   code_or_token: &str,
 ) -> ApiResult<ResolvedInvitation> {
   let invitation = resolve_invitation(pool, code_or_token).await?;
+  // The business display name: the set name, else the placeholder (never the bare `name`,
+  // which is null for every self-serve account).
   let account_name = accounts::find_account_by_id(pool, &invitation.account_id)
     .await?
-    .and_then(|a| a.name);
+    .map(|a| a.business_name.unwrap_or(a.placeholder_business_name));
   let invitee_user_exists = users::find_user_by_email(pool, &invitation.email).await?.is_some();
   Ok(ResolvedInvitation { invitation, account_name, invitee_user_exists })
 }
@@ -751,6 +761,38 @@ async fn accept_open_invitation(
   )
   .await?;
   Ok(())
+}
+
+/// Set or clear the business display name. Owner/admin only (authorized by the handler);
+/// `None` clears it, falling back to `placeholder_business_name` in clients. Writes
+/// `business_name_changed` to the account audit log in the update's transaction.
+pub async fn update_business_name(
+  pool: &db::PgPool,
+  account_id: &AccountId,
+  actor_user_id: &UserId,
+  business_name: Option<&str>,
+  ip: Option<&str>,
+) -> ApiResult<Account> {
+  let mut tx = pool.begin().await?;
+  let account = accounts::set_business_name(&mut *tx, account_id, business_name)
+    .await?
+    .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
+  account_audit_logs::create_account_audit_log(
+    &mut *tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id,
+      actor_user_id: Some(actor_user_id),
+      user_id: None,
+      event: AuditEvent::BusinessNameChanged,
+      target_type: None,
+      target_id: None,
+      data: Some(serde_json::json!({ "business_name": business_name })),
+      ip,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(account)
 }
 
 /// Remove a member from an account (accounts.md §4, auth.md §4). The handler has already

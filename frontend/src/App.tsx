@@ -29,6 +29,7 @@ import Requests from "@/surfaces/dashboard/Requests";
 import Billing from "@/surfaces/dashboard/Billing";
 import Keys from "@/surfaces/dashboard/Keys";
 import Organization from "@/surfaces/dashboard/Organization";
+import Business from "@/surfaces/dashboard/Business";
 import AuditLogPage from "@/surfaces/dashboard/AuditLog";
 import Settings from "@/surfaces/dashboard/Settings";
 
@@ -98,6 +99,7 @@ export default function App() {
           <Route path="/dashboard/:accountId?/billing" element={<Billing />} />
           <Route path="/dashboard/:accountId?/keys" element={<Keys />} />
           <Route path="/dashboard/:accountId?/organization" element={<Organization />} />
+          <Route path="/dashboard/:accountId?/business" element={<Business />} />
           <Route path="/dashboard/:accountId?/audit" element={<AuditLogPage />} />
           {/* User-scoped (never carries an account id). */}
           <Route path="/dashboard/user/settings" element={<Settings />} />

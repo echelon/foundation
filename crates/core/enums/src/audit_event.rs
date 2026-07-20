@@ -22,6 +22,7 @@ text_enum! {
     InvitationAccepted => "invitation_accepted",
     ApiKeyCreated => "api_key_created",
     ApiKeyRevoked => "api_key_revoked",
+    BusinessNameChanged => "business_name_changed",
     BillingAddressChanged => "billing_address_changed",
     SpendLimitChanged => "spend_limit_changed",
     AutoRefillChanged => "auto_refill_changed",
@@ -54,6 +55,7 @@ impl AuditEvent {
       | Self::InvitationAccepted
       | Self::ApiKeyCreated
       | Self::ApiKeyRevoked
+      | Self::BusinessNameChanged
       | Self::BillingAddressChanged
       | Self::SpendLimitChanged
       | Self::AutoRefillChanged
@@ -72,7 +74,7 @@ mod tests {
       assert_eq!(v.as_str().parse::<AuditEvent>().unwrap(), *v);
       assert_eq!(serde_json::to_string(v).unwrap(), format!("\"{}\"", v.as_str()));
     }
-    assert_eq!(AuditEvent::ALL.len(), 22);
+    assert_eq!(AuditEvent::ALL.len(), 23);
   }
 
   #[test]

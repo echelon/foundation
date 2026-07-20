@@ -15,6 +15,7 @@ pub mod app;
 pub mod auth;
 pub mod authz;
 pub mod avatar_links;
+pub mod business_names;
 pub mod error;
 pub mod handlers;
 pub mod mailer;

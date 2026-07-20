@@ -7,6 +7,9 @@ use sqlx::PgExecutor;
 pub struct MembershipWithAccount {
   pub account_id: AccountId,
   pub account_name: Option<String>,
+  /// Owner/admin-set; null → clients display `placeholder_business_name`.
+  pub business_name: Option<String>,
+  pub placeholder_business_name: String,
   pub role: String,
   pub created_at: DateTime<Utc>,
 }
@@ -20,6 +23,7 @@ pub async fn list_memberships_with_accounts<'e, E: PgExecutor<'e>>(
   sqlx::query_as!(
     MembershipWithAccount,
     r#"SELECT m.account_id AS "account_id: AccountId", a.name AS "account_name?: String",
+              a.business_name, a.placeholder_business_name,
               m.role, m.created_at
        FROM account_members m
        JOIN accounts a ON a.id = m.account_id

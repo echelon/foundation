@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict gmhumnxYgJOkqFhlNiv2XF9dAbGn4SIdRxl842A4OCsQSPHR5ySTGQVHQSMKKLS
+\restrict 5ew91Po2hg0fNhloyFYACa4VqBko1E2aSzHOGQmQBufzWbHL817sU2eFNc6xVFb
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -22,13 +22,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
--- *not* creating schema, since initdb creates it
-
 
 SET default_tablespace = '';
 
@@ -131,6 +124,8 @@ CREATE TABLE public.accounts (
     sid bigint NOT NULL,
     id text NOT NULL,
     name text,
+    business_name text,
+    placeholder_business_name text NOT NULL,
     billing_email text,
     billing_invoice_email text,
     billing_phone text,
@@ -2599,5 +2594,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict gmhumnxYgJOkqFhlNiv2XF9dAbGn4SIdRxl842A4OCsQSPHR5ySTGQVHQSMKKLS
+\unrestrict 5ew91Po2hg0fNhloyFYACa4VqBko1E2aSzHOGQmQBufzWbHL817sU2eFNc6xVFb
 
