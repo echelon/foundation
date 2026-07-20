@@ -7,7 +7,8 @@
 //!   - `auth`       — password, email canonicalization, session JWT, cookies, flow `service`
 //!   - `authz`      — account-role checks (auth.md §4)
 //!   - `middleware` — the `AuthContext` session extractor (online-checked)
-//!   - `handlers`   — thin HTTP handlers grouped by area
+//!   - `handlers`   — thin HTTP handlers, one per file, grouped by area
+//!   - `openapi`    — the OpenAPI document (utoipa); exported by the `export-openapi` bin
 //!   - `app`        — router assembly + server bootstrap
 
 pub mod app;
@@ -18,6 +19,7 @@ pub mod error;
 pub mod handlers;
 pub mod mailer;
 pub mod middleware;
+pub mod openapi;
 pub mod state;
 
 pub use app::{build_router, run};

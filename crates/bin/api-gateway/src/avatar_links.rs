@@ -7,6 +7,7 @@
 
 use enums::AvatarSource;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use bucket_paths::{object_key, BucketFolder, ObjectKeyParts};
 use db_queries::{user_avatar_files, user_avatars, UserAvatarFile};
@@ -18,7 +19,7 @@ use crate::state::AppState;
 const THUMBNAIL_QUALITY: u8 = 90;
 
 /// Links to an avatar image on the CDN.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AvatarLinks {
   /// Direct link to the full-size image.
   pub cdn_url: String,
@@ -31,12 +32,14 @@ pub struct AvatarLinks {
 /// (what actually displays), CDN links when an image backs it (`links` is `null` for the
 /// letter/generated monograms — the client renders those itself), and the availability flags
 /// the settings UI needs to offer choose/upload/remove/refresh.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct AvatarInfo {
   /// What's actually displaying: the preference when satisfiable, else the monogram. Never
   /// `NotYetSet` (that's a preference, not a display).
+  #[schema(value_type = String, example = "gravatar")]
   pub source: AvatarSource,
   /// The user's stated choice; `NotYetSet` until they pick (the system auto-picks meanwhile).
+  #[schema(value_type = String, example = "not_yet_set")]
   pub preferred_source: AvatarSource,
   pub links: Option<AvatarLinks>,
   /// A custom upload exists (choosable even when not displaying).

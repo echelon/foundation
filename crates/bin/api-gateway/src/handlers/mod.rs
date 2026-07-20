@@ -1,10 +1,15 @@
-//! HTTP handlers — thin wrappers over `auth::service` / `db_queries`, grouped by area.
+//! HTTP handlers — ONE handler per file (`{area}/{name}_handler.rs`), each with typed,
+//! utoipa-documented request/response structs. Never `Json<Value>`.
 
-pub mod account_handlers;
-pub mod audit_handlers;
-pub mod auth_handlers;
-pub mod avatar_handlers;
-pub mod catalog_handlers;
-pub mod invitation_handlers;
-pub mod org_handlers;
-pub mod root_handlers;
+pub mod api_types;
+pub(crate) mod support;
+
+pub mod account;
+pub mod audit_logs;
+pub mod auth;
+pub mod avatar;
+pub mod catalog;
+pub mod invitations;
+pub mod org;
+pub mod root;
+pub mod sessions;

@@ -1,10 +1,4 @@
-//! Avatar handlers (accounts.md §2): upload/replace with an optional crop, remove the custom
-//! avatar, and dismiss/restore the gravatar.
-//!
-//! The gateway is NOT a CDN — no handler here serves image bytes. Every response carries the
-//! avatar's [`crate::avatar_links::AvatarInfo`] (display source + CDN links derived from stored
-//! bucket-path pieces), and `/v1/auth/me` reports the same shape, so clients always render from
-//! the CDN.
+//! `POST /v1/auth/avatar` — upload/replace the custom avatar, with an optional crop.
 //!
 //! Uploads store TWO immutable `user_avatar_files` rows: the original as received, and a baked
 //! 512×512 display crop linked through `original_user_avatar_file_id`; the display pointer
@@ -18,15 +12,15 @@ use axum::Json;
 use image::imageops::FilterType;
 use image::ImageFormat;
 use serde::Deserialize;
-use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use utoipa::IntoParams;
 
 use bucket_client::UploadBytesArgs;
-use enums::{AvatarFileSource, AvatarSource};
 use bucket_paths::{mint_bucket_hash, object_key, BucketFolder, ObjectKeyParts};
 use db_queries::{user_avatar_files, user_avatars};
+use enums::AvatarFileSource;
 
-use crate::avatar_links::avatar_info;
+use super::support::{avatar_response, AvatarResponse};
 use crate::error::{ApiError, ApiResult};
 use crate::middleware::AuthContext;
 use crate::state::AppState;
@@ -34,28 +28,36 @@ use crate::state::AppState;
 /// Display size of the baked avatar crop.
 const AVATAR_SIZE: u32 = 512;
 
-/* ── POST /v1/auth/avatar — upload/replace, with optional crop ── */
-
 /// Optional crop rect in SOURCE-image pixels. A square viewport's crop rect encodes zoom +
 /// translate: zooming in shrinks `crop_size`, panning moves `crop_x`/`crop_y`. All three come
 /// together or not at all; without them we center-crop the largest square.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct CropParams {
   pub crop_x: Option<u32>,
   pub crop_y: Option<u32>,
   pub crop_size: Option<u32>,
 }
 
-/// `POST /v1/auth/avatar` — body is the raw image bytes (`fetch(url, { body: file })`).
 /// Decodes, optionally crops, bakes a 512×512 PNG, uploads original + baked to R2, records both
-/// `user_avatar_files` rows, and points the display at the baked crop. Returns the new avatar
-/// (source + CDN links).
-pub async fn upload_my_avatar(
+/// `user_avatar_files` rows, and points the display at the baked crop.
+#[utoipa::path(
+  post, path = "/v1/auth/avatar",
+  tag = "avatar",
+  security(("session_cookie" = [])),
+  params(CropParams),
+  request_body(content = Vec<u8>, content_type = "application/octet-stream",
+    description = "Raw image bytes (png/jpeg/webp/gif) — `fetch(url, { body: file })`"),
+  responses(
+    (status = 200, description = "Uploaded; the new avatar (source + CDN links)", body = AvatarResponse),
+    (status = 400, description = "Empty/undecodable upload, unsupported format, or bad crop rect")
+  )
+)]
+pub async fn upload_my_avatar_handler(
   State(state): State<AppState>,
   auth: AuthContext,
   Query(crop): Query<CropParams>,
   body: Bytes,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<AvatarResponse>> {
   if body.is_empty() {
     return Err(ApiError::BadRequest("empty upload".into()));
   }
@@ -167,69 +169,5 @@ pub async fn upload_my_avatar(
   user_avatars::set_custom_avatar(&mut *tx, &auth.user.id, &baked_row.id).await?;
   tx.commit().await?;
 
-  respond(&state, &auth).await
-}
-
-/* ── Preference + removal ── */
-
-/// Body for `PUT /v1/auth/avatar/preference`.
-#[derive(Deserialize)]
-pub struct PreferenceBody {
-  /// Typed via `enums::AvatarSource` — unknown values are rejected at deserialization.
-  pub source: AvatarSource,
-}
-
-/// `PUT /v1/auth/avatar/preference` — choose what displays. `custom` requires an upload to
-/// exist; `gravatar` is allowed even before a mirror lands (the monogram shows until it does).
-pub async fn set_my_avatar_preference(
-  State(state): State<AppState>,
-  auth: AuthContext,
-  Json(body): Json<PreferenceBody>,
-) -> ApiResult<Json<Value>> {
-  match body.source {
-    AvatarSource::Custom => {
-      let has_custom = user_avatars::find_user_avatar_by_user(&state.pool, &auth.user.id)
-        .await?
-        .is_some_and(|a| a.custom_file_id.is_some());
-      if !has_custom {
-        return Err(ApiError::BadRequest("upload a photo before choosing it".into()));
-      }
-    }
-    AvatarSource::Gravatar | AvatarSource::Letter => {}
-    AvatarSource::NotYetSet | AvatarSource::Generated => {
-      return Err(ApiError::BadRequest(format!("{} is not a choosable source", body.source)));
-    }
-  }
-  user_avatars::set_preferred_source(&state.pool, &auth.user.id, body.source).await?;
-  respond(&state, &auth).await
-}
-
-/// `DELETE /v1/auth/avatar` — remove the custom avatar (file rows kept, pointer cleared).
-/// A `custom` preference falls back to the gravatar if mirrored, else the monogram.
-pub async fn remove_my_avatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
-  user_avatars::remove_custom_avatar(&state.pool, &auth.user.id).await?;
-  respond(&state, &auth).await
-}
-
-/// `DELETE /v1/auth/avatar/gravatar` — remove the mirrored gravatar. It won't re-mirror on its
-/// own (the probe stays stamped); an explicit refresh brings it back. A `gravatar` preference
-/// falls back to the custom upload if one exists, else the monogram.
-pub async fn remove_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
-  user_avatars::remove_gravatar(&state.pool, &auth.user.id).await?;
-  respond(&state, &auth).await
-}
-
-/// `POST /v1/auth/avatar/gravatar/refresh` — re-request the gravatar: resets the poll marker so
-/// the gravatar-job fetches it again on its next pass (typically within seconds). The current
-/// mirror keeps displaying until the re-poll replaces or clears it; `avatar.gravatar_checked`
-/// stays false in the meantime so clients can show "checking…".
-pub async fn refresh_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
-  user_avatars::request_gravatar_repoll(&state.pool, &auth.user.id).await?;
-  respond(&state, &auth).await
-}
-
-/// Every mutation answers with the resulting avatar (source + CDN links).
-async fn respond(state: &AppState, auth: &AuthContext) -> ApiResult<Json<Value>> {
-  let avatar = avatar_info(state, &auth.user.id).await?;
-  Ok(Json(json!({ "ok": true, "avatar": avatar })))
+  avatar_response(&state, &auth).await
 }
