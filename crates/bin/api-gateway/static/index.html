@@ -6,14 +6,15 @@
 <title>Foundation API</title>
 <style>
   :root {
-    --bg-a: #0f1a13;
-    --bg-b: #1b2c1f;
-    --fg: #efe9d5;
-    --muted: #a4b599;
-    --bark: #8a6a4f;
-    --bark-dim: rgba(138, 106, 79, 0.45);
-    --leaf: #8fbf6f;
-    --rust: #c1602f;
+    /* light sage / moss, like a sunny forest clearing */
+    --bg-a: #a6b98d;
+    --bg-b: #cfd9b6;
+    --fg: #34301e;
+    --muted: #5d684a;
+    --bark: #7a5e40;
+    --bark-dim: rgba(122, 94, 64, 0.4);
+    --leaf: #4c7a33;
+    --rust: #b3541e;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
@@ -37,13 +38,13 @@
     pointer-events: auto; /* …except on the card */
     max-width: 32rem;
     text-align: center;
-    background: rgba(20, 32, 23, 0.72);
+    background: rgba(249, 247, 235, 0.72);
     border: 1px solid var(--bark-dim);
     border-radius: 18px;
     padding: 30px 32px 26px;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 16px 40px rgba(58, 64, 40, 0.25);
   }
   .korok-wrap { display: inline-block; animation: wander 9s ease-in-out infinite; }
   #korok {
@@ -51,15 +52,14 @@
     text-align: left;
     display: inline-block;
     white-space: pre;
-    text-shadow: 0 0 16px rgba(143, 191, 111, 0.2);
   }
-  /* Korok palette: sage body, amber leaf mask, vine green, berry red, blossom cream. */
-  .k-b { color: #a9c69b; }
-  .k-f { color: #cf8a3b; }
-  .k-e { color: #6b4a2f; } /* the mask's eye/mouth holes — dark bark */
-  .k-v { color: #7fae5e; }
-  .k-r { color: #d9534f; }
-  .k-w { color: #ead9a8; }
+  /* Shared korok part-colors; each variant (k1/k2/k3) tunes its body + leaf mask. */
+  .e { color: #38321f; }               /* mask eye/mouth holes — dark bark */
+  .v { color: #55793c; }               /* stems, fronds, vines */
+  .r { color: #b53a30; }               /* berries */
+  .k1 .b { color: #8d8a72; }  .k1 .l { color: #3f6b40; }  /* gray-tan body, dark clover */
+  .k2 .b { color: #b08379; }  .k2 .l { color: #99902f; }  /* dusty pink body, olive star */
+  .k3 .b { color: #ad8a52; }  .k3 .l { color: #4f8a3d; }  /* golden body, green heart leaf */
   @keyframes wander {
     0%   { transform: translate(0, 0) rotate(0deg); }
     20%  { transform: translate(16px, -5px) rotate(3deg); }
@@ -137,67 +137,134 @@
   "use strict";
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // ── The Korok: colored ASCII, frame-cycled so it waves its berry branch ──
-  // Modeled on the BotW korok: sage gourd body with camo dapples, two leaf-spike
-  // ears, a big amber leaf mask (one large eye hole, one small, tiny mouth, stem
-  // poking out the side), stub feet, and a berry/blossom sprig in each hand.
-  const s = (cls, txt) => `<span class="${cls}">${txt}</span>`;
+  // ── The Koroks: three colored ASCII friends; one is picked at random per visit ──
+  //   k1 — clover-leaf mask, pointy ears, holds a frond umbrella that sways
+  //   k2 — five-point star-leaf mask, curvy horns, waves its arms
+  //   k3 — heart-leaf mask (it winks), antler ears, lifts a berry twig
+  // Sprites are plain-text frames sharing one body; lines are painted per-row
+  // (b = body, l = leaf mask, v = stems/fronds) with tiny regex passes for the
+  // dark eye/mouth holes and red berries.
 
-  // The korok itself, left sprig included; the right margin is empty — each frame
-  // appends the right-hand branch in a different position (hanging → mid → high).
-  const BASE = [
-    s("k-b", "           /\\             /\\"),
-    s("k-b", "          /  \\           /  \\"),
-    s("k-b", "         / /\\ \\         / /\\ \\"),
-    s("k-b", "         \\ \\ \\ \\       / / / /"),
-    s("k-b", "      ____\\ \\ \\ \\_____/ / / /____"),
-    s("k-f", "   ,-'                         '-,"),
-    s("k-f", "  &lt;   ") + s("k-e", "(@)") + s("k-f", "     ~ ~ ~ ~     ") + s("k-e", "o") + s("k-f", "      &gt;==-"),
-    s("k-f", "   '-.       ~ ~ ~ ~ ~        ,-'"),
-    s("k-f", "      '-._       ") + s("k-e", "==") + s("k-f", "       _.-'"),
-    s("k-b", "        .-'-.__________.-'-."),
-    s("k-b", "       /                    \\"),
-    s("k-b", "      |    ~~   ~~~~   ~~    |"),
-    s("k-v", "  .") + s("k-b", "   |   ~   ~~~   ~~~  ~   |"),
-    s("k-v", "  |\\") + s("k-b", "  |                      |"),
-    s("k-r", " @") + s("k-v", "=\\") + s("k-b", "  |                      |"),
-    s("k-w", "  *") + s("k-b", "  \\\\                    //"),
-    s("k-r", "   @") + s("k-b", "  '-.________________.-'"),
-    s("k-b", "          _|          |_"),
-    s("k-b", "         (__)        (__)"),
+  // Shared body: walls at cols 6/29; arm slots on the margins vary per korok/frame.
+  const body = (a1, a2, a3, b1, b2, b3) => {
+    const pad = (s, n) => (s || "").padStart(n);
+    return [
+      "        .-'-.__________.-'-.",
+      "       /                    \\",
+      "      |    ~~   ~~~~   ~~    |",
+      pad(a1, 6) + "|   ~   ~~~   ~~~  ~   |" + (b1 || ""),
+      pad(a2, 6) + "|                      |" + (b2 || ""),
+      pad(a3, 6) + "|                      |" + (b3 || ""),
+      "      \\\\                    //",
+      "       '-.________________.-'",
+      "          _|          |_",
+      "         (__)        (__)",
+    ];
+  };
+  const BODY_CLS = ["b", "b", "b", "b", "b", "b", "b", "b", "b", "b"];
+  const stick = (line, col, ch) => line + " ".repeat(Math.max(0, col - line.length)) + ch;
+
+  const k1 = {
+    cls: ["v", "v", "b", "b", "b", "l", "l", "l", "l", "l", "l", "l", "l", ...BODY_CLS],
+    frame(f) {
+      const start = [21, 23, 25][f]; // the frond sways; the stick stays gripped
+      const head = [
+        " ".repeat(start) + ".~*~^~v~^~^~v~^~*~.",
+        "",
+        "       /\\             /\\",
+        "      /  \\           /  \\",
+        "     | /\\ \\__ ____ __/ /\\ |",
+        "      .----.        .----.",
+        "     /  /\\  \\      /  /\\  \\",
+        "     \\  \\/   \\    /   \\/  /",
+        "      \\       \\  /       /",
+        "       \\    .-''''-.    /",
+        "        \\  (   ..   )  /",
+        "         '-.'-.__.-'.-'",
+        "             '----'",
+      ].map((l, i) => (i === 0 ? l : stick(l, 32, "|")));
+      const b = body("  ,", " ( ", "  '", "", "", "");
+      for (const i of [0, 1, 2, 3]) b[i] = stick(b[i], 32, "|");
+      b[4] += "--|"; // the right hand gripping the stick
+      return [...head, ...b];
+    },
+  };
+
+  const k2 = {
+    cls: ["b", "b", "b", "b", "l", "l", "l", "l", "l", "l", "l", "l", ...BODY_CLS],
+    frame(f) {
+      const L = [["  ,", " ( ", "  '"], [" \\ ", "  '", ""], ["  ,", " ( ", "  '"]][f];
+      const R = [["-.", "  )", " -'"], ["-.", "  )", " -'"], [" /", "-'", ""]][f];
+      return [
+        "       ,-,            ,-,",
+        "      /  (            )  \\",
+        "      \\   \\          /   /",
+        "     __\\   \\___  ___/   /__",
+        "              /\\",
+        "        _____/  \\_____",
+        "      o'              'o",
+        "        \\   ()    ()  /",
+        "        /             \\",
+        "       /  .    __    . \\",
+        "       \\ / \\  (--)  / \\ /",
+        "        o   \\/    \\/   o",
+        ...body(L[0], L[1], L[2], R[0], R[1], R[2]),
+      ];
+    },
+  };
+
+  const k3 = {
+    cls: ["b", "b", "b", "b", "l", "l", "l", "l", "l", "l", "l", "l", ...BODY_CLS],
+    frame(f) {
+      const eyeL = ["^", "^", "0"][f]; // the wink opens mid-wave
+      const R = [["-,", " |=@", " *@"], ["-,", " '=@*", ""], ["-@*", "", ""]][f];
+      return [
+        "       \\ /            \\ /",
+        "        |              | |",
+        "        |              |/",
+        "     ___|_____  _______|___",
+        "      .-~~--.  .--~~-.",
+        "     / --    \\/    -- \\",
+        "    | ~~   " + eyeL + "      O   ~ |",
+        "    |  --       __   -- |",
+        "     \\  ~~     (__)  ~ /",
+        "      '. --          .-'",
+        "        '-. ~  ~ _.-'",
+        "           '-..-'",
+        ...body(" ,", " @=", " *@", R[0], R[1], R[2]),
+      ];
+    },
+  };
+
+  // Paint one plain-text line into colored HTML.
+  const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function paint(line, cls) {
+    let h = esc(line);
+    if (cls === "l") {
+      // eye holes + mouths go dark: (), (--), (__), .., and lone ^ / O / 0
+      h = h
+        .replace(/\(--\)|\(__\)|\(\)|\.\./g, (m) => `<span class="e">${m}</span>`)
+        .replace(/ ([O0^]) /g, (m, c) => ` <span class="e">${c}</span> `);
+    }
+    h = h.replace(/@/g, '<span class="r">@</span>'); // berries
+    return `<span class="${cls}">${h}</span>`;
+  }
+
+  const koroks = [
+    { id: "k1", def: k1 },
+    { id: "k2", def: k2 },
+    { id: "k3", def: k3 },
   ];
-
-  // Right-branch positions, keyed by row: hanging at its side, swung out, held high.
-  const BRANCH_DOWN = {
-    12: s("k-v", "   ."),
-    13: s("k-v", "  /|"),
-    14: s("k-v", " /=") + s("k-r", "@"),
-    15: s("k-w", "  *"),
-    16: s("k-r", "   @"),
-  };
-  const BRANCH_MID = {
-    10: s("k-r", "     @"),
-    11: s("k-w", "    *") + s("k-v", "/"),
-    12: s("k-v", "   -/"),
-    13: s("k-v", "  -'"),
-  };
-  const BRANCH_HIGH = {
-    7: s("k-w", "   *") + s("k-r", "@"),
-    8: s("k-r", "  @") + s("k-v", "|") + s("k-w", "*"),
-    9: s("k-v", "   \\|/"),
-    10: s("k-v", "    |"),
-    11: s("k-v", "   /"),
-    12: s("k-v", "  /"),
-    13: s("k-v", " -'"),
-  };
-
-  const frame = (branch) => BASE.map((line, i) => line + (branch[i] || "")).join("\n");
+  const pick = koroks[Math.floor(Math.random() * koroks.length)];
   const korok = document.getElementById("korok");
-  const dance = [frame(BRANCH_DOWN), frame(BRANCH_MID), frame(BRANCH_HIGH), frame(BRANCH_MID)];
+  korok.className = pick.id;
+  const dance = [0, 1, 2, 1].map((f) =>
+    pick.def.frame(f).map((line, i) => paint(line, pick.def.cls[i] || "b")).join("\n"),
+  );
   korok.innerHTML = dance[0];
   if (!reduced) {
     let f = 0;
-    setInterval(() => { korok.innerHTML = dance[f = (f + 1) % dance.length]; }, 380);
+    setInterval(() => { korok.innerHTML = dance[f = (f + 1) % dance.length]; }, 420);
   }
 
   // ── The bubbles (the game): brown outlines drifting in the forest ──
@@ -239,8 +306,8 @@
   function pop(bubble, idx) {
     bubbles.splice(idx, 1);
     score++;
-    scoreEl.textContent = "seeds: " + score;
-    if (score === 10) hintEl.firstChild.textContent = "Ya ha ha! Ten seeds! Maybe apply? ";
+    scoreEl.textContent = score + (score === 1 ? " bubble" : " bubbles");
+    if (score === 10) hintEl.firstChild.textContent = "Ya ha ha! Ten bubbles! Maybe apply? ";
     if (!reduced) {
       for (let i = 0; i < 14; i++) {
         const a = (Math.PI * 2 * i) / 14;
@@ -302,13 +369,13 @@
       if (b.wait > 0) continue;
       const r = b.r * (1 + (reduced ? 0 : Math.sin(b.wob * 1.7) * 0.06));
       // Brown outlined bubble…
-      ctx.strokeStyle = `hsla(${b.hue}, 38%, 46%, 0.85)`;
+      ctx.strokeStyle = `hsla(${b.hue}, 42%, 34%, 0.8)`;
       ctx.lineWidth = 2 * DPR;
       ctx.beginPath();
       ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
       ctx.stroke();
       // …with a little glint so it reads as a bubble.
-      ctx.strokeStyle = `hsla(${b.hue}, 42%, 68%, 0.7)`;
+      ctx.strokeStyle = `hsla(${b.hue}, 45%, 24%, 0.5)`;
       ctx.lineWidth = 1.4 * DPR;
       ctx.beginPath();
       ctx.arc(b.x - r * 0.32, b.y - r * 0.32, r * 0.35, Math.PI * 0.8, Math.PI * 1.55);

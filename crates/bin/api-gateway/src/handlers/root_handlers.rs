@@ -26,11 +26,13 @@ mod tests {
     for external in ["src=\"http", "href=\"http://cdn", "@import", "fetch("] {
       assert!(!INDEX_HTML.contains(external), "unexpected external reference: {external}");
     }
-    // Content: the korok greeting + sprite (leaf-mask eye hole + berry branch frames), the
-    // three links, and the hiring note.
+    // Content: the korok greeting, all three sprite variants (picked at random client-side),
+    // the three links, and the hiring note.
     assert!(INDEX_HTML.contains("Ya ha ha! You found me!"));
-    assert!(INDEX_HTML.contains("(@)"), "missing the leaf-mask eye hole");
-    assert!(INDEX_HTML.contains("BRANCH_HIGH"), "missing the branch-wave frames");
+    assert!(INDEX_HTML.contains(".~*~^~v~"), "missing k1's frond umbrella");
+    for variant in ["const k1", "const k2", "const k3"] {
+      assert!(INDEX_HTML.contains(variant), "missing sprite {variant}");
+    }
     for link in ["foundation.ai", "discord.gg", "github.com"] {
       assert!(INDEX_HTML.contains(link), "missing link: {link}");
     }
