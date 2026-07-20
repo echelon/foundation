@@ -57,7 +57,34 @@ pub struct Config {
     /// link `{app_base_url}/reset-password?token=…`).
     pub app_base_url: String,
     pub email: EmailConfig,
+    /// Object storage (R2 in prod, minio locally). `None` when unconfigured — avatar mirroring
+    /// and uploads are disabled, not a boot failure.
+    pub storage: Option<StorageConfig>,
     pub providers: ProviderKeys,
+}
+
+/// S3-compatible object storage settings. For R2: endpoint
+/// `https://{account_id}.r2.cloudflarestorage.com`, region `auto`.
+#[derive(Clone)]
+pub struct StorageConfig {
+    pub endpoint: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub bucket_name: String,
+    pub region: String,
+}
+
+// Debug redacts the secret so it can't leak through `{:?}` on Config.
+impl std::fmt::Debug for StorageConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageConfig")
+            .field("endpoint", &self.endpoint)
+            .field("access_key_id", &self.access_key_id)
+            .field("secret_access_key", &"<redacted>")
+            .field("bucket_name", &self.bucket_name)
+            .field("region", &self.region)
+            .finish()
+    }
 }
 
 /// Email-sending config (email.md §1). A missing `resend_api_key` means email is unconfigured —
@@ -149,6 +176,18 @@ impl Config {
                 resend_api_key: opt("RESEND_API_KEY"),
                 from_address: std::env::var("EMAIL_FROM_ADDRESS")
                     .unwrap_or_else(|_| "Foundation <noreply@localhost>".into()),
+            },
+            storage: match (opt("R2_ENDPOINT"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY"), opt("R2_BUCKET_NAME")) {
+                (Some(endpoint), Some(access_key_id), Some(secret_access_key), Some(bucket_name)) => {
+                    Some(StorageConfig {
+                        endpoint,
+                        access_key_id,
+                        secret_access_key,
+                        bucket_name,
+                        region: opt("R2_REGION").unwrap_or_else(|| "auto".into()),
+                    })
+                }
+                _ => None,
             },
             providers: ProviderKeys {
                 kinovi: opt("KINOVI_API_KEY"),

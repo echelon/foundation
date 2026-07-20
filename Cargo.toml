@@ -16,6 +16,9 @@ members = [
   "crates/clients/google_client",
   "crates/clients/anthropic_client",
   "crates/clients/email_client",
+  "crates/clients/bucket_client",
+  # ── storage pathing (pure) ──
+  "crates/core/bucket-paths",
   # data-layer query crate
   "crates/db-queries",
   # ── deployables ──
@@ -40,6 +43,10 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 # http client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+# object storage (S3-compatible: R2, minio)
+rust-s3 = { version = "0.36.0-beta.2", default-features = false, features = ["fail-on-err", "tags", "tokio-rustls-tls"] }
+# image decode/crop/resize (avatars)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 # serde
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -73,6 +80,8 @@ openai_client = { path = "crates/clients/openai_client" }
 google_client = { path = "crates/clients/google_client" }
 anthropic_client = { path = "crates/clients/anthropic_client" }
 email_client = { path = "crates/clients/email_client" }
+bucket_client = { path = "crates/clients/bucket_client" }
+bucket_paths = { path = "crates/core/bucket-paths" }
 db_queries = { path = "crates/db-queries" }
 
 [profile.dev]

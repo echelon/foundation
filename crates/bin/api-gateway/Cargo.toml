@@ -30,7 +30,12 @@ jsonwebtoken.workspace = true
 rand.workspace = true
 sha2.workspace = true
 hex.workspace = true
+# image decode/crop/resize (avatars)
+image.workspace = true
 # internal
+client-core.workspace = true
+bucket_client.workspace = true
+bucket_paths.workspace = true
 config.workspace = true
 catalog.workspace = true
 db.workspace = true

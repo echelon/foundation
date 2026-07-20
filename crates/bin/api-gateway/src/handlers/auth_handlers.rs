@@ -76,12 +76,17 @@ pub async fn logout(State(state): State<AppState>, auth: AuthContext) -> ApiResu
 }
 
 /// `GET /v1/auth/me` — the authenticated user (proves the middleware works end-to-end).
-pub async fn me(auth: AuthContext) -> Json<Value> {
-  Json(json!({
-    "user": user_json(&auth.user),
+/// Includes the avatar display `source` (accounts.md §2 precedence) so the frontend knows
+/// whether to load `/v1/auth/avatar` or fall back to the letter monogram.
+pub async fn me(State(state): State<AppState>, auth: AuthContext) -> crate::error::ApiResult<Json<Value>> {
+  let avatar = db_queries::user_avatars::find_user_avatar_by_user(&state.pool, &auth.user.id).await?;
+  let mut user = user_json(&auth.user);
+  user["avatar_source"] = avatar.map(|a| a.source).unwrap_or_else(|| "letter".into()).into();
+  Ok(Json(json!({
+    "user": user,
     "session_id": auth.session.id,
     "impersonation": auth.is_impersonation(),
-  }))
+  })))
 }
 
 /// `POST /v1/auth/oauth/{provider}/callback`

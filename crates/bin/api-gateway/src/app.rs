@@ -10,7 +10,9 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
-use crate::handlers::{account_handlers, auth_handlers, catalog_handlers, invitation_handlers, root_handlers};
+use crate::handlers::{
+  account_handlers, auth_handlers, avatar_handlers, catalog_handlers, invitation_handlers, root_handlers,
+};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
@@ -30,9 +32,25 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       .resend_api_key
       .clone()
       .map(|k| Arc::new(email_client::ResendApiKey::new(k))),
+    bucket: match &cfg.storage {
+      Some(s) => Some(
+        bucket_client::BucketClientBuilder::new()
+          .endpoint(&s.endpoint)
+          .access_key(&s.access_key_id)
+          .secret_key(&s.secret_access_key)
+          .region_name(&s.region)
+          .bucket_name(&s.bucket_name)
+          .build()
+          .map_err(|e| anyhow::anyhow!("bucket client: {e}"))?,
+      ),
+      None => None,
+    },
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
+  }
+  if state.bucket.is_none() {
+    tracing::warn!("R2 storage not configured — avatar uploads disabled, gravatars proxied");
   }
 
   let app = build_router(state);
@@ -86,10 +104,21 @@ pub fn build_router(state: AppState) -> Router {
       get(account_handlers::list_sessions).delete(account_handlers::revoke_sessions),
     )
     .route("/v1/auth/sessions/:id", delete(account_handlers::revoke_session))
+    // avatar: serve / upload+crop / remove / gravatar dismiss+restore
+    .route(
+      "/v1/auth/avatar",
+      get(avatar_handlers::get_my_avatar)
+        .post(avatar_handlers::upload_my_avatar)
+        .delete(avatar_handlers::remove_my_avatar),
+    )
+    .route("/v1/auth/avatar/gravatar/dismiss", post(avatar_handlers::dismiss_my_gravatar))
+    .route("/v1/auth/avatar/gravatar/restore", post(avatar_handlers::restore_my_gravatar))
     // accounts / invitations
     .route("/v1/accounts/:account_id/invitations", post(invitation_handlers::create_invitation))
     .route("/v1/invitations/:code_or_token", get(invitation_handlers::resolve_invitation))
     .route("/v1/invitations/:id/accept", post(invitation_handlers::accept_invitation))
+    // Avatar uploads carry whole photos; the axum default (2 MB) is too small.
+    .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
     .layer(cors)
     .layer(TraceLayer::new_for_http())
     .with_state(state)

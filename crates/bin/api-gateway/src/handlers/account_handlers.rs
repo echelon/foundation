@@ -177,3 +177,5 @@ pub async fn revoke_sessions(
   set_cookie_header(&mut resp, &cookie);
   Ok(resp)
 }
+
+// (avatar serving/upload/removal moved to `avatar_handlers` — accounts.md §2.)

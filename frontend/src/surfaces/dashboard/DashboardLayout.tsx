@@ -1,7 +1,18 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { CreditCard, KeyRound, LayoutDashboard, ListTree, Settings as SettingsIcon, Sparkles, Wallet } from "lucide-react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import {
+  CreditCard,
+  KeyRound,
+  LayoutDashboard,
+  ListTree,
+  LogOut,
+  Settings as SettingsIcon,
+  Sparkles,
+  Wallet,
+} from "lucide-react";
 import { Badge, Logo, ThemeToggle } from "@/components/ui";
-import { BALANCE, CURRENT_USER } from "@/lib/mock-api";
+import { UserAvatar } from "@/components/UserAvatar";
+import { BALANCE } from "@/lib/mock-api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 
 const NAV = [
@@ -13,6 +24,17 @@ const NAV = [
 ];
 
 export default function DashboardLayout() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // RequireAuth guarantees a user before this renders; the guard is just for type-safety.
+  if (!user) return null;
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/", { replace: true });
+  };
+
   return (
     <div className="min-h-screen bg-bg text-fg">
       <div className="flex">
@@ -63,20 +85,25 @@ export default function DashboardLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-bg/80 px-5 backdrop-blur sm:px-8">
             <div className="flex items-center gap-3">
-              <span className="font-display font-semibold">{CURRENT_USER.org}</span>
-              <Badge tone="brand">{CURRENT_USER.plan}</Badge>
+              <span className="font-display font-semibold">{user.display_name ?? user.email}</span>
+              {!user.email_verified && <Badge tone="amber">Email unverified</Badge>}
             </div>
             <div className="flex items-center gap-3">
               <ThemeToggle />
               <Link to="/dashboard/settings" className="flex items-center gap-2">
                 <span className="hidden text-right sm:block">
-                  <span className="block text-sm font-medium leading-tight">{CURRENT_USER.name}</span>
-                  <span className="block text-xs text-muted">{CURRENT_USER.email}</span>
+                  <span className="block text-sm font-medium leading-tight">{user.display_name ?? "—"}</span>
+                  <span className="block text-xs text-muted">{user.email}</span>
                 </span>
-                <span className="grid h-9 w-9 place-items-center rounded-full brand-gradient text-sm font-semibold text-white">
-                  {CURRENT_USER.avatarInitials}
-                </span>
+                <UserAvatar user={user} className="h-9 w-9 text-sm" />
               </Link>
+              <button
+                onClick={handleLogout}
+                title="Sign out"
+                className="rounded-lg p-2 text-muted transition hover:bg-surface2 hover:text-fg"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           </header>
           <main className="min-w-0 flex-1 px-5 py-8 sm:px-8">

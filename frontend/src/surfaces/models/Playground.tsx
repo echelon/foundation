@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { Loader2, Play, RotateCcw, Sparkles } from "lucide-react";
 import { Badge, Button, Card, Input, Label, Select, Slider, Textarea } from "@/components/ui";
+import { AccountModal } from "@/components/AccountModal";
+import { useAuth } from "@/lib/auth";
 import { mockGenerate, playgroundHistory, type GenerateResult, type PlayRun } from "@/lib/mock-api";
 import { MODALITY_LABEL, priceLabel, type Control, type Model } from "@/lib/catalog";
 import { cn } from "@/lib/cn";
@@ -22,14 +24,17 @@ function defaults(model: Model, initial?: Values): Values {
 }
 
 export function Playground({ model, initialValues }: { model: Model; initialValues?: Values }) {
+  const { user } = useAuth();
   const [values, setValues] = useState<Values>(() => defaults(model, initialValues));
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [sessionRuns, setSessionRuns] = useState<PlayRun[]>([]);
+  const [showAccountModal, setShowAccountModal] = useState(false);
 
   const set = (k: string, val: unknown) => setValues((v) => ({ ...v, [k]: val }));
 
-  const run = async () => {
+  // The actual generation — assumes the auth gate already passed.
+  const execute = async () => {
     setStatus("running");
     setResult(null);
     const r = await mockGenerate(model, values);
@@ -49,6 +54,16 @@ export function Playground({ model, initialValues }: { model: Model; initialValu
       },
       ...prev,
     ]);
+  };
+
+  // Playing (and paying) requires an account — anonymous visitors get the signup modal, which
+  // resumes the run via `execute` directly (no stale auth-state check) once they're signed in.
+  const run = async () => {
+    if (!user) {
+      setShowAccountModal(true);
+      return;
+    }
+    await execute();
   };
 
   const reset = () => {
@@ -128,6 +143,13 @@ export function Playground({ model, initialValues }: { model: Model; initialValu
     </div>
 
     <PlaygroundHistory model={model} sessionRuns={sessionRuns} />
+
+    <AccountModal
+      open={showAccountModal}
+      onClose={() => setShowAccountModal(false)}
+      onAuthed={() => void execute()}
+      reason={`Create a free account to run ${model.name} in the playground.`}
+    />
     </div>
   );
 }

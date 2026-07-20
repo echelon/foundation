@@ -23,4 +23,7 @@ pub struct AppState {
   /// Resend API key. `None` when email is unconfigured — flows that would send just log + no-op
   /// (the request still succeeds), which keeps local dev testable without a key.
   pub resend_api_key: Option<Arc<ResendApiKey>>,
+  /// Object storage (R2). `None` when unconfigured — avatar uploads/serving from the bucket are
+  /// disabled (uploads error clearly; gravatar display falls back to proxying).
+  pub bucket: Option<bucket_client::BucketClient>,
 }

@@ -18,6 +18,7 @@ pub mod password_resets;
 pub mod sessions;
 pub mod sso;
 pub mod user_audit_logs;
+pub mod user_avatar_files;
 pub mod user_avatars;
 pub mod users;
 
@@ -33,5 +34,6 @@ pub use password_resets::PasswordReset;
 pub use sessions::Session;
 pub use sso::SsoConnection;
 pub use user_audit_logs::UserAuditLog;
+pub use user_avatar_files::UserAvatarFile;
 pub use user_avatars::UserAvatar;
 pub use users::User;

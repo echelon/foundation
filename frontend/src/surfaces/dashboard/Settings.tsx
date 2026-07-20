@@ -1,99 +1,327 @@
-import { Button, Card, Input, Label, Select } from "@/components/ui";
-import { CURRENT_USER } from "@/lib/mock-api";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Laptop, Loader2, ShieldCheck } from "lucide-react";
+import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { UserAvatar } from "@/components/UserAvatar";
+import { api, ApiError, type ApiSession } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 export default function Settings() {
+  const { user } = useAuth();
+  if (!user) return null;
+
   return (
     <div className="max-w-3xl space-y-8">
       <div>
         <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="mt-1 text-muted">Manage your profile, organization, and preferences.</p>
+        <p className="mt-1 text-muted">Manage your profile, security, and sessions.</p>
       </div>
 
       {/* ── Profile ── */}
       <Card className="p-6">
         <h2 className="font-display font-semibold">Profile</h2>
         <div className="mt-4 flex items-center gap-4">
-          <span className="grid h-16 w-16 place-items-center rounded-full brand-gradient text-xl font-semibold text-white">
-            {CURRENT_USER.avatarInitials}
-          </span>
-          <Button variant="outline" size="sm">
-            Change avatar
-          </Button>
-        </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <UserAvatar user={user} className="h-16 w-16 text-xl" />
           <div>
-            <Label>Full name</Label>
-            <Input defaultValue={CURRENT_USER.name} />
-          </div>
-          <div>
-            <Label>Email</Label>
-            <Input type="email" defaultValue={CURRENT_USER.email} />
-          </div>
-        </div>
-        <div className="mt-5">
-          <Button>Save changes</Button>
-        </div>
-      </Card>
-
-      {/* ── Organization ── */}
-      <Card className="p-6">
-        <h2 className="font-display font-semibold">Organization</h2>
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label>Organization name</Label>
-            <Input defaultValue={CURRENT_USER.org} />
-          </div>
-          <div>
-            <Label hint="read-only">Organization ID</Label>
-            <Input defaultValue={CURRENT_USER.orgId} readOnly className="font-mono text-[13px] text-muted" />
-          </div>
-          <div>
-            <Label>Your role</Label>
-            <Select defaultValue={CURRENT_USER.role}>
-              <option value="owner">Owner</option>
-              <option value="admin">Admin</option>
-              <option value="member">Member</option>
-            </Select>
-          </div>
-          <div>
-            <Label>Default model region</Label>
-            <Select defaultValue="us">
-              <option value="us">United States</option>
-              <option value="eu">European Union</option>
-              <option value="apac">Asia-Pacific</option>
-            </Select>
+            <div className="text-sm font-medium">{user.display_name ?? "—"}</div>
+            <div className="flex items-center gap-2 text-sm text-muted">
+              {user.email}
+              {user.email_verified ? (
+                <Badge tone="green">verified</Badge>
+              ) : (
+                <Badge tone="amber">unverified</Badge>
+              )}
+            </div>
           </div>
         </div>
       </Card>
 
-      {/* ── Preferences ── */}
-      <Card className="p-6">
-        <h2 className="font-display font-semibold">Notifications</h2>
-        <div className="mt-4 space-y-3">
-          {[
-            { label: "Low-balance alerts", desc: "Email me before auto-reload triggers." },
-            { label: "Weekly usage summary", desc: "A digest of spend and top models." },
-            { label: "Product updates", desc: "New models and features." },
-          ].map((p, i) => (
-            <label key={p.label} className="flex items-center justify-between rounded-lg border border-border bg-surface2/40 px-4 py-3">
-              <div>
-                <div className="text-sm font-medium text-fg">{p.label}</div>
-                <div className="text-xs text-muted">{p.desc}</div>
-              </div>
-              <input type="checkbox" defaultChecked={i < 2} className="h-4 w-4 accent-[hsl(var(--brand))]" />
-            </label>
-          ))}
-        </div>
-      </Card>
-
-      {/* ── Danger zone ── */}
-      <Card className="border-rose-500/30 p-6">
-        <h2 className="font-display font-semibold text-rose-500">Danger zone</h2>
-        <p className="mt-2 text-sm text-muted">Permanently delete this organization and all associated data.</p>
-        <Button variant="outline" className="mt-4 border-rose-500/40 text-rose-500 hover:border-rose-500">
-          Delete organization
-        </Button>
-      </Card>
+      <ChangeEmailCard />
+      <ChangePasswordCard />
+      <SessionsCard />
     </div>
   );
+}
+
+/* ── Change email ── */
+
+function ChangeEmailCard() {
+  const { user, refresh } = useAuth();
+  const [newEmail, setNewEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setNotice(null);
+    try {
+      const r = await api.changeEmail(newEmail, password);
+      await refresh(); // email + verified flag changed
+      setNewEmail("");
+      setPassword("");
+      setNotice({ tone: "ok", text: `Email changed to ${r.email}. It's unverified until you confirm it.` });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <h2 className="font-display font-semibold">Email address</h2>
+      <p className="mt-1 text-sm text-muted">
+        Currently <span className="font-medium text-fg">{user?.email}</span>. Changing it resets verification and is
+        recorded in your account's audit log.
+      </p>
+      <form className="mt-4 grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+        <div>
+          <Label>New email</Label>
+          <Input
+            type="email"
+            placeholder="new@company.com"
+            value={newEmail}
+            onChange={(e) => setNewEmail(e.target.value)}
+            required
+          />
+        </div>
+        <div>
+          <Label hint="required to confirm it's you">Current password</Label>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+        </div>
+        <div className="sm:col-span-2">
+          <NoticeRow notice={notice} />
+          <Button type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Change email"}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+/* ── Change password ── */
+
+function ChangePasswordCard() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [logoutOthers, setLogoutOthers] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (next !== confirm) {
+      setNotice({ tone: "err", text: "New passwords don't match." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      await api.changePassword(current, next, logoutOthers);
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setNotice({
+        tone: "ok",
+        text: logoutOthers ? "Password changed. Other devices were signed out." : "Password changed.",
+      });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-brand" />
+        <h2 className="font-display font-semibold">Password</h2>
+      </div>
+      <form className="mt-4 grid gap-4 sm:grid-cols-3" onSubmit={submit}>
+        <div>
+          <Label>Current password</Label>
+          <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+        </div>
+        <div>
+          <Label>New password</Label>
+          <Input
+            type="password"
+            placeholder="At least 8 characters"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            required
+          />
+        </div>
+        <div>
+          <Label>Confirm new</Label>
+          <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required />
+        </div>
+        <div className="sm:col-span-3">
+          <label className="flex items-center gap-2 text-sm text-muted">
+            <input
+              type="checkbox"
+              checked={logoutOthers}
+              onChange={(e) => setLogoutOthers(e.target.checked)}
+              className="h-4 w-4 accent-[hsl(var(--brand))]"
+            />
+            Also sign out my other devices
+          </label>
+          <NoticeRow notice={notice} />
+          <Button type="submit" className="mt-3" disabled={busy}>
+            {busy ? "Saving…" : "Change password"}
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
+/* ── Sessions ── */
+
+function SessionsCard() {
+  const [sessions, setSessions] = useState<ApiSession[] | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.listSessions();
+      setSessions(r.sessions);
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Couldn't load sessions." });
+      setSessions([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const terminate = async (id: string) => {
+    setBusyId(id);
+    setNotice(null);
+    try {
+      await api.revokeSession(id);
+      await load();
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Couldn't terminate that session." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const terminateOthers = async () => {
+    setBusyId("others");
+    setNotice(null);
+    try {
+      await api.revokeOtherSessions();
+      await load();
+      setNotice({ tone: "ok", text: "All other sessions were signed out." });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Couldn't sign out other sessions." });
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display font-semibold">Sessions</h2>
+        <Button variant="outline" size="sm" onClick={terminateOthers} disabled={busyId !== null}>
+          {busyId === "others" ? "Signing out…" : "Sign out other sessions"}
+        </Button>
+      </div>
+      <p className="mt-1 text-sm text-muted">Everywhere you're currently signed in.</p>
+      <NoticeRow notice={notice} />
+
+      {sessions === null ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading sessions…
+        </div>
+      ) : sessions.length === 0 ? (
+        <p className="mt-4 text-sm text-muted">No live sessions found.</p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {sessions.map((s) => (
+            <div
+              key={s.id}
+              className="flex items-center justify-between rounded-lg border border-border bg-surface2/40 px-4 py-3"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <Laptop className="h-4 w-4 shrink-0 text-muted" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-medium text-fg">
+                    <span className="truncate">{describeAgent(s.user_agent)}</span>
+                    {s.this_device && <Badge tone="brand">this device</Badge>}
+                  </div>
+                  <div className="truncate text-xs text-muted">
+                    {s.ip ?? "unknown ip"} · signed in {shortDate(s.created_at)}
+                  </div>
+                </div>
+              </div>
+              {!s.this_device && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => terminate(s.id)}
+                  disabled={busyId !== null}
+                  className="shrink-0 border-rose-500/40 text-rose-500 hover:border-rose-500"
+                >
+                  {busyId === s.id ? "…" : "Terminate"}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ── Small helpers ── */
+
+type Notice = { tone: "ok" | "err"; text: string } | null;
+
+function NoticeRow({ notice }: { notice: Notice }): ReactNode {
+  if (!notice) return null;
+  return (
+    <p
+      className={
+        notice.tone === "ok"
+          ? "mt-3 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-500"
+          : "mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500"
+      }
+    >
+      {notice.text}
+    </p>
+  );
+}
+
+function describeAgent(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  if (ua.includes("iPhone")) return "iPhone";
+  if (ua.includes("Android")) return "Android";
+  if (ua.includes("Macintosh")) return uaBrowser(ua, "Mac");
+  if (ua.includes("Windows")) return uaBrowser(ua, "Windows");
+  if (ua.includes("Linux")) return uaBrowser(ua, "Linux");
+  return ua.slice(0, 48);
+}
+
+function uaBrowser(ua: string, os: string): string {
+  if (ua.includes("Edg/")) return `Edge on ${os}`;
+  if (ua.includes("Firefox/")) return `Firefox on ${os}`;
+  if (ua.includes("Chrome/")) return `Chrome on ${os}`;
+  if (ua.includes("Safari/")) return `Safari on ${os}`;
+  return os;
+}
+
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " +
+    d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }

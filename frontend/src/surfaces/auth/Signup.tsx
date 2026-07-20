@@ -1,9 +1,33 @@
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button, Input, Label } from "@/components/ui";
+import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { AuthCard, Divider, SsoRow } from "./AuthCard";
 
 export default function Signup() {
   const navigate = useNavigate();
+  const { signup } = useAuth();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await signup(email, password, name || undefined);
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <AuthCard
       title="Create your account"
@@ -19,27 +43,34 @@ export default function Signup() {
     >
       <SsoRow />
       <Divider />
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          navigate("/dashboard");
-        }}
-      >
+      <form className="space-y-4" onSubmit={submit}>
         <div>
           <Label>Full name</Label>
-          <Input placeholder="Ada Rivera" required />
+          <Input placeholder="Ada Rivera" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
           <Label>Work email</Label>
-          <Input type="email" placeholder="you@company.com" required />
+          <Input
+            type="email"
+            placeholder="you@company.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </div>
         <div>
           <Label>Password</Label>
-          <Input type="password" placeholder="At least 12 characters" required />
+          <Input
+            type="password"
+            placeholder="At least 8 characters"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </div>
-        <Button type="submit" className="w-full">
-          Create account
+        {error && <p className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500">{error}</p>}
+        <Button type="submit" className="w-full" disabled={busy}>
+          {busy ? "Creating account…" : "Create account"}
         </Button>
         <p className="text-center text-xs text-muted">
           By continuing you agree to the{" "}

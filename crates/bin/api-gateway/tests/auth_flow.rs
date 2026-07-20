@@ -24,6 +24,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     app_base_url: "http://localhost:3000".into(),
     email_from: "Foundation <noreply@localhost>".into(),
     resend_api_key: None, // email sends log + no-op in tests
+    bucket: None,         // storage off — avatar uploads error, gravatars proxy
   };
   (api_gateway::build_router(state), pool)
 }
