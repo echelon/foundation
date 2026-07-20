@@ -774,6 +774,11 @@ pub async fn update_business_name(
   ip: Option<&str>,
 ) -> ApiResult<Account> {
   let mut tx = pool.begin().await?;
+  // Read the outgoing value inside the tx so the audit row's before/after can't race a
+  // concurrent change ({"from", "to"} — the display_name_changed convention).
+  let before = accounts::find_account_by_id(&mut *tx, account_id)
+    .await?
+    .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
   let account = accounts::set_business_name(&mut *tx, account_id, business_name)
     .await?
     .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
@@ -786,7 +791,7 @@ pub async fn update_business_name(
       event: AuditEvent::BusinessNameChanged,
       target_type: None,
       target_id: None,
-      data: Some(serde_json::json!({ "business_name": business_name })),
+      data: Some(serde_json::json!({ "from": before.business_name, "to": account.business_name })),
       ip,
     },
   )

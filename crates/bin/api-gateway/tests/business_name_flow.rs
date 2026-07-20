@@ -114,7 +114,7 @@ async fn join_as(app: &Router, owner_cookie: &str, account_id: &ids::AccountId, 
 #[tokio::test]
 async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_business_name() {
   let (app, pool) = app_and_pool().await;
-  let (owner_cookie, _owner_id, account_id) = signup_owner(&app, &pool).await;
+  let (owner_cookie, owner_id, account_id) = signup_owner(&app, &pool).await;
 
   // Signup minted a "Adjective Noun" placeholder; business_name starts null.
   let account = db_queries::accounts::find_account_by_id(&pool, &account_id).await.unwrap().unwrap();
@@ -164,15 +164,28 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
   assert_eq!(cleared["business_name"], Value::Null);
   assert_eq!(cleared["placeholder_business_name"], account.placeholder_business_name);
 
-  // The change is audited on the account trail.
+  // Both changes are audited on the account trail with WHO and before/after values.
+  // Newest first: [0] = the clear, [1] = the set.
   let audit = app
     .clone()
     .oneshot(req("GET", &format!("/v1/accounts/{account_id}/audit_logs"), None, Some(&owner_cookie)))
     .await
     .unwrap();
   let audit = body_json(audit).await;
-  let events: Vec<&str> = audit["items"].as_array().unwrap().iter().map(|i| i["event"].as_str().unwrap()).collect();
-  assert!(events.contains(&"business_name_changed"), "events: {events:?}");
+  let changes: Vec<&Value> = audit["items"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|i| i["event"] == "business_name_changed")
+    .collect();
+  assert_eq!(changes.len(), 2, "expected the set + the clear: {audit:#?}");
+  for change in &changes {
+    assert_eq!(change["actor_user_id"], owner_id.to_string(), "audit must record who changed it");
+  }
+  assert_eq!(changes[0]["data"]["from"], "Acme Corporation");
+  assert_eq!(changes[0]["data"]["to"], Value::Null);
+  assert_eq!(changes[1]["data"]["from"], Value::Null);
+  assert_eq!(changes[1]["data"]["to"], "Acme Corporation");
 }
 
 #[tokio::test]
