@@ -3,8 +3,10 @@ import { ArrowRight, Activity, DollarSign, TrendingUp, Users } from "lucide-reac
 import { Badge, Button, Card } from "@/components/ui";
 import { RequestRow } from "./RequestBits";
 import { BALANCE, REQUESTS, USAGE_14D, END_USERS } from "@/lib/mock-api";
+import { useOrg } from "@/lib/org";
 
 export default function Overview() {
+  const { withScope } = useOrg();
   const totalReq = USAGE_14D.reduce((s, d) => s + d.requests, 0);
   const maxSpend = Math.max(...USAGE_14D.map((d) => d.spend));
   const recent = REQUESTS.slice(0, 6);
@@ -58,7 +60,7 @@ export default function Overview() {
             <h2 className="font-display font-semibold">Recent requests</h2>
             <p className="text-sm text-muted">Everything that transited the account.</p>
           </div>
-          <Link to="/dashboard/requests">
+          <Link to={withScope("/requests")}>
             <Button variant="ghost" size="sm">
               View all <ArrowRight className="h-4 w-4" />
             </Button>

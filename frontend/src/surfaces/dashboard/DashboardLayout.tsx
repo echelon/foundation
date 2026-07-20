@@ -18,14 +18,16 @@ import { useAuth } from "@/lib/auth";
 import { OrgProvider, useOrg } from "@/lib/org";
 import { cn } from "@/lib/cn";
 
+/** Account-scoped pages — hrefs are built via `withScope` so multi-org users keep the
+ * `/dashboard/{account_id}/…` prefix as they navigate. User Settings is user-scoped and
+ * rendered separately with a fixed URL. */
 const NAV = [
-  { to: "/dashboard", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/dashboard/requests", label: "Requests", icon: ListTree },
-  { to: "/dashboard/keys", label: "API keys", icon: KeyRound },
-  { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
-  { to: "/dashboard/organization", label: "Organization", icon: Users },
-  { to: "/dashboard/audit", label: "Audit log", icon: ScrollText },
-  { to: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
+  { rest: "", label: "Overview", icon: LayoutDashboard, end: true },
+  { rest: "/requests", label: "Requests", icon: ListTree },
+  { rest: "/keys", label: "API keys", icon: KeyRound },
+  { rest: "/billing", label: "Billing", icon: CreditCard },
+  { rest: "/organization", label: "Organization", icon: Users },
+  { rest: "/audit", label: "Audit log", icon: ScrollText },
 ];
 
 /** Scope switcher for users who belong to multiple organizations. */
@@ -58,8 +60,15 @@ export default function DashboardLayout() {
   );
 }
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+    isActive ? "bg-brand/12 text-brand" : "text-muted hover:bg-surface2 hover:text-fg",
+  );
+
 function DashboardShell() {
   const { user, logout } = useAuth();
+  const { withScope } = useOrg();
   const navigate = useNavigate();
 
   // RequireAuth guarantees a user before this renders; the guard is just for type-safety.
@@ -80,21 +89,15 @@ function DashboardShell() {
           </div>
           <nav className="flex-1 space-y-1 px-3">
             {NAV.map((n) => (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                end={n.end}
-                className={({ isActive }) =>
-                  cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                    isActive ? "bg-brand/12 text-brand" : "text-muted hover:bg-surface2 hover:text-fg",
-                  )
-                }
-              >
+              <NavLink key={n.rest} to={withScope(n.rest)} end={n.end} className={navLinkClass}>
                 <n.icon className="h-4 w-4" />
                 {n.label}
               </NavLink>
             ))}
+            <NavLink to="/dashboard/user/settings" className={navLinkClass}>
+              <SettingsIcon className="h-4 w-4" />
+              User Settings
+            </NavLink>
             <Link
               to="/models"
               className="mt-2 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted transition hover:bg-surface2 hover:text-fg"
@@ -110,7 +113,7 @@ function DashboardShell() {
               <Wallet className="h-3.5 w-3.5" /> Credits
             </div>
             <div className="mt-1 font-display text-xl font-bold">${BALANCE.credits.toFixed(2)}</div>
-            <Link to="/dashboard/billing" className="mt-2 block text-xs font-medium text-brand hover:underline">
+            <Link to={withScope("/billing")} className="mt-2 block text-xs font-medium text-brand hover:underline">
               Add credits →
             </Link>
           </div>
@@ -125,7 +128,7 @@ function DashboardShell() {
             </div>
             <div className="flex items-center gap-3">
               <ThemeToggle />
-              <Link to="/dashboard/settings" className="flex items-center gap-2">
+              <Link to="/dashboard/user/settings" className="flex items-center gap-2">
                 <span className="hidden text-right sm:block">
                   <span className="block text-sm font-medium leading-tight">{user.display_name ?? "—"}</span>
                   <span className="block text-xs text-muted">{user.email}</span>

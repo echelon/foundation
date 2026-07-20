@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Input, Label } from "@/components/ui";
 import { api, ApiError, type ApiInvitation } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { rememberLastAccount } from "@/lib/org";
 import { AuthCard } from "./AuthCard";
 
 /**
@@ -118,6 +119,7 @@ function ConfirmJoin({ invite, orgName, sessionEmail }: { invite: ApiInvitation;
     setErr(null);
     try {
       await api.acceptInvitation(invite.invitation_id);
+      rememberLastAccount(invite.account_id); // scope the dashboard to the org just joined
       navigate("/dashboard/organization", { replace: true });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Couldn't accept the invitation — try again.");
@@ -168,6 +170,7 @@ function LoginAndJoin({ invite, orgName }: { invite: ApiInvitation; orgName: str
     try {
       await login(email, password);
       await api.acceptInvitation(invite.invitation_id);
+      rememberLastAccount(invite.account_id); // scope the dashboard to the org just joined
       navigate("/dashboard/organization", { replace: true });
     } catch (e2) {
       setErr(e2 instanceof ApiError ? e2.message : "Something went wrong — try again.");
@@ -222,6 +225,7 @@ function SignupAndJoin({ invite, orgName, credential }: { invite: ApiInvitation;
     try {
       // The backend accepts the invitation inside the signup transaction.
       await signup(invite.email, password, name || undefined, credential);
+      rememberLastAccount(invite.account_id); // scope the dashboard to the org just joined
       navigate("/dashboard/organization", { replace: true });
     } catch (e2) {
       setErr(e2 instanceof ApiError ? e2.message : "Something went wrong — try again.");

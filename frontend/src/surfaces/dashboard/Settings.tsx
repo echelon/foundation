@@ -13,7 +13,7 @@ export default function Settings() {
   return (
     <div className="max-w-3xl space-y-8">
       <div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
+        <h1 className="font-display text-3xl font-bold tracking-tight">User settings</h1>
         <p className="mt-1 text-muted">Manage your profile, security, and sessions.</p>
       </div>
 

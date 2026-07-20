@@ -84,13 +84,17 @@ export default function App() {
             </ThemeProvider>
           }
         >
-          <Route path="/dashboard" element={<Overview />} />
-          <Route path="/dashboard/requests" element={<Requests />} />
-          <Route path="/dashboard/billing" element={<Billing />} />
-          <Route path="/dashboard/keys" element={<Keys />} />
-          <Route path="/dashboard/organization" element={<Organization />} />
-          <Route path="/dashboard/audit" element={<AuditLogPage />} />
-          <Route path="/dashboard/settings" element={<Settings />} />
+          {/* Account-scoped pages. `:accountId?` (an `acct_…` id) appears for multi-org
+              users and is omitted for single-org users; OrgProvider canonicalizes. */}
+          <Route path="/dashboard/:accountId?" element={<Overview />} />
+          <Route path="/dashboard/:accountId?/requests" element={<Requests />} />
+          <Route path="/dashboard/:accountId?/billing" element={<Billing />} />
+          <Route path="/dashboard/:accountId?/keys" element={<Keys />} />
+          <Route path="/dashboard/:accountId?/organization" element={<Organization />} />
+          <Route path="/dashboard/:accountId?/audit" element={<AuditLogPage />} />
+          {/* User-scoped (never carries an account id). */}
+          <Route path="/dashboard/user/settings" element={<Settings />} />
+          <Route path="/dashboard/settings" element={<Navigate to="/dashboard/user/settings" replace />} />
         </Route>
       </Route>
 
