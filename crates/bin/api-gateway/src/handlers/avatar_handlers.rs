@@ -190,6 +190,15 @@ pub async fn restore_my_gravatar(State(state): State<AppState>, auth: AuthContex
   respond(&state, &auth).await
 }
 
+/// `POST /v1/auth/avatar/gravatar/refresh` — re-request the gravatar: resets the poll marker so
+/// the gravatar-job fetches it again on its next pass (typically within seconds). The current
+/// mirror keeps displaying until the re-poll replaces or clears it; `avatar.gravatar_checked`
+/// stays false in the meantime so clients can show "checking…".
+pub async fn refresh_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
+  user_avatars::request_gravatar_repoll(&state.pool, &auth.user.id).await?;
+  respond(&state, &auth).await
+}
+
 /// Every mutation answers with the resulting avatar (source + CDN links).
 async fn respond(state: &AppState, auth: &AuthContext) -> ApiResult<Json<Value>> {
   let avatar = avatar_info(state, &auth.user.id).await?;

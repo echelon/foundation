@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { Laptop, Loader2, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Laptop, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
+import { AvatarEditorModal } from "@/components/AvatarEditorModal";
 import { UserAvatar } from "@/components/UserAvatar";
 import { api, ApiError, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -33,11 +34,120 @@ export default function Settings() {
             </div>
           </div>
         </div>
+        <AvatarManager />
       </Card>
 
       <ChangeEmailCard />
       <ChangePasswordCard />
       <SessionsCard />
+    </div>
+  );
+}
+
+/* ── Avatar management ── */
+
+function AvatarManager() {
+  const { user, refresh } = useAuth();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [editing, setEditing] = useState<File | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const avatar = user?.avatar;
+
+  // Run one avatar mutation with busy/notice handling, then refresh the user.
+  const act = async (key: string, fn: () => Promise<unknown>, okText?: string) => {
+    setBusy(key);
+    setNotice(null);
+    try {
+      await fn();
+      await refresh();
+      if (okText) setNotice({ tone: "ok", text: okText });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const pickFile = (files: FileList | null) => {
+    const file = files?.[0];
+    if (file) setEditing(file);
+    if (fileInput.current) fileInput.current.value = ""; // allow re-picking the same file
+  };
+
+  return (
+    <div className="mt-5 border-t border-border pt-4">
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => pickFile(e.target.files)}
+      />
+
+      {/* Photo controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
+          {avatar?.has_custom ? "Replace photo" : "Upload photo"}
+        </Button>
+        {avatar?.has_custom && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => act("remove", api.removeAvatar, "Photo removed.")}
+            disabled={busy !== null}
+            className="border-rose-500/40 text-rose-500 hover:border-rose-500"
+          >
+            {busy === "remove" ? "…" : "Remove photo"}
+          </Button>
+        )}
+      </div>
+
+      {/* Gravatar controls */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted">Gravatar:</span>
+        {avatar?.has_gravatar && !avatar.is_gravatar_dismissed && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => act("dismiss", api.dismissGravatar, "Gravatar hidden. It's kept — re-enable any time.")}
+            disabled={busy !== null}
+          >
+            {busy === "dismiss" ? "…" : "Hide"}
+          </Button>
+        )}
+        {avatar?.is_gravatar_dismissed && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => act("restore", api.restoreGravatar, "Gravatar re-enabled.")}
+            disabled={busy !== null}
+          >
+            {busy === "restore" ? "…" : "Re-enable"}
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            act("refresh", api.refreshGravatar, "Checking gravatar.com — this takes a few seconds; reload to see the result.")
+          }
+          disabled={busy !== null}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          {busy === "refresh" ? "…" : "Refresh"}
+        </Button>
+        {avatar && !avatar.gravatar_checked && <Badge tone="amber">checking…</Badge>}
+        {avatar?.has_gravatar && avatar.is_gravatar_dismissed && <Badge tone="muted">hidden</Badge>}
+        {avatar?.source === "gravatar" && <Badge tone="green">showing</Badge>}
+      </div>
+
+      <NoticeRow notice={notice} />
+
+      {editing && (
+        <AvatarEditorModal file={editing} onClose={() => setEditing(null)} onSaved={() => refresh()} />
+      )}
     </div>
   );
 }

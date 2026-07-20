@@ -53,15 +53,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // login/signup responses don't carry the avatar — backfill from /me in the background.
+  const backfill = () => void api.me().then((m) => setUser(m.user)).catch(() => {});
+
   const login = useCallback(async (email: string, password: string) => {
     const r = await api.login(email, password);
     setUser(r.user);
+    backfill();
     return r.user;
   }, []);
 
   const signup = useCallback(async (email: string, password: string, displayName?: string) => {
     const r = await api.signup(email, password, displayName);
     setUser(r.user);
+    backfill();
     return r.user;
   }, []);
 

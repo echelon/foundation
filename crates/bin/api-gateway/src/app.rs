@@ -127,6 +127,7 @@ pub fn build_router(state: AppState) -> Router {
     )
     .route("/v1/auth/avatar/gravatar/dismiss", post(avatar_handlers::dismiss_my_gravatar))
     .route("/v1/auth/avatar/gravatar/restore", post(avatar_handlers::restore_my_gravatar))
+    .route("/v1/auth/avatar/gravatar/refresh", post(avatar_handlers::refresh_my_gravatar))
     // accounts / invitations
     .route("/v1/accounts/:account_id/invitations", post(invitation_handlers::create_invitation))
     .route("/v1/invitations/:code_or_token", get(invitation_handlers::resolve_invitation))

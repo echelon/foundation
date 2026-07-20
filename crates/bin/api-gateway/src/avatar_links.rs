@@ -26,18 +26,33 @@ pub struct AvatarLinks {
   pub thumbnail_template: String,
 }
 
-/// The avatar as APIs report it: the display `source` plus CDN links when an image backs it
-/// (`links` is `null` for letter/generated monograms — the client renders those itself).
+/// The avatar as APIs report it: the display `source`, CDN links when an image backs it
+/// (`links` is `null` for letter/generated monograms — the client renders those itself), and the
+/// state flags the settings UI needs to offer upload/remove/dismiss/re-enable/refresh.
 #[derive(Debug, Clone, Serialize)]
 pub struct AvatarInfo {
   pub source: String,
   pub links: Option<AvatarLinks>,
+  /// A custom upload exists (may or may not be displaying).
+  pub has_custom: bool,
+  /// A mirrored gravatar exists (may be dismissed or outranked by a custom upload).
+  pub has_gravatar: bool,
+  pub is_gravatar_dismissed: bool,
+  /// False while a gravatar (re-)poll is pending — the job hasn't checked yet.
+  pub gravatar_checked: bool,
 }
 
 /// Resolve a user's avatar into its API shape (accounts.md §2 display precedence).
 pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<AvatarInfo> {
   let Some(avatar) = user_avatars::find_user_avatar_by_user(&state.pool, user_id).await? else {
-    return Ok(AvatarInfo { source: "letter".into(), links: None });
+    return Ok(AvatarInfo {
+      source: "letter".into(),
+      links: None,
+      has_custom: false,
+      has_gravatar: false,
+      is_gravatar_dismissed: false,
+      gravatar_checked: false,
+    });
   };
 
   // Which file backs the display source?
@@ -53,7 +68,14 @@ pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<Avatar
       .map(|file| links_for_file(state, &file)),
     None => None,
   };
-  Ok(AvatarInfo { source: avatar.source, links })
+  Ok(AvatarInfo {
+    source: avatar.source,
+    links,
+    has_custom: avatar.custom_file_id.is_some(),
+    has_gravatar: avatar.gravatar_file_id.is_some(),
+    is_gravatar_dismissed: avatar.is_gravatar_dismissed,
+    gravatar_checked: avatar.gravatar_checked_at.is_some(),
+  })
 }
 
 /// Build the CDN links for one stored avatar file.

@@ -34,14 +34,14 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function send<T>(method: string, path: string, init: { headers?: Record<string, string>; body?: BodyInit }): Promise<T> {
   let resp: Response;
   try {
     resp = await fetch(`${API_BASE_URL}${path}`, {
       method,
       credentials: "include",
-      headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      headers: init.headers,
+      body: init.body,
     });
   } catch {
     throw new ApiError(0, "network", `Could not reach the API at ${API_BASE_URL}. Is the server running?`);
@@ -54,6 +54,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return json as T;
 }
 
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return send(
+    method,
+    path,
+    body !== undefined
+      ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : {},
+  );
+}
+
 /* ── Types (mirror the gateway's JSON) ── */
 
 /** CDN links to an avatar image. `thumbnail_template` carries a `{WIDTH}` placeholder (in dev
@@ -63,11 +73,22 @@ export type AvatarLinks = {
   thumbnail_template: string;
 };
 
-/** The avatar as APIs report it: display source + CDN links (null → render the monogram). */
+/** The avatar as APIs report it: display source + CDN links (null → render the monogram),
+ * plus the state flags the settings UI needs. */
 export type ApiAvatar = {
   source: string;
   links: AvatarLinks | null;
+  /** A custom upload exists (may or may not be displaying). */
+  has_custom: boolean;
+  /** A mirrored gravatar exists (may be dismissed or outranked by a custom upload). */
+  has_gravatar: boolean;
+  is_gravatar_dismissed: boolean;
+  /** False while a gravatar (re-)poll is pending — the background job hasn't checked yet. */
+  gravatar_checked: boolean;
 };
+
+/** Crop rect in source-image pixels (square — encodes zoom + translate of a square viewport). */
+export type AvatarCrop = { x: number; y: number; size: number };
 
 export type ApiUser = {
   id: string;
@@ -133,6 +154,24 @@ export const api = {
       new_password: newPassword,
       logout_other_sessions: logoutOtherSessions,
     }),
+
+  /* ── Avatar ── */
+
+  /** Upload/replace the avatar. Body is the raw file; `crop` (source pixels) encodes the
+   * square viewport's zoom + pan — omitted, the server center-crops the largest square. */
+  uploadAvatar: (file: Blob, crop?: AvatarCrop) => {
+    const params = crop ? `?crop_x=${crop.x}&crop_y=${crop.y}&crop_size=${crop.size}` : "";
+    return send<{ ok: boolean; avatar: ApiAvatar }>("POST", `/v1/auth/avatar${params}`, { body: file });
+  },
+
+  removeAvatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("DELETE", "/v1/auth/avatar"),
+
+  dismissGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/dismiss"),
+
+  restoreGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/restore"),
+
+  /** Re-request the gravatar — the background job re-fetches within seconds. */
+  refreshGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/refresh"),
 
   /* ── Sessions ── */
 

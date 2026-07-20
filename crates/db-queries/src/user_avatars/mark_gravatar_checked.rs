@@ -1,12 +1,14 @@
 use ids::UserId;
 use sqlx::PgExecutor;
 
-/// Record the result of a gravatar existence probe (gravatar-job). Always stamps
-/// `gravatar_checked_at = now()` so the row leaves the unpolled set. When a gravatar exists and the
-/// user hasn't set a custom avatar, promote `source` to `gravatar` so consoles display it.
+/// Record the result of a gravatar existence probe (gravatar-job, storage-less fallback path).
+/// Always stamps `gravatar_checked_at = now()` so the row leaves the unpolled set.
 ///
-/// NOTE: byte-mirroring into `user_avatar_files` (accounts.md §2) needs object storage that isn't
-/// wired yet; until then this records existence only. Returns rows affected.
+///   - found: promote `source` to `gravatar` unless a custom avatar outranks it.
+///   - not found: clear any stale mirror (the user deleted their gravatar remotely) and demote
+///     a displaying `gravatar` source back to the monogram.
+///
+/// Returns rows affected.
 pub async fn mark_gravatar_checked<'e, E: PgExecutor<'e>>(
   exec: E,
   user_id: &UserId,
@@ -15,8 +17,10 @@ pub async fn mark_gravatar_checked<'e, E: PgExecutor<'e>>(
   let result = sqlx::query!(
     r#"UPDATE user_avatars
        SET gravatar_checked_at = now(),
+           gravatar_file_id = CASE WHEN $2 THEN gravatar_file_id ELSE NULL END,
            source = CASE
-                      WHEN $2 AND source <> 'custom' THEN 'gravatar'
+                      WHEN $2 AND source <> 'custom' AND NOT is_gravatar_dismissed THEN 'gravatar'
+                      WHEN NOT $2 AND source = 'gravatar' THEN 'letter'
                       ELSE source
                     END,
            updated_at = now()
