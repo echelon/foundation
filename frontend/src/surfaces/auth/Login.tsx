@@ -1,20 +1,27 @@
 import { useState, type FormEvent } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Input, Label } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { safeRedirectPath } from "@/lib/redirect";
 import { AuthCard, Divider, SsoRow } from "./AuthCard";
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [params] = useSearchParams();
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const from = (location.state as { from?: string } | null)?.from ?? "/dashboard";
+  // Post-login destination: a safe same-origin ?redirect_to, else where RequireAuth
+  // bounced them from, else the dashboard.
+  const from =
+    safeRedirectPath(params.get("redirect_to")) ??
+    (location.state as { from?: string } | null)?.from ??
+    "/dashboard";
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -37,7 +44,7 @@ export default function Login() {
       footer={
         <>
           New here?{" "}
-          <Link to="/signup" className="font-medium text-brand hover:underline">
+          <Link to={`/signup${location.search}`} className="font-medium text-brand hover:underline">
             Create an account
           </Link>
         </>

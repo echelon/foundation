@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "@/lib/theme";
 import { AuthProvider } from "@/lib/auth";
 import { RequireAuth } from "@/components/RequireAuth";
+import { GuestOnly } from "@/components/GuestOnly";
 
 import MarketingLayout from "@/surfaces/marketing/MarketingLayout";
 import Landing from "@/surfaces/marketing/Landing";
@@ -64,11 +65,17 @@ export default function App() {
           </ThemeProvider>
         }
       >
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
+        {/* Sessionless pages: a logged-in user is redirected away (to ?redirect_to when
+            it's a safe same-origin path, else the dashboard). */}
+        <Route element={<GuestOnly />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/reset" element={<Reset />} />
+        </Route>
+        {/* NOT guest-only: /join branches on session itself, and the emailed token pages
+            must work regardless of login state. */}
         {/* Invite links land here with ?token=… (or ?code=…); bare /join offers code entry */}
         <Route path="/join" element={<Join />} />
-        <Route path="/reset" element={<Reset />} />
         {/* The emailed reset link lands here with ?token=… */}
         <Route path="/reset-password" element={<ResetConfirm />} />
         {/* The emailed verification link lands here with ?token=… */}

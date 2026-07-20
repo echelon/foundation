@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Input, Label } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { safeRedirectPath } from "@/lib/redirect";
 import { AuthCard, Divider, SsoRow } from "./AuthCard";
 
 export default function Signup() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const { signup } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -20,7 +22,8 @@ export default function Signup() {
     setError(null);
     try {
       await signup(email, password, name || undefined);
-      navigate("/dashboard", { replace: true });
+      // A safe same-origin ?redirect_to wins; else the dashboard.
+      navigate(safeRedirectPath(params.get("redirect_to")) ?? "/dashboard", { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
     } finally {
@@ -35,7 +38,7 @@ export default function Signup() {
       footer={
         <>
           Already have an account?{" "}
-          <Link to="/login" className="font-medium text-brand hover:underline">
+          <Link to={`/login${params.toString() ? `?${params}` : ""}`} className="font-medium text-brand hover:underline">
             Sign in
           </Link>
         </>
