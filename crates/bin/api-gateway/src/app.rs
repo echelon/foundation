@@ -119,14 +119,14 @@ pub fn build_router(state: AppState) -> Router {
       get(account_handlers::list_sessions).delete(account_handlers::revoke_sessions),
     )
     .route("/v1/auth/sessions/:id", delete(account_handlers::revoke_session))
-    // avatar: upload+crop / remove / gravatar dismiss+restore. (No GET — clients render the
-    // CDN links returned by /me and these mutations; the gateway never serves bytes.)
+    // avatar: upload+crop / remove / preference / gravatar remove+refresh. (No GET — clients
+    // render the CDN links returned by /me and these mutations; the gateway never serves bytes.)
     .route(
       "/v1/auth/avatar",
       post(avatar_handlers::upload_my_avatar).delete(avatar_handlers::remove_my_avatar),
     )
-    .route("/v1/auth/avatar/gravatar/dismiss", post(avatar_handlers::dismiss_my_gravatar))
-    .route("/v1/auth/avatar/gravatar/restore", post(avatar_handlers::restore_my_gravatar))
+    .route("/v1/auth/avatar/preference", put(avatar_handlers::set_my_avatar_preference))
+    .route("/v1/auth/avatar/gravatar", delete(avatar_handlers::remove_my_gravatar))
     .route("/v1/auth/avatar/gravatar/refresh", post(avatar_handlers::refresh_my_gravatar))
     // accounts / invitations
     .route("/v1/accounts/:account_id/invitations", post(invitation_handlers::create_invitation))

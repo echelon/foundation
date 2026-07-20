@@ -169,24 +169,50 @@ pub async fn upload_my_avatar(
   respond(&state, &auth).await
 }
 
-/* ── DELETE /v1/auth/avatar + gravatar dismiss/restore ── */
+/* ── Preference + removal ── */
 
-/// `DELETE /v1/auth/avatar` — remove the custom avatar; display falls back to the mirrored,
-/// undismissed gravatar if there is one, else the monogram.
+/// Body for `PUT /v1/auth/avatar/preference`.
+#[derive(Deserialize)]
+pub struct PreferenceBody {
+  /// `custom` | `gravatar` | `letter`.
+  pub source: String,
+}
+
+/// `PUT /v1/auth/avatar/preference` — choose what displays. `custom` requires an upload to
+/// exist; `gravatar` is allowed even before a mirror lands (the monogram shows until it does).
+pub async fn set_my_avatar_preference(
+  State(state): State<AppState>,
+  auth: AuthContext,
+  Json(body): Json<PreferenceBody>,
+) -> ApiResult<Json<Value>> {
+  match body.source.as_str() {
+    "custom" => {
+      let has_custom = user_avatars::find_user_avatar_by_user(&state.pool, &auth.user.id)
+        .await?
+        .is_some_and(|a| a.custom_file_id.is_some());
+      if !has_custom {
+        return Err(ApiError::BadRequest("upload a photo before choosing it".into()));
+      }
+    }
+    "gravatar" | "letter" => {}
+    other => return Err(ApiError::BadRequest(format!("unknown avatar source: {other}"))),
+  }
+  user_avatars::set_preferred_source(&state.pool, &auth.user.id, &body.source).await?;
+  respond(&state, &auth).await
+}
+
+/// `DELETE /v1/auth/avatar` — remove the custom avatar (file rows kept, pointer cleared).
+/// A `custom` preference falls back to the gravatar if mirrored, else the monogram.
 pub async fn remove_my_avatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
   user_avatars::remove_custom_avatar(&state.pool, &auth.user.id).await?;
   respond(&state, &auth).await
 }
 
-/// `POST /v1/auth/avatar/gravatar/dismiss` — hide the gravatar (reversible; mirror kept).
-pub async fn dismiss_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
-  user_avatars::set_gravatar_dismissed(&state.pool, &auth.user.id, true).await?;
-  respond(&state, &auth).await
-}
-
-/// `POST /v1/auth/avatar/gravatar/restore` — un-dismiss the gravatar.
-pub async fn restore_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
-  user_avatars::set_gravatar_dismissed(&state.pool, &auth.user.id, false).await?;
+/// `DELETE /v1/auth/avatar/gravatar` — remove the mirrored gravatar. It won't re-mirror on its
+/// own (the probe stays stamped); an explicit refresh brings it back. A `gravatar` preference
+/// falls back to the custom upload if one exists, else the monogram.
+pub async fn remove_my_gravatar(State(state): State<AppState>, auth: AuthContext) -> ApiResult<Json<Value>> {
+  user_avatars::remove_gravatar(&state.pool, &auth.user.id).await?;
   respond(&state, &auth).await
 }
 

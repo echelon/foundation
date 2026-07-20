@@ -76,6 +76,16 @@ function AvatarManager() {
     if (fileInput.current) fileInput.current.value = ""; // allow re-picking the same file
   };
 
+  const prefer = (source: "custom" | "gravatar" | "letter") =>
+    act(`prefer-${source}`, () => api.setAvatarPreference(source));
+
+  // The three display choices; disabled when nothing backs them yet.
+  const choices: { key: "custom" | "gravatar" | "letter"; label: string; available: boolean; hint?: string }[] = [
+    { key: "custom", label: "Photo", available: !!avatar?.has_custom, hint: "upload one first" },
+    { key: "gravatar", label: "Gravatar", available: !!avatar?.has_gravatar, hint: "none found yet" },
+    { key: "letter", label: "Initials", available: true },
+  ];
+
   return (
     <div className="mt-5 border-t border-border pt-4">
       <input
@@ -86,61 +96,72 @@ function AvatarManager() {
         onChange={(e) => pickFile(e.target.files)}
       />
 
-      {/* Photo controls */}
+      {/* Which avatar to display — the user's explicit preference. */}
       <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted">Display:</span>
+        <div className="inline-flex rounded-lg border border-border bg-surface p-1">
+          {choices.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => c.available && prefer(c.key)}
+              disabled={busy !== null || !c.available}
+              title={c.available ? undefined : c.hint}
+              className={cnPill(avatar?.preferred_source === c.key, c.available)}
+            >
+              {busy === `prefer-${c.key}` ? "…" : c.label}
+            </button>
+          ))}
+        </div>
+        {avatar && avatar.preferred_source !== avatar.source && (
+          <Badge tone="amber">showing initials until it's ready</Badge>
+        )}
+      </div>
+
+      {/* Photo management */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted">Photo:</span>
         <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
-          {avatar?.has_custom ? "Replace photo" : "Upload photo"}
+          {avatar?.has_custom ? "Replace" : "Upload"}
         </Button>
         {avatar?.has_custom && (
           <Button
             variant="outline"
             size="sm"
-            onClick={() => act("remove", api.removeAvatar, "Photo removed.")}
+            onClick={() => act("remove-photo", api.removeAvatar, "Photo removed.")}
             disabled={busy !== null}
             className="border-rose-500/40 text-rose-500 hover:border-rose-500"
           >
-            {busy === "remove" ? "…" : "Remove photo"}
+            {busy === "remove-photo" ? "…" : "Remove"}
           </Button>
         )}
       </div>
 
-      {/* Gravatar controls */}
+      {/* Gravatar management */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <span className="text-xs text-muted">Gravatar:</span>
-        {avatar?.has_gravatar && !avatar.is_gravatar_dismissed && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => act("dismiss", api.dismissGravatar, "Gravatar hidden. It's kept — re-enable any time.")}
-            disabled={busy !== null}
-          >
-            {busy === "dismiss" ? "…" : "Hide"}
-          </Button>
-        )}
-        {avatar?.is_gravatar_dismissed && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => act("restore", api.restoreGravatar, "Gravatar re-enabled.")}
-            disabled={busy !== null}
-          >
-            {busy === "restore" ? "…" : "Re-enable"}
-          </Button>
-        )}
         <Button
           variant="outline"
           size="sm"
           onClick={() =>
-            act("refresh", api.refreshGravatar, "Checking gravatar.com — this takes a few seconds; reload to see the result.")
+            act("refresh", api.refreshGravatar, "Checking gravatar.com — takes a few seconds; reload to see the result.")
           }
           disabled={busy !== null}
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          {busy === "refresh" ? "…" : "Refresh"}
+          {busy === "refresh" ? "…" : avatar?.has_gravatar ? "Refresh" : "Check for one"}
         </Button>
+        {avatar?.has_gravatar && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => act("remove-gravatar", api.removeGravatar, "Gravatar removed. Refresh brings it back.")}
+            disabled={busy !== null}
+            className="border-rose-500/40 text-rose-500 hover:border-rose-500"
+          >
+            {busy === "remove-gravatar" ? "…" : "Remove"}
+          </Button>
+        )}
         {avatar && !avatar.gravatar_checked && <Badge tone="amber">checking…</Badge>}
-        {avatar?.has_gravatar && avatar.is_gravatar_dismissed && <Badge tone="muted">hidden</Badge>}
-        {avatar?.source === "gravatar" && <Badge tone="green">showing</Badge>}
       </div>
 
       <NoticeRow notice={notice} />
@@ -150,6 +171,13 @@ function AvatarManager() {
       )}
     </div>
   );
+}
+
+/** Segmented-control pill styling for the display choices. */
+function cnPill(active: boolean, available: boolean): string {
+  if (active) return "rounded-md px-3 py-1.5 text-xs font-medium brand-gradient text-white shadow-glow";
+  if (!available) return "rounded-md px-3 py-1.5 text-xs font-medium text-muted opacity-40 cursor-not-allowed";
+  return "rounded-md px-3 py-1.5 text-xs font-medium text-muted transition hover:text-fg";
 }
 
 /* ── Change email ── */

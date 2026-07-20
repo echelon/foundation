@@ -171,10 +171,13 @@ CREATE TABLE user_avatars (
     user_id                  text not null UNIQUE,
     custom_file_id           text,
     gravatar_file_id         text,
-    source                   text not null CHECK (source IN ('custom', 'gravatar', 'letter', 'generated')),
+    -- The USER'S CHOICE of what to display (REVISED 2026-07-20: replaces the derived `source`
+    -- + `is_gravatar_dismissed` pair). The effective display is this preference when it's
+    -- satisfiable (custom needs custom_file_id, gravatar needs gravatar_file_id), else the
+    -- letter monogram. Default 'gravatar': show one automatically once mirrored.
+    preferred_source         text not null default 'gravatar' CHECK (preferred_source IN ('custom', 'gravatar', 'letter', 'generated')),
     gravatar_hash            text,
     gravatar_checked_at      timestamptz,
-    is_gravatar_dismissed    boolean not null default false,
     generated_seed           text not null,
     email_first_letter       text,
     email_last_letter        text,

@@ -26,40 +26,46 @@ pub struct AvatarLinks {
   pub thumbnail_template: String,
 }
 
-/// The avatar as APIs report it: the display `source`, CDN links when an image backs it
-/// (`links` is `null` for letter/generated monograms — the client renders those itself), and the
-/// state flags the settings UI needs to offer upload/remove/dismiss/re-enable/refresh.
+/// The avatar as APIs report it: the user's `preferred_source`, the derived effective `source`
+/// (what actually displays), CDN links when an image backs it (`links` is `null` for the
+/// letter/generated monograms — the client renders those itself), and the availability flags
+/// the settings UI needs to offer choose/upload/remove/refresh.
 #[derive(Debug, Clone, Serialize)]
 pub struct AvatarInfo {
+  /// What's actually displaying: the preference when satisfiable, else `letter`.
   pub source: String,
+  /// The user's stated choice (`custom` / `gravatar` / `letter`).
+  pub preferred_source: String,
   pub links: Option<AvatarLinks>,
-  /// A custom upload exists (may or may not be displaying).
+  /// A custom upload exists (choosable even when not displaying).
   pub has_custom: bool,
-  /// A mirrored gravatar exists (may be dismissed or outranked by a custom upload).
+  /// A mirrored gravatar exists (choosable even when not displaying).
   pub has_gravatar: bool,
-  pub is_gravatar_dismissed: bool,
   /// False while a gravatar (re-)poll is pending — the job hasn't checked yet.
   pub gravatar_checked: bool,
 }
 
-/// Resolve a user's avatar into its API shape (accounts.md §2 display precedence).
+/// Resolve a user's avatar into its API shape. The effective display `source` is DERIVED:
+/// the preference when it's satisfiable (custom needs an upload, gravatar needs a mirror),
+/// else the letter monogram (accounts.md §2).
 pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<AvatarInfo> {
   let Some(avatar) = user_avatars::find_user_avatar_by_user(&state.pool, user_id).await? else {
     return Ok(AvatarInfo {
       source: "letter".into(),
+      preferred_source: "letter".into(),
       links: None,
       has_custom: false,
       has_gravatar: false,
-      is_gravatar_dismissed: false,
       gravatar_checked: false,
     });
   };
 
-  // Which file backs the display source?
-  let file_id: Option<UserAvatarFileId> = match avatar.source.as_str() {
-    "custom" => avatar.custom_file_id.clone(),
-    "gravatar" if !avatar.is_gravatar_dismissed => avatar.gravatar_file_id.clone(),
-    _ => None,
+  // Effective display: the preference if a file backs it, else the monogram.
+  let (source, file_id): (&str, Option<UserAvatarFileId>) = match avatar.preferred_source.as_str() {
+    "custom" if avatar.custom_file_id.is_some() => ("custom", avatar.custom_file_id.clone()),
+    "gravatar" if avatar.gravatar_file_id.is_some() => ("gravatar", avatar.gravatar_file_id.clone()),
+    "generated" => ("generated", None),
+    _ => ("letter", None),
   };
 
   let links = match file_id {
@@ -69,11 +75,11 @@ pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<Avatar
     None => None,
   };
   Ok(AvatarInfo {
-    source: avatar.source,
+    source: source.to_string(),
+    preferred_source: avatar.preferred_source,
     links,
     has_custom: avatar.custom_file_id.is_some(),
     has_gravatar: avatar.gravatar_file_id.is_some(),
-    is_gravatar_dismissed: avatar.is_gravatar_dismissed,
     gravatar_checked: avatar.gravatar_checked_at.is_some(),
   })
 }

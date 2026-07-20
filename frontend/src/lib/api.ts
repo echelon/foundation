@@ -73,16 +73,21 @@ export type AvatarLinks = {
   thumbnail_template: string;
 };
 
-/** The avatar as APIs report it: display source + CDN links (null → render the monogram),
- * plus the state flags the settings UI needs. */
+/** What a user can choose to display. */
+export type AvatarSource = "custom" | "gravatar" | "letter";
+
+/** The avatar as APIs report it: the user's preference, the derived effective source (what
+ * actually displays), CDN links (null → render the monogram), and availability flags. */
 export type ApiAvatar = {
+  /** What's actually displaying: the preference when satisfiable, else "letter". */
   source: string;
+  /** The user's stated choice. */
+  preferred_source: string;
   links: AvatarLinks | null;
-  /** A custom upload exists (may or may not be displaying). */
+  /** A custom upload exists (choosable even when not displaying). */
   has_custom: boolean;
-  /** A mirrored gravatar exists (may be dismissed or outranked by a custom upload). */
+  /** A mirrored gravatar exists (choosable even when not displaying). */
   has_gravatar: boolean;
-  is_gravatar_dismissed: boolean;
   /** False while a gravatar (re-)poll is pending — the background job hasn't checked yet. */
   gravatar_checked: boolean;
 };
@@ -166,9 +171,12 @@ export const api = {
 
   removeAvatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("DELETE", "/v1/auth/avatar"),
 
-  dismissGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/dismiss"),
+  /** Choose what displays: photo, gravatar, or the letter monogram. */
+  setAvatarPreference: (source: AvatarSource) =>
+    request<{ ok: boolean; avatar: ApiAvatar }>("PUT", "/v1/auth/avatar/preference", { source }),
 
-  restoreGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/restore"),
+  /** Remove the mirrored gravatar (won't re-mirror unless explicitly refreshed). */
+  removeGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("DELETE", "/v1/auth/avatar/gravatar"),
 
   /** Re-request the gravatar — the background job re-fetches within seconds. */
   refreshGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/refresh"),

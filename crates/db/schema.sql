@@ -1,15 +1,13 @@
 -- ============================================================================
 -- MATERIALIZED SCHEMA ROLLUP — generated, do not edit by hand.
--- Regenerate: script/dump-schema.sh (pg_dump of foundation_development after migrations).
--- Purpose: a single consolidated view of the schema so that as migrations layer
--- on top, the net effect is reviewable in one diff (Rails schema.rb pattern).
+-- Regenerate: script/dump-schema.sh
 -- ============================================================================
 
 --
 -- PostgreSQL database dump
 --
 
-\restrict fG13KKqBaiu8WIwPMGecYmjnsi4BtsN2ETiACbxuqz6TNPfqpYMptTMcMPZ7d5Q
+\restrict w3EXwHyuVJonm8EmFy7gOYyma5N6RIyzJXe9Y7Cgi5J8WDFaaLR6uq9zkbUKIiP
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -24,6 +22,13 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
+
+--
+-- Name: public; Type: SCHEMA; Schema: -; Owner: -
+--
+
+-- *not* creating schema, since initdb creates it
+
 
 SET default_tablespace = '';
 
@@ -1510,10 +1515,9 @@ CREATE TABLE public.user_avatars (
     user_id text NOT NULL,
     custom_file_id text,
     gravatar_file_id text,
-    source text NOT NULL,
+    preferred_source text DEFAULT 'gravatar'::text NOT NULL,
     gravatar_hash text,
     gravatar_checked_at timestamp with time zone,
-    is_gravatar_dismissed boolean DEFAULT false NOT NULL,
     generated_seed text NOT NULL,
     email_first_letter text,
     email_last_letter text,
@@ -1521,7 +1525,7 @@ CREATE TABLE public.user_avatars (
     person_name_last_letter text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT user_avatars_source_check CHECK ((source = ANY (ARRAY['custom'::text, 'gravatar'::text, 'letter'::text, 'generated'::text])))
+    CONSTRAINT user_avatars_preferred_source_check CHECK ((preferred_source = ANY (ARRAY['custom'::text, 'gravatar'::text, 'letter'::text, 'generated'::text])))
 );
 
 
@@ -2588,5 +2592,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict fG13KKqBaiu8WIwPMGecYmjnsi4BtsN2ETiACbxuqz6TNPfqpYMptTMcMPZ7d5Q
+\unrestrict w3EXwHyuVJonm8EmFy7gOYyma5N6RIyzJXe9Y7Cgi5J8WDFaaLR6uq9zkbUKIiP
 

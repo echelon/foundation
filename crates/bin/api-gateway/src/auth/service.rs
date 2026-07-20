@@ -557,11 +557,11 @@ async fn provision_new_user(
   meta: &ReqMeta,
 ) -> ApiResult<()> {
   let (first, last) = email_letters(&user.email);
+  // preferred_source defaults to `gravatar` — the monogram shows until a mirror lands.
   user_avatars::create_user_avatar(
     &mut **tx,
     user_avatars::NewUserAvatar {
       user_id: &user.id,
-      source: "letter",
       gravatar_hash: &sha256_hex(&user.email),
       generated_seed: user.id.as_str(),
       email_first_letter: first.as_deref(),
