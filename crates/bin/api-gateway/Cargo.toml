@@ -39,3 +39,4 @@ ids.workspace = true
 
 [dev-dependencies]
 tower.workspace = true
+id_core.workspace = true

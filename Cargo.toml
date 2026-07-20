@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   # ── core libraries (no DB, no HTTP) ──
+  "crates/core/id-core",
   "crates/core/ids",
   "crates/core/money",
   "crates/core/config",
@@ -58,6 +59,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # internal
+id_core = { path = "crates/core/id-core" }
 ids = { path = "crates/core/ids" }
 money = { path = "crates/core/money" }
 config = { path = "crates/core/config" }

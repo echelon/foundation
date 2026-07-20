@@ -26,7 +26,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
 }
 
 fn unique_email() -> String {
-  format!("user-{}@example.com", ids::new_id("t"))
+  format!("user-{}@example.com", id_core::mint("t"))
 }
 
 fn post(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
@@ -151,7 +151,7 @@ async fn logout_revokes_the_session() {
 async fn sso_login_creates_user_then_logs_in_on_repeat() {
   let (app, _pool) = app_and_pool().await;
   let email = unique_email();
-  let sub = format!("sub-{}", ids::new_id("g"));
+  let sub = format!("sub-{}", id_core::mint("g"));
 
   let first = app
     .clone()
@@ -177,10 +177,12 @@ async fn invite_create_resolve_and_accept() {
   let owner_email = unique_email();
   let signup = app.clone().oneshot(post("/v1/auth/signup", json!({ "email": owner_email, "password": "ownerpass1" }), None)).await.unwrap();
   let owner_cookie = session_cookie(&signup).unwrap();
-  let owner_id = body_json(signup).await["user"]["id"].as_str().unwrap().to_string();
+  let owner_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
 
   // Find the owner's account (signup created it + an owner membership).
-  let account_id = db_queries::members::list_for_user(&pool, &owner_id).await.unwrap()[0].account_id.clone();
+  let account_id = db_queries::members::list_memberships_for_user(&pool, &owner_id).await.unwrap()[0]
+    .account_id
+    .clone();
 
   // Owner creates an invitation.
   let invitee_email = unique_email();
@@ -202,7 +204,7 @@ async fn invite_create_resolve_and_accept() {
   // Invitee signs up, then accepts.
   let joiner_signup = app.clone().oneshot(post("/v1/auth/signup", json!({ "email": invitee_email, "password": "joinerpass1" }), None)).await.unwrap();
   let joiner_cookie = session_cookie(&joiner_signup).unwrap();
-  let joiner_id = body_json(joiner_signup).await["user"]["id"].as_str().unwrap().to_string();
+  let joiner_id: ids::UserId = body_json(joiner_signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
 
   let accept = app.clone().oneshot(post(&format!("/v1/invitations/{invitation_id}/accept"), json!({}), Some(&joiner_cookie))).await.unwrap();
   assert_eq!(accept.status(), StatusCode::OK);

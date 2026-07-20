@@ -1,18 +1,23 @@
-//! The ONLY SQL in the codebase (codebase_layout_backend.md §4). One function per query,
-//! grouped by entity. Every function takes an `impl sqlx::PgExecutor` so it composes with
-//! either a pool (autocommit) or a `&mut Transaction` (the signup flow, which must be atomic —
-//! accounts.md §3).
+//! The ONLY SQL in the codebase (codebase_layout_backend.md §4). Queries are grouped by table,
+//! **one query per file**; each table module also declares its row struct.
 //!
-//! Row structs expose only the columns callers need; `sid` (identity) is never selected.
-//! (These are runtime `query_as` calls; wiring `.sqlx/` offline compile-checking is a
-//! follow-up — codebase_layout_backend.md §7.)
+//! RULES (see `CLAUDE.md`): always use the compile-checked `sqlx::query!` / `query_as!` /
+//! `query_scalar!` macros (never runtime string queries), validated against the `.sqlx/` offline
+//! cache. Ids are strongly typed (`ids::UserId`, …) — columns decode via `AS "col: Type"`
+//! overrides, params bind `.as_str()`. Every fn is executor-generic so it composes with a pool
+//! or a `&mut Transaction`.
 
 pub mod accounts;
 pub mod invitations;
 pub mod members;
-pub mod rows;
 pub mod sessions;
 pub mod sso;
 pub mod users;
 
-pub use rows::*;
+// Row structs are re-exported at the crate root for ergonomic imports by consumers.
+pub use accounts::Account;
+pub use invitations::Invitation;
+pub use members::AccountMember;
+pub use sessions::Session;
+pub use sso::SsoConnection;
+pub use users::User;

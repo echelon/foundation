@@ -1,6 +1,7 @@
 //! Authorization helpers (auth.md §4). Roles gate account-scoped actions.
 
 use db_queries::{members, AccountMember};
+use ids::{AccountId, UserId};
 
 use crate::error::{ApiError, ApiResult};
 
@@ -9,8 +10,8 @@ use crate::error::{ApiError, ApiResult};
 /// (we don't confirm the account exists to a non-member).
 pub async fn require_account_role(
   pool: &db::PgPool,
-  user_id: &str,
-  account_id: &str,
+  user_id: &UserId,
+  account_id: &AccountId,
   allowed_roles: &[&str],
 ) -> ApiResult<AccountMember> {
   let membership = members::find_membership(pool, account_id, user_id)

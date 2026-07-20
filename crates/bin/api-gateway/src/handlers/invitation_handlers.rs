@@ -5,9 +5,11 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use ids::{AccountId, InvitationId};
+
 use crate::auth::service;
 use crate::authz::require_account_role;
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::middleware::AuthContext;
 use crate::state::AppState;
 
@@ -25,6 +27,9 @@ pub async fn create_invitation(
   Path(account_id): Path<String>,
   Json(body): Json<CreateInviteBody>,
 ) -> ApiResult<Json<Value>> {
+  let account_id: AccountId = account_id
+    .parse()
+    .map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
   require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
 
   let created = service::create_invitation(&state.pool, &account_id, &auth.user.id, &body.email, &body.role).await?;
@@ -61,6 +66,9 @@ pub async fn accept_invitation(
   auth: AuthContext,
   Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-  service::accept_invitation(&state.pool, &id, &auth.user.id).await?;
-  Ok(Json(json!({ "ok": true, "invitation_id": id })))
+  let invitation_id: InvitationId = id
+    .parse()
+    .map_err(|_| ApiError::BadRequest("invalid invitation id".into()))?;
+  service::accept_invitation(&state.pool, &invitation_id, &auth.user.id).await?;
+  Ok(Json(json!({ "ok": true, "invitation_id": invitation_id })))
 }

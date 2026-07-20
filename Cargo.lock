@@ -70,6 +70,7 @@ dependencies = [
  "db",
  "db_queries",
  "hex",
+ "id_core",
  "ids",
  "jsonwebtoken",
  "rand 0.8.7",
@@ -404,8 +405,8 @@ dependencies = [
  "anyhow",
  "chrono",
  "db",
+ "id_core",
  "ids",
- "serde",
  "sqlx",
  "tokio",
 ]
@@ -948,6 +949,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "id_core"
+version = "0.1.0"
+dependencies = [
+ "ulid",
+]
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -972,7 +980,10 @@ dependencies = [
 name = "ids"
 version = "0.1.0"
 dependencies = [
- "ulid",
+ "id_core",
+ "serde",
+ "serde_json",
+ "sqlx",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@ use chrono::Utc;
 use sha2::{Digest, Sha256};
 
 use db_queries::{accounts, invitations, members, sessions, sso, users, Invitation, Session, User};
+use ids::{AccountId, InvitationId, SessionId, UserId};
 
 use crate::auth::email::{canonicalize, canonicalize_clean};
 use crate::auth::password::{hash_password, verify_password};
@@ -44,7 +45,7 @@ pub async fn signup(
   let email_canon = canonicalize(email);
 
   // Existing user? signup-as-login when the password is correct; otherwise route to login.
-  if let Some(user) = users::find_by_email(pool, &email_canon).await? {
+  if let Some(user) = users::find_user_by_email(pool, &email_canon).await? {
     match &user.password_hash {
       Some(hash) if verify_password(password, hash) => {
         return start_session(pool, jwt, user, None, meta).await;
@@ -79,7 +80,9 @@ pub async fn signup(
 
   tx.commit().await?;
 
-  let token = jwt.mint(&session.id, &user.id, user.session_version).map_err(ApiError::Internal)?;
+  let token = jwt
+    .mint(session.id.as_str(), user.id.as_str(), user.session_version)
+    .map_err(ApiError::Internal)?;
   Ok(AuthOutcome { user, session, token })
 }
 
@@ -93,7 +96,7 @@ pub async fn login(
   meta: &ReqMeta,
 ) -> ApiResult<AuthOutcome> {
   let email_canon = canonicalize(email);
-  let user = users::find_by_email(pool, &email_canon).await?;
+  let user = users::find_user_by_email(pool, &email_canon).await?;
 
   let user = match user {
     Some(u) => u,
@@ -127,9 +130,9 @@ pub async fn oauth_login(
   }
 
   // 1. Existing connection → log in.
-  if let Some(conn) = sso::find_by_provider_sub(pool, provider, provider_user_id).await? {
-    sso::touch_last_used(pool, &conn.id).await?;
-    let user = users::find_by_id(pool, &conn.user_id)
+  if let Some(conn) = sso::find_sso_by_provider_sub(pool, provider, provider_user_id).await? {
+    sso::touch_sso_last_used(pool, &conn.id).await?;
+    let user = users::find_user_by_id(pool, &conn.user_id)
       .await?
       .ok_or_else(|| ApiError::Internal("sso connection references missing user".into()))?;
     return start_session(pool, jwt, user, None, meta).await;
@@ -137,7 +140,7 @@ pub async fn oauth_login(
 
   // 2. No connection but the email already has an account → do NOT merge.
   let email_canon = canonicalize(email);
-  if users::find_by_email(pool, &email_canon).await?.is_some() {
+  if users::find_user_by_email(pool, &email_canon).await?.is_some() {
     return Err(ApiError::Conflict(
       "an account with this email exists — log in to link this provider".into(),
     ));
@@ -157,7 +160,7 @@ pub async fn oauth_login(
     },
   )
   .await?;
-  sso::create_connection(
+  sso::create_sso_connection(
     &mut *tx,
     sso::NewSsoConnection {
       user_id: &user.id,
@@ -173,13 +176,15 @@ pub async fn oauth_login(
   let session = new_session(&mut tx, &user.id, meta).await?;
   tx.commit().await?;
 
-  let token = jwt.mint(&session.id, &user.id, user.session_version).map_err(ApiError::Internal)?;
+  let token = jwt
+    .mint(session.id.as_str(), user.id.as_str(), user.session_version)
+    .map_err(ApiError::Internal)?;
   Ok(AuthOutcome { user, session, token })
 }
 
 /// Log out — revoke the current session (auth.md §3, path 2).
-pub async fn logout(pool: &db::PgPool, session_id: &str) -> ApiResult<()> {
-  sessions::revoke(pool, session_id).await?;
+pub async fn logout(pool: &db::PgPool, session_id: &SessionId) -> ApiResult<()> {
+  sessions::revoke_session(pool, session_id).await?;
   Ok(())
 }
 
@@ -197,8 +202,8 @@ pub struct CreatedInvitation {
 /// handler). Invites grant `admin`/`member`, never `owner`; re-inviting revokes the prior one.
 pub async fn create_invitation(
   pool: &db::PgPool,
-  account_id: &str,
-  inviter_user_id: &str,
+  account_id: &AccountId,
+  inviter_user_id: &UserId,
   invitee_email: &str,
   role: &str,
 ) -> ApiResult<CreatedInvitation> {
@@ -208,14 +213,14 @@ pub async fn create_invitation(
   let email_canon = canonicalize(invitee_email);
 
   // Controller rule: reject inviting an email that is already a member of the account.
-  if let Some(existing) = users::find_by_email(pool, &email_canon).await? {
+  if let Some(existing) = users::find_user_by_email(pool, &email_canon).await? {
     if members::find_membership(pool, account_id, &existing.id).await?.is_some() {
       return Err(ApiError::Conflict("that email is already a member of this account".into()));
     }
   }
 
   let mut tx = pool.begin().await?;
-  invitations::revoke_outstanding_for_email(&mut *tx, account_id, &email_canon).await?;
+  invitations::revoke_outstanding_invitations(&mut *tx, account_id, &email_canon).await?;
 
   let code = gen_code();
   let token = gen_token();
@@ -243,10 +248,10 @@ pub async fn create_invitation(
 /// Resolve an invitation from its code or magic-link token, for the join page.
 pub async fn resolve_invitation(pool: &db::PgPool, code_or_token: &str) -> ApiResult<Invitation> {
   // Try the short code first, then the token (hashed).
-  let by_code = invitations::find_by_code(pool, code_or_token).await?;
+  let by_code = invitations::find_invitation_by_code(pool, code_or_token).await?;
   let inv = match by_code {
     Some(i) => i,
-    None => invitations::find_by_token_hash(pool, &sha256_hex(code_or_token))
+    None => invitations::find_invitation_by_token_hash(pool, &sha256_hex(code_or_token))
       .await?
       .ok_or_else(|| ApiError::NotFound("invitation not found".into()))?,
   };
@@ -255,14 +260,14 @@ pub async fn resolve_invitation(pool: &db::PgPool, code_or_token: &str) -> ApiRe
 }
 
 /// Accept an invitation as an authenticated user → create the membership (accounts.md §4).
-pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &str, user_id: &str) -> ApiResult<()> {
-  let inv = invitations::find_by_id(pool, invitation_id)
+pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, user_id: &UserId) -> ApiResult<()> {
+  let inv = invitations::find_invitation_by_id(pool, invitation_id)
     .await?
     .ok_or_else(|| ApiError::NotFound("invitation not found".into()))?;
   ensure_invitation_open(&inv)?;
 
   let mut tx = pool.begin().await?;
-  let marked = invitations::mark_accepted(&mut *tx, &inv.id, user_id).await?;
+  let marked = invitations::mark_invitation_accepted(&mut *tx, &inv.id, user_id).await?;
   if marked == 0 {
     return Err(ApiError::BadRequest("invitation is no longer acceptable".into()));
   }
@@ -294,7 +299,7 @@ async fn start_session(
   pool: &db::PgPool,
   jwt: &JwtKeys,
   user: User,
-  impersonator_user_id: Option<&str>,
+  impersonator_user_id: Option<&UserId>,
   meta: &ReqMeta,
 ) -> ApiResult<AuthOutcome> {
   let session = sessions::create_session(
@@ -309,14 +314,16 @@ async fn start_session(
     },
   )
   .await?;
-  let token = jwt.mint(&session.id, &user.id, user.session_version).map_err(ApiError::Internal)?;
+  let token = jwt
+    .mint(session.id.as_str(), user.id.as_str(), user.session_version)
+    .map_err(ApiError::Internal)?;
   Ok(AuthOutcome { user, session, token })
 }
 
 /// Create a session inside an open transaction (signup flows).
 async fn new_session(
   tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-  user_id: &str,
+  user_id: &UserId,
   meta: &ReqMeta,
 ) -> ApiResult<Session> {
   let session = sessions::create_session(
