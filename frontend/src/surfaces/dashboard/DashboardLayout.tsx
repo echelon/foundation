@@ -5,14 +5,17 @@ import {
   LayoutDashboard,
   ListTree,
   LogOut,
+  ScrollText,
   Settings as SettingsIcon,
   Sparkles,
+  Users,
   Wallet,
 } from "lucide-react";
 import { Badge, Logo, ThemeToggle } from "@/components/ui";
 import { UserAvatar } from "@/components/UserAvatar";
 import { BALANCE } from "@/lib/mock-api";
 import { useAuth } from "@/lib/auth";
+import { OrgProvider, useOrg } from "@/lib/org";
 import { cn } from "@/lib/cn";
 
 const NAV = [
@@ -20,10 +23,42 @@ const NAV = [
   { to: "/dashboard/requests", label: "Requests", icon: ListTree },
   { to: "/dashboard/keys", label: "API keys", icon: KeyRound },
   { to: "/dashboard/billing", label: "Billing", icon: CreditCard },
+  { to: "/dashboard/organization", label: "Organization", icon: Users },
+  { to: "/dashboard/audit", label: "Audit log", icon: ScrollText },
   { to: "/dashboard/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+/** Scope switcher for users who belong to multiple organizations. */
+function OrgSwitcher() {
+  const { accounts, current, select } = useOrg();
+  if (!current) return null;
+  if (accounts.length === 1) {
+    return <span className="font-display font-semibold">{current.name ?? "My organization"}</span>;
+  }
+  return (
+    <select
+      value={current.account_id}
+      onChange={(e) => select(e.target.value)}
+      className="h-9 rounded-lg border border-border bg-surface px-2 font-display text-sm font-semibold text-fg outline-none focus:border-brand"
+    >
+      {accounts.map((a) => (
+        <option key={a.account_id} value={a.account_id}>
+          {a.name ?? a.account_id.slice(0, 13)} ({a.role})
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export default function DashboardLayout() {
+  return (
+    <OrgProvider>
+      <DashboardShell />
+    </OrgProvider>
+  );
+}
+
+function DashboardShell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -85,7 +120,7 @@ export default function DashboardLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-bg/80 px-5 backdrop-blur sm:px-8">
             <div className="flex items-center gap-3">
-              <span className="font-display font-semibold">{user.display_name ?? user.email}</span>
+              <OrgSwitcher />
               {!user.email_verified && <Badge tone="amber">Email unverified</Badge>}
             </div>
             <div className="flex items-center gap-3">

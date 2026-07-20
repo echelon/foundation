@@ -122,6 +122,47 @@ export type ApiSession = {
 type AuthResponse = { user: ApiUser; session_id: string };
 type MeResponse = { user: ApiUser; session_id: string; impersonation: boolean };
 
+/** One of the caller's organizations (memberships), for the org switcher. */
+export type ApiAccount = {
+  account_id: string;
+  name: string | null;
+  role: string;
+  joined_at: string;
+};
+
+/** A row in an organization's member roster. */
+export type ApiMember = {
+  user_id: string;
+  display_name: string | null;
+  email: string;
+  role: string;
+  joined_at: string;
+  is_you: boolean;
+};
+
+/** One audit-log row (user or account trail). */
+export type AuditItem = {
+  id: string;
+  event: string;
+  actor_user_id: string | null;
+  user_id?: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  data: Record<string, unknown> | null;
+  is_org_visible?: boolean;
+  ip: string | null;
+  created_at: string;
+};
+
+/** A keyset-paginated page: pass `next_before` back as `before` for the next page. */
+export type AuditPage = { items: AuditItem[]; next_before: string | null };
+
+function pageQuery(before?: string, limit = 25): string {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (before) params.set("before", before);
+  return `?${params}`;
+}
+
 /* ── Auth ── */
 
 export const api = {
@@ -200,6 +241,41 @@ export const api = {
 
   /** Re-request the gravatar — the background job re-fetches within seconds. */
   refreshGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/refresh"),
+
+  /* ── Organizations ── */
+
+  /** Every organization the caller belongs to (drives the org switcher). */
+  listAccounts: () => request<{ accounts: ApiAccount[] }>("GET", "/v1/accounts"),
+
+  /** The member roster of an organization (any member may view). */
+  listMembers: (accountId: string) =>
+    request<{ members: ApiMember[]; your_role: string }>("GET", `/v1/accounts/${accountId}/members`),
+
+  /** Invite someone (owner/admin). Returns the code + join link to hand to the invitee. */
+  inviteMember: (accountId: string, email: string, role: "admin" | "member") =>
+    request<{ invitation_id: string; code: string; join_url: string; email: string; role: string; expires_at: string }>(
+      "POST",
+      `/v1/accounts/${accountId}/invitations`,
+      { email, role },
+    ),
+
+  /** Remove a member (owner/admin; owner is immovable, admins can't remove admins). */
+  removeMember: (accountId: string, userId: string) =>
+    request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/members/${userId}`),
+
+  /* ── Audit logs (keyset-paginated) ── */
+
+  /** The caller's own audit trail (private rows included). */
+  userAuditLogs: (before?: string, limit?: number) =>
+    request<AuditPage>("GET", `/v1/user/audit_logs${pageQuery(before, limit)}`),
+
+  /** The organization's audit trail (owner/admin only). */
+  accountAuditLogs: (accountId: string, before?: string, limit?: number) =>
+    request<AuditPage>("GET", `/v1/accounts/${accountId}/audit_logs${pageQuery(before, limit)}`),
+
+  /** A member's trail as the org sees it — org-visible rows only (owner/admin only). */
+  memberAuditLogs: (accountId: string, userId: string, before?: string, limit?: number) =>
+    request<AuditPage>("GET", `/v1/accounts/${accountId}/members/${userId}/audit_logs${pageQuery(before, limit)}`),
 
   /* ── Sessions ── */
 

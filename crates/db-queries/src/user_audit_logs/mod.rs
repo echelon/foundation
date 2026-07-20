@@ -7,9 +7,11 @@ use chrono::{DateTime, Utc};
 use ids::{UserAuditLogId, UserId};
 
 mod create_user_audit_log;
+mod list_org_visible_user_audit_logs;
 mod list_user_audit_logs;
 
 pub use create_user_audit_log::{create_user_audit_log, NewUserAuditLog};
+pub use list_org_visible_user_audit_logs::list_org_visible_user_audit_logs;
 pub use list_user_audit_logs::list_user_audit_logs;
 
 #[derive(Debug, Clone)]

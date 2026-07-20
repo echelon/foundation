@@ -579,6 +579,21 @@ pub async fn create_invitation(
     },
   )
   .await?;
+  // invitation_sent — account log (audit_logs.md §3), same transaction.
+  account_audit_logs::create_account_audit_log(
+    &mut *tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id,
+      actor_user_id: Some(inviter_user_id),
+      user_id: None,
+      event: AuditEvent::InvitationSent,
+      target_type: Some("invitation"),
+      target_id: Some(invitation.id.as_str()),
+      data: Some(serde_json::json!({ "email": email_canon, "role": role })),
+      ip: None,
+    },
+  )
+  .await?;
   tx.commit().await?;
 
   Ok(CreatedInvitation { invitation, token, code })
@@ -613,7 +628,107 @@ pub async fn accept_invitation(pool: &db::PgPool, invitation_id: &InvitationId, 
   // Idempotent membership: skip if it already exists.
   if members::find_membership(&mut *tx, &inv.account_id, user_id).await?.is_none() {
     members::create_membership(&mut *tx, &inv.account_id, user_id, &inv.role).await?;
+    // member_added — U-row for the new member + A-row (audit_logs.md §3).
+    write_user_event(
+      &mut *tx,
+      user_id,
+      AuditEvent::MemberAdded,
+      Some(serde_json::json!({ "account_id": inv.account_id, "role": inv.role })),
+      None,
+    )
+    .await?;
+    account_audit_logs::create_account_audit_log(
+      &mut *tx,
+      account_audit_logs::NewAccountAuditLog {
+        account_id: &inv.account_id,
+        actor_user_id: Some(user_id),
+        user_id: Some(user_id),
+        event: AuditEvent::MemberAdded,
+        target_type: None,
+        target_id: None,
+        data: Some(serde_json::json!({ "role": inv.role })),
+        ip: None,
+      },
+    )
+    .await?;
   }
+  // invitation_accepted — account log, alongside member_added (audit_logs.md §3).
+  account_audit_logs::create_account_audit_log(
+    &mut *tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id: &inv.account_id,
+      actor_user_id: Some(user_id),
+      user_id: Some(user_id),
+      event: AuditEvent::InvitationAccepted,
+      target_type: Some("invitation"),
+      target_id: Some(inv.id.as_str()),
+      data: None,
+      ip: None,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(())
+}
+
+/// Remove a member from an account (accounts.md §4, auth.md §4). The handler has already
+/// verified the caller is owner/admin; this enforces the finer rules:
+///   - the target must currently be a member (404),
+///   - nobody removes themselves (leave ≠ remove),
+///   - the owner can never be removed,
+///   - an admin can only remove `member`s — outranking removals need the owner.
+/// Writes `member_removed` U+A audit rows in the removal transaction.
+pub async fn remove_member(
+  pool: &db::PgPool,
+  actor: &User,
+  actor_role: &str,
+  account_id: &AccountId,
+  target_user_id: &UserId,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  if actor.id == *target_user_id {
+    return Err(ApiError::BadRequest("you can't remove yourself from the organization".into()));
+  }
+  let target = members::find_membership(pool, account_id, target_user_id)
+    .await?
+    .ok_or_else(|| ApiError::NotFound("that user is not a member of this organization".into()))?;
+  if target.role == "owner" {
+    return Err(ApiError::BadRequest("the owner can't be removed".into()));
+  }
+  if actor_role != "owner" && target.role != "member" {
+    return Err(ApiError::Forbidden("only the owner can remove an admin".into()));
+  }
+
+  let mut tx = pool.begin().await?;
+  members::delete_membership(&mut *tx, account_id, target_user_id).await?;
+  let data = serde_json::json!({ "account_id": account_id, "role": target.role });
+  user_audit_logs::create_user_audit_log(
+    &mut *tx,
+    user_audit_logs::NewUserAuditLog {
+      user_id: target_user_id,
+      actor_user_id: Some(&actor.id),
+      event: AuditEvent::MemberRemoved,
+      target_type: None,
+      target_id: None,
+      data: Some(data),
+      ip,
+    },
+  )
+  .await?;
+  account_audit_logs::create_account_audit_log(
+    &mut *tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id,
+      actor_user_id: Some(&actor.id),
+      user_id: Some(target_user_id),
+      event: AuditEvent::MemberRemoved,
+      target_type: None,
+      target_id: None,
+      data: Some(serde_json::json!({ "role": target.role })),
+      ip,
+    },
+  )
+  .await?;
   tx.commit().await?;
   Ok(())
 }

@@ -26,6 +26,8 @@ import Overview from "@/surfaces/dashboard/Overview";
 import Requests from "@/surfaces/dashboard/Requests";
 import Billing from "@/surfaces/dashboard/Billing";
 import Keys from "@/surfaces/dashboard/Keys";
+import Organization from "@/surfaces/dashboard/Organization";
+import AuditLogPage from "@/surfaces/dashboard/AuditLog";
 import Settings from "@/surfaces/dashboard/Settings";
 
 import Admin from "@/surfaces/admin/Admin";
@@ -83,6 +85,8 @@ export default function App() {
           <Route path="/dashboard/requests" element={<Requests />} />
           <Route path="/dashboard/billing" element={<Billing />} />
           <Route path="/dashboard/keys" element={<Keys />} />
+          <Route path="/dashboard/organization" element={<Organization />} />
+          <Route path="/dashboard/audit" element={<AuditLogPage />} />
           <Route path="/dashboard/settings" element={<Settings />} />
         </Route>
       </Route>

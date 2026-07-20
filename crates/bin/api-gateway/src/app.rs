@@ -11,7 +11,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
 use crate::handlers::{
-  account_handlers, auth_handlers, avatar_handlers, catalog_handlers, invitation_handlers, root_handlers,
+  account_handlers, audit_handlers, auth_handlers, avatar_handlers, catalog_handlers, invitation_handlers,
+  org_handlers, root_handlers,
 };
 use crate::state::AppState;
 
@@ -131,6 +132,16 @@ pub fn build_router(state: AppState) -> Router {
     .route("/v1/auth/avatar/preference", put(avatar_handlers::set_my_avatar_preference))
     .route("/v1/auth/avatar/gravatar", delete(avatar_handlers::remove_my_gravatar))
     .route("/v1/auth/avatar/gravatar/refresh", post(avatar_handlers::refresh_my_gravatar))
+    // organizations: switcher list, roster, member removal, audit trails
+    .route("/v1/accounts", get(org_handlers::list_my_accounts))
+    .route("/v1/accounts/:account_id/members", get(org_handlers::list_account_members))
+    .route("/v1/accounts/:account_id/members/:user_id", delete(org_handlers::remove_account_member))
+    .route("/v1/user/audit_logs", get(audit_handlers::list_my_audit_logs))
+    .route("/v1/accounts/:account_id/audit_logs", get(audit_handlers::list_account_audit_logs))
+    .route(
+      "/v1/accounts/:account_id/members/:user_id/audit_logs",
+      get(audit_handlers::list_member_audit_logs),
+    )
     // accounts / invitations
     .route("/v1/accounts/:account_id/invitations", post(invitation_handlers::create_invitation))
     .route("/v1/invitations/:code_or_token", get(invitation_handlers::resolve_invitation))
