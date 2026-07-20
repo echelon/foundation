@@ -6,23 +6,24 @@
 <title>Foundation API</title>
 <style>
   :root {
-    --bg: #0b0d13;
-    --fg: #e8eaf2;
-    --muted: #9aa1b5;
-    --card: rgba(255, 255, 255, 0.04);
-    --border: rgba(255, 255, 255, 0.1);
-    --brand-a: #7c6cff;
-    --brand-b: #ff5ea8;
+    --bg-a: #0f1a13;
+    --bg-b: #1b2c1f;
+    --fg: #efe9d5;
+    --muted: #a4b599;
+    --bark: #8a6a4f;
+    --bark-dim: rgba(138, 106, 79, 0.45);
+    --leaf: #8fbf6f;
+    --rust: #c1602f;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { height: 100%; }
   body {
-    background: var(--bg);
+    background: radial-gradient(120% 120% at 50% 0%, var(--bg-b), var(--bg-a));
     color: var(--fg);
     font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     overflow: hidden;
   }
-  #sky { position: fixed; inset: 0; display: block; cursor: crosshair; }
+  #forest { position: fixed; inset: 0; display: block; cursor: crosshair; }
   main {
     position: relative;
     z-index: 1;
@@ -30,90 +31,94 @@
     display: grid;
     place-items: center;
     padding: 24px;
-    pointer-events: none; /* let clicks fall through to the canvas… */
+    pointer-events: none; /* clicks fall through to the canvas… */
   }
   .card {
-    pointer-events: auto; /* …except on the card itself */
-    max-width: 34rem;
+    pointer-events: auto; /* …except on the card */
+    max-width: 32rem;
     text-align: center;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    padding: 40px 36px 32px;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+    background: rgba(20, 32, 23, 0.72);
+    border: 1px solid var(--bark-dim);
+    border-radius: 18px;
+    padding: 30px 32px 26px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
   }
-  .badge {
+  .korok-wrap { display: inline-block; animation: wander 9s ease-in-out infinite; }
+  #korok {
+    font: 11px/1.12 ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: left;
     display: inline-block;
-    font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 6px 12px;
-    margin-bottom: 20px;
-    letter-spacing: 0.04em;
+    white-space: pre;
+    text-shadow: 0 0 16px rgba(143, 191, 111, 0.2);
+  }
+  /* Korok palette: sage body, amber leaf mask, vine green, berry red, blossom cream. */
+  .k-b { color: #a9c69b; }
+  .k-f { color: #cf8a3b; }
+  .k-e { color: #6b4a2f; } /* the mask's eye/mouth holes — dark bark */
+  .k-v { color: #7fae5e; }
+  .k-r { color: #d9534f; }
+  .k-w { color: #ead9a8; }
+  @keyframes wander {
+    0%   { transform: translate(0, 0) rotate(0deg); }
+    20%  { transform: translate(16px, -5px) rotate(3deg); }
+    45%  { transform: translate(-12px, 3px) rotate(-3deg); }
+    70%  { transform: translate(10px, 6px) rotate(2deg); }
+    100% { transform: translate(0, 0) rotate(0deg); }
   }
   h1 {
-    font-size: clamp(1.9rem, 5vw, 2.6rem);
+    font-size: clamp(1.6rem, 4.5vw, 2.2rem);
     font-weight: 800;
     letter-spacing: -0.02em;
-    margin-bottom: 10px;
+    margin: 14px 0 8px;
+    color: var(--leaf);
   }
-  h1 .grad, .rust {
-    background: linear-gradient(100deg, var(--brand-a), var(--brand-b));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  .sub { color: var(--muted); }
+  .sub { color: var(--muted); font-size: 15px; }
   .sub strong { color: var(--fg); }
   code {
     font: 0.9em ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(138, 106, 79, 0.18);
     border-radius: 6px;
     padding: 2px 7px;
   }
-  nav { display: flex; justify-content: center; gap: 10px; margin: 26px 0 22px; flex-wrap: wrap; }
+  nav { display: flex; justify-content: center; gap: 10px; margin: 22px 0 18px; flex-wrap: wrap; }
   nav a {
     color: var(--fg);
     text-decoration: none;
     font-weight: 600;
     font-size: 14px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--bark-dim);
     border-radius: 999px;
-    padding: 9px 18px;
-    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+    padding: 8px 17px;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
   }
   nav a:hover {
-    border-color: var(--brand-a);
-    background: rgba(124, 108, 255, 0.12);
+    border-color: var(--leaf);
+    background: rgba(143, 191, 111, 0.1);
     transform: translateY(-1px);
   }
   .hiring { font-size: 15px; color: var(--muted); }
-  .hiring a { color: var(--fg); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--brand-b); }
-  .hiring a:hover { color: var(--brand-b); }
-  .hint {
-    margin-top: 18px;
-    font-size: 13px;
-    color: var(--muted);
-    opacity: 0.85;
-  }
-  #score { color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hiring .rust { color: var(--rust); font-weight: 700; }
+  .hiring a { color: var(--fg); font-weight: 600; text-decoration: none; border-bottom: 1px solid var(--rust); }
+  .hiring a:hover { color: var(--rust); }
+  .hint { margin-top: 15px; font-size: 13px; color: var(--muted); opacity: 0.85; }
+  #score { color: var(--leaf); font-weight: 700; font-variant-numeric: tabular-nums; }
   @media (prefers-reduced-motion: reduce) {
+    .korok-wrap { animation: none; }
     nav a { transition: none; }
   }
 </style>
 </head>
 <body>
-<canvas id="sky" aria-hidden="true"></canvas>
+<canvas id="forest" aria-hidden="true"></canvas>
 <main>
   <div class="card">
-    <div class="badge">api.foundation.ai</div>
-    <h1>Hello, human <span class="grad">👋</span></h1>
+    <span class="korok-wrap"><pre id="korok" aria-label="a little forest friend"></pre></span>
+    <h1>Ya ha ha! You found me!</h1>
     <p class="sub">
-      You've reached the <strong>Foundation</strong> API gateway — generative media and LLMs
-      behind one clean API. The interesting endpoints live under <code>/v1</code>.
+      You've wandered into the <strong>Foundation</strong> API gateway — generative media and
+      LLMs behind one clean API. The real treasure hides under <code>/v1</code>.
     </p>
     <nav>
       <a href="https://foundation.ai">Website</a>
@@ -124,17 +129,82 @@
       P.S. — we're hiring <span class="rust">Rust</span> engineers.
       <a href="https://foundation.ai/careers">Come build with us →</a>
     </p>
-    <p class="hint" id="hint">Bored? Pop the orbs floating around this card. <span id="score"></span></p>
+    <p class="hint" id="hint">Psst — pop the bubbles drifting through the forest. <span id="score"></span></p>
   </div>
 </main>
 <script>
 (() => {
   "use strict";
-  const canvas = document.getElementById("sky");
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ── The Korok: colored ASCII, frame-cycled so it waves its berry branch ──
+  // Modeled on the BotW korok: sage gourd body with camo dapples, two leaf-spike
+  // ears, a big amber leaf mask (one large eye hole, one small, tiny mouth, stem
+  // poking out the side), stub feet, and a berry/blossom sprig in each hand.
+  const s = (cls, txt) => `<span class="${cls}">${txt}</span>`;
+
+  // The korok itself, left sprig included; the right margin is empty — each frame
+  // appends the right-hand branch in a different position (hanging → mid → high).
+  const BASE = [
+    s("k-b", "           /\\             /\\"),
+    s("k-b", "          /  \\           /  \\"),
+    s("k-b", "         / /\\ \\         / /\\ \\"),
+    s("k-b", "         \\ \\ \\ \\       / / / /"),
+    s("k-b", "      ____\\ \\ \\ \\_____/ / / /____"),
+    s("k-f", "   ,-'                         '-,"),
+    s("k-f", "  &lt;   ") + s("k-e", "(@)") + s("k-f", "     ~ ~ ~ ~     ") + s("k-e", "o") + s("k-f", "      &gt;==-"),
+    s("k-f", "   '-.       ~ ~ ~ ~ ~        ,-'"),
+    s("k-f", "      '-._       ") + s("k-e", "==") + s("k-f", "       _.-'"),
+    s("k-b", "        .-'-.__________.-'-."),
+    s("k-b", "       /                    \\"),
+    s("k-b", "      |    ~~   ~~~~   ~~    |"),
+    s("k-v", "  .") + s("k-b", "   |   ~   ~~~   ~~~  ~   |"),
+    s("k-v", "  |\\") + s("k-b", "  |                      |"),
+    s("k-r", " @") + s("k-v", "=\\") + s("k-b", "  |                      |"),
+    s("k-w", "  *") + s("k-b", "  \\\\                    //"),
+    s("k-r", "   @") + s("k-b", "  '-.________________.-'"),
+    s("k-b", "          _|          |_"),
+    s("k-b", "         (__)        (__)"),
+  ];
+
+  // Right-branch positions, keyed by row: hanging at its side, swung out, held high.
+  const BRANCH_DOWN = {
+    12: s("k-v", "   ."),
+    13: s("k-v", "  /|"),
+    14: s("k-v", " /=") + s("k-r", "@"),
+    15: s("k-w", "  *"),
+    16: s("k-r", "   @"),
+  };
+  const BRANCH_MID = {
+    10: s("k-r", "     @"),
+    11: s("k-w", "    *") + s("k-v", "/"),
+    12: s("k-v", "   -/"),
+    13: s("k-v", "  -'"),
+  };
+  const BRANCH_HIGH = {
+    7: s("k-w", "   *") + s("k-r", "@"),
+    8: s("k-r", "  @") + s("k-v", "|") + s("k-w", "*"),
+    9: s("k-v", "   \\|/"),
+    10: s("k-v", "    |"),
+    11: s("k-v", "   /"),
+    12: s("k-v", "  /"),
+    13: s("k-v", " -'"),
+  };
+
+  const frame = (branch) => BASE.map((line, i) => line + (branch[i] || "")).join("\n");
+  const korok = document.getElementById("korok");
+  const dance = [frame(BRANCH_DOWN), frame(BRANCH_MID), frame(BRANCH_HIGH), frame(BRANCH_MID)];
+  korok.innerHTML = dance[0];
+  if (!reduced) {
+    let f = 0;
+    setInterval(() => { korok.innerHTML = dance[f = (f + 1) % dance.length]; }, 380);
+  }
+
+  // ── The bubbles (the game): brown outlines drifting in the forest ──
+  const canvas = document.getElementById("forest");
   const ctx = canvas.getContext("2d");
   const scoreEl = document.getElementById("score");
   const hintEl = document.getElementById("hint");
-  const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   let W = 0, H = 0, DPR = 1;
   function resize() {
@@ -147,104 +217,109 @@
   addEventListener("resize", resize);
   resize();
 
-  // ── The orbs (the game) ──
-  const ORB_COUNT = 8;
-  const orbs = [];
+  const BUBBLE_COUNT = 9;
+  const bubbles = [];
   const bursts = [];
   let score = 0;
 
-  function spawnOrb(delay = 0) {
-    orbs.push({
+  function spawnBubble(delay = 0) {
+    bubbles.push({
       x: Math.random() * W,
       y: Math.random() * H,
-      r: (14 + Math.random() * 16) * DPR,
-      vx: (Math.random() - 0.5) * 0.6 * DPR,
-      vy: (Math.random() - 0.5) * 0.6 * DPR,
-      hue: 230 + Math.random() * 110, // indigo → pink
-      wait: delay, // frames until it materializes
-      pulse: Math.random() * Math.PI * 2,
+      r: (13 + Math.random() * 17) * DPR,
+      vx: (Math.random() - 0.5) * 0.55 * DPR,
+      vy: (Math.random() - 0.7) * 0.55 * DPR, // slight upward drift, like forest air
+      hue: 22 + Math.random() * 14,           // bark browns
+      wait: delay,
+      wob: Math.random() * Math.PI * 2,
     });
   }
-  for (let i = 0; i < ORB_COUNT; i++) spawnOrb();
+  for (let i = 0; i < BUBBLE_COUNT; i++) spawnBubble();
 
-  function pop(orb, idx) {
-    orbs.splice(idx, 1);
+  function pop(bubble, idx) {
+    bubbles.splice(idx, 1);
     score++;
-    scoreEl.textContent = "★ " + score;
-    if (score === 10) hintEl.firstChild.textContent = "Okay, you're good at this. Maybe apply? ";
+    scoreEl.textContent = "seeds: " + score;
+    if (score === 10) hintEl.firstChild.textContent = "Ya ha ha! Ten seeds! Maybe apply? ";
     if (!reduced) {
-      for (let i = 0; i < 18; i++) {
-        const a = (Math.PI * 2 * i) / 18;
-        const sp = (1.5 + Math.random() * 2.5) * DPR;
-        bursts.push({ x: orb.x, y: orb.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, hue: orb.hue });
+      for (let i = 0; i < 14; i++) {
+        const a = (Math.PI * 2 * i) / 14;
+        const sp = (1.2 + Math.random() * 2.2) * DPR;
+        bursts.push({ x: bubble.x, y: bubble.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1, hue: bubble.hue });
       }
     }
-    spawnOrb(reduced ? 0 : 40 + Math.random() * 60);
-    if (reduced) draw(); // static mode repaints on interaction only
+    spawnBubble(reduced ? 0 : 40 + Math.random() * 60);
+    if (reduced) draw();
   }
 
   canvas.addEventListener("pointerdown", (e) => {
     const x = e.clientX * DPR, y = e.clientY * DPR;
-    for (let i = orbs.length - 1; i >= 0; i--) {
-      const o = orbs[i];
-      if (o.wait <= 0 && (x - o.x) ** 2 + (y - o.y) ** 2 < (o.r * 1.6) ** 2) {
-        pop(o, i);
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i];
+      if (b.wait <= 0 && (x - b.x) ** 2 + (y - b.y) ** 2 < (b.r * 1.6) ** 2) {
+        pop(b, i);
         return;
       }
     }
   });
 
-  // Gentle cursor repulsion so the field feels alive.
+  // Gentle cursor repulsion so the bubbles feel alive.
   let mx = -1e9, my = -1e9;
   canvas.addEventListener("pointermove", (e) => { mx = e.clientX * DPR; my = e.clientY * DPR; });
 
   function step() {
-    for (const o of orbs) {
-      if (o.wait > 0) { o.wait--; continue; }
-      o.pulse += 0.03;
-      const dx = o.x - mx, dy = o.y - my;
+    for (const b of bubbles) {
+      if (b.wait > 0) { b.wait--; continue; }
+      b.wob += 0.02;
+      const dx = b.x - mx, dy = b.y - my;
       const d2 = dx * dx + dy * dy;
-      const reach = 130 * DPR;
+      const reach = 120 * DPR;
       if (d2 < reach * reach && d2 > 1) {
-        const d = Math.sqrt(d2), f = ((reach - d) / reach) * 0.25 * DPR;
-        o.vx += (dx / d) * f;
-        o.vy += (dy / d) * f;
+        const d = Math.sqrt(d2), f = ((reach - d) / reach) * 0.22 * DPR;
+        b.vx += (dx / d) * f;
+        b.vy += (dy / d) * f;
       }
-      o.vx *= 0.985; o.vy *= 0.985;
-      o.x += o.vx; o.y += o.vy;
-      if (o.x < -o.r) o.x = W + o.r;
-      if (o.x > W + o.r) o.x = -o.r;
-      if (o.y < -o.r) o.y = H + o.r;
-      if (o.y > H + o.r) o.y = -o.r;
+      b.vx *= 0.985; b.vy *= 0.985;
+      b.x += b.vx + Math.sin(b.wob) * 0.12 * DPR;
+      b.y += b.vy;
+      if (b.x < -b.r) b.x = W + b.r;
+      if (b.x > W + b.r) b.x = -b.r;
+      if (b.y < -b.r) b.y = H + b.r;
+      if (b.y > H + b.r) b.y = -b.r;
     }
     for (let i = bursts.length - 1; i >= 0; i--) {
       const p = bursts[i];
       p.x += p.vx; p.y += p.vy;
       p.vx *= 0.96; p.vy *= 0.96;
-      p.life -= 0.03;
+      p.life -= 0.035;
       if (p.life <= 0) bursts.splice(i, 1);
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    for (const o of orbs) {
-      if (o.wait > 0) continue;
-      const r = o.r * (1 + (reduced ? 0 : Math.sin(o.pulse) * 0.12));
-      const g = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, r * 2.4);
-      g.addColorStop(0, `hsla(${o.hue}, 90%, 72%, 0.9)`);
-      g.addColorStop(0.4, `hsla(${o.hue}, 85%, 62%, 0.35)`);
-      g.addColorStop(1, `hsla(${o.hue}, 85%, 60%, 0)`);
-      ctx.fillStyle = g;
+    for (const b of bubbles) {
+      if (b.wait > 0) continue;
+      const r = b.r * (1 + (reduced ? 0 : Math.sin(b.wob * 1.7) * 0.06));
+      // Brown outlined bubble…
+      ctx.strokeStyle = `hsla(${b.hue}, 38%, 46%, 0.85)`;
+      ctx.lineWidth = 2 * DPR;
       ctx.beginPath();
-      ctx.arc(o.x, o.y, r * 2.4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // …with a little glint so it reads as a bubble.
+      ctx.strokeStyle = `hsla(${b.hue}, 42%, 68%, 0.7)`;
+      ctx.lineWidth = 1.4 * DPR;
+      ctx.beginPath();
+      ctx.arc(b.x - r * 0.32, b.y - r * 0.32, r * 0.35, Math.PI * 0.8, Math.PI * 1.55);
+      ctx.stroke();
     }
     for (const p of bursts) {
-      ctx.fillStyle = `hsla(${p.hue}, 90%, 70%, ${p.life})`;
+      ctx.strokeStyle = `hsla(${p.hue}, 40%, 55%, ${p.life})`;
+      ctx.lineWidth = 1.4 * DPR;
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.4 * DPR * p.life, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(p.x, p.y, 2.6 * DPR * p.life, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 

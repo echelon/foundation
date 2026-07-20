@@ -1,7 +1,8 @@
-//! `GET /` — a friendly landing page for humans who wander into the API host: hello, links
-//! (website / Discord / GitHub), a hiring note, and a tiny orb-popping canvas toy. The page is
-//! one self-contained HTML file (inline CSS + JS, no external assets), embedded into the binary
-//! at build time via `include_str!` — no filesystem access at runtime.
+//! `GET /` — a friendly landing page for humans who wander into the API host: an animated ASCII
+//! forest sprite ("Ya ha ha! You found me!"), links (website / Discord / GitHub), a hiring note,
+//! and a bubble-popping canvas toy on a green/earthy theme. The page is one self-contained HTML
+//! file (inline CSS + JS, no external assets), embedded into the binary at build time via
+//! `include_str!` — no filesystem access at runtime.
 
 use axum::response::Html;
 
@@ -25,8 +26,11 @@ mod tests {
     for external in ["src=\"http", "href=\"http://cdn", "@import", "fetch("] {
       assert!(!INDEX_HTML.contains(external), "unexpected external reference: {external}");
     }
-    // Content: greeting, the three links, and the hiring note.
-    assert!(INDEX_HTML.contains("Hello, human"));
+    // Content: the korok greeting + sprite (leaf-mask eye hole + berry branch frames), the
+    // three links, and the hiring note.
+    assert!(INDEX_HTML.contains("Ya ha ha! You found me!"));
+    assert!(INDEX_HTML.contains("(@)"), "missing the leaf-mask eye hole");
+    assert!(INDEX_HTML.contains("BRANCH_HIGH"), "missing the branch-wave frames");
     for link in ["foundation.ai", "discord.gg", "github.com"] {
       assert!(INDEX_HTML.contains(link), "missing link: {link}");
     }
