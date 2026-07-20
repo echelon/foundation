@@ -13,7 +13,8 @@ pub async fn list_live_sessions_for_user<'e, E: PgExecutor<'e>>(
     Session,
     r#"SELECT id AS "id: ids::SessionId", user_id AS "user_id: UserId",
               impersonator_user_id AS "impersonator_user_id?: UserId",
-              ip::text AS "ip?: String", user_agent, device,
+              host(ip) AS "ip?: String", user_agent, device,
+              created_via AS "created_via: enums::SessionCreationType",
               created_at, expires_at, revoked_at
        FROM sessions
        WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()

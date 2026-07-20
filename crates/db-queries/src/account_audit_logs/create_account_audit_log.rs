@@ -33,7 +33,7 @@ pub async fn create_account_audit_log<'e, E: PgExecutor<'e>>(
                  actor_user_id AS "actor_user_id?: UserId", user_id AS "user_id?: UserId",
                  event, target_type, target_id,
                  data AS "data?: serde_json::Value",
-                 ip::text AS "ip?: String", created_at"#,
+                 host(ip) AS "ip?: String", created_at"#,
     id.as_str(),
     new.account_id.as_str(),
     actor,

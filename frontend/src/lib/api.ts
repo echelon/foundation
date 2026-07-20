@@ -114,6 +114,8 @@ export type ApiSession = {
   ip: string | null;
   user_agent: string | null;
   device: string | null;
+  /** How the session came to exist: "signup" | "invited_signup" | "login" | "sso_login" | …. */
+  created_via: string;
   created_at: string;
   expires_at: string;
   this_device: boolean;

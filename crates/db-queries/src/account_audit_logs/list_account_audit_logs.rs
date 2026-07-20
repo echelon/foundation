@@ -18,7 +18,7 @@ pub async fn list_account_audit_logs<'e, E: PgExecutor<'e>>(
               actor_user_id AS "actor_user_id?: ids::UserId", user_id AS "user_id?: ids::UserId",
               event, target_type, target_id,
               data AS "data?: serde_json::Value",
-              ip::text AS "ip?: String", created_at
+              host(ip) AS "ip?: String", created_at
        FROM account_audit_logs
        WHERE account_id = $1
          AND ($2::text IS NULL OR sid < (SELECT sid FROM account_audit_logs WHERE id = $2))

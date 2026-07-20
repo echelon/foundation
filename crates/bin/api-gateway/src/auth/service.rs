@@ -9,7 +9,7 @@ use db_queries::{
   account_audit_logs, accounts, email_changes, email_verifications, invitations, members, password_resets, sessions,
   sso, user_audit_logs, user_avatars, users, Account, Invitation, Session, User,
 };
-use enums::AuditEvent;
+use enums::{AuditEvent, SessionCreationType};
 use ids::{AccountId, InvitationId, SessionId, UserId};
 
 use crate::auth::email::{canonicalize, canonicalize_clean};
@@ -79,7 +79,7 @@ pub async fn signup(pool: &db::PgPool, jwt: &JwtKeys, args: SignupArgs<'_>, meta
           accept_open_invitation(&mut tx, inv, &user.id, meta.ip.as_deref()).await?;
           tx.commit().await?;
         }
-        return start_session(pool, jwt, user, None, meta).await;
+        return start_session(pool, jwt, user, None, meta, SessionCreationType::Login).await;
       }
       _ => {
         return Err(ApiError::Conflict(
@@ -124,7 +124,9 @@ pub async fn signup(pool: &db::PgPool, jwt: &JwtKeys, args: SignupArgs<'_>, meta
       accept_open_invitation(&mut tx, inv, &user.id, meta.ip.as_deref()).await?;
     }
   }
-  let session = new_session(&mut tx, &user.id, meta).await?;
+  let created_via =
+    if invitation.is_some() { SessionCreationType::InvitedSignup } else { SessionCreationType::Signup };
+  let session = new_session(&mut tx, &user.id, meta, created_via).await?;
 
   tx.commit().await?;
 
@@ -158,7 +160,7 @@ pub async fn login(
   if !ok {
     return Err(ApiError::Unauthorized("invalid email or password".into()));
   }
-  start_session(pool, jwt, user, None, meta).await
+  start_session(pool, jwt, user, None, meta, SessionCreationType::Login).await
 }
 
 /// SSO login/signup (accounts.md §3B/C, §5). Resolves on `(provider, provider_user_id)` —
@@ -183,7 +185,7 @@ pub async fn oauth_login(
     let user = users::find_user_by_id(pool, &conn.user_id)
       .await?
       .ok_or_else(|| ApiError::Internal("sso connection references missing user".into()))?;
-    return start_session(pool, jwt, user, None, meta).await;
+    return start_session(pool, jwt, user, None, meta, SessionCreationType::SsoLogin).await;
   }
 
   // 2. No connection but the email already has an account → do NOT merge.
@@ -226,7 +228,7 @@ pub async fn oauth_login(
   .await?;
   members::create_membership(&mut *tx, &account.id, &user.id, "owner").await?;
   provision_new_user(&mut tx, &user, &account, meta).await?;
-  let session = new_session(&mut tx, &user.id, meta).await?;
+  let session = new_session(&mut tx, &user.id, meta, SessionCreationType::SsoSignup).await?;
   tx.commit().await?;
 
   let token = jwt
@@ -884,6 +886,7 @@ async fn start_session(
   user: User,
   impersonator_user_id: Option<&UserId>,
   meta: &ReqMeta,
+  created_via: SessionCreationType,
 ) -> ApiResult<AuthOutcome> {
   let session = sessions::create_session(
     pool,
@@ -894,6 +897,7 @@ async fn start_session(
       user_agent: meta.user_agent.as_deref(),
       device: None,
       impersonator_user_id,
+      created_via,
     },
   )
   .await?;
@@ -992,6 +996,7 @@ async fn new_session(
   tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
   user_id: &UserId,
   meta: &ReqMeta,
+  created_via: SessionCreationType,
 ) -> ApiResult<Session> {
   let session = sessions::create_session(
     &mut **tx,
@@ -1002,6 +1007,7 @@ async fn new_session(
       user_agent: meta.user_agent.as_deref(),
       device: None,
       impersonator_user_id: None,
+      created_via,
     },
   )
   .await?;

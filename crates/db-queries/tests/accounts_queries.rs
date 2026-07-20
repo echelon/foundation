@@ -111,6 +111,7 @@ async fn create_session_find_and_revoke() {
       user_agent: Some("test-agent"),
       device: None,
       impersonator_user_id: None,
+      created_via: enums::SessionCreationType::Login,
     },
   )
   .await

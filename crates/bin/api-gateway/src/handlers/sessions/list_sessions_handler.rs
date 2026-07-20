@@ -20,6 +20,9 @@ pub struct SessionItem {
   pub ip: Option<String>,
   pub user_agent: Option<String>,
   pub device: Option<String>,
+  /// How the session came to exist: `signup`, `invited_signup`, `login`, `sso_login`, ….
+  #[schema(value_type = String, example = "login")]
+  pub created_via: enums::SessionCreationType,
   pub created_at: DateTime<Utc>,
   pub expires_at: DateTime<Utc>,
   /// Marks the session making this request.
@@ -47,6 +50,7 @@ pub async fn list_sessions_handler(State(state): State<AppState>, auth: AuthCont
       ip: s.ip,
       user_agent: s.user_agent,
       device: s.device,
+      created_via: s.created_via,
       created_at: s.created_at,
       expires_at: s.expires_at,
     })

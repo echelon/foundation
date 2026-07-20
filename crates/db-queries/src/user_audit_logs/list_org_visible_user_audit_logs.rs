@@ -19,7 +19,7 @@ pub async fn list_org_visible_user_audit_logs<'e, E: PgExecutor<'e>>(
               actor_user_id AS "actor_user_id?: UserId",
               event, target_type, target_id,
               data AS "data?: serde_json::Value", is_org_visible,
-              ip::text AS "ip?: String", created_at
+              host(ip) AS "ip?: String", created_at
        FROM user_audit_logs
        WHERE user_id = $1
          AND is_org_visible

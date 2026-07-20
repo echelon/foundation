@@ -12,7 +12,8 @@ pub async fn find_session_by_id<'e, E: PgExecutor<'e>>(
     Session,
     r#"SELECT id AS "id: SessionId", user_id AS "user_id: ids::UserId",
               impersonator_user_id AS "impersonator_user_id?: ids::UserId",
-              ip::text AS "ip?: String", user_agent, device,
+              host(ip) AS "ip?: String", user_agent, device,
+              created_via AS "created_via: enums::SessionCreationType",
               created_at, expires_at, revoked_at
        FROM sessions
        WHERE id = $1"#,

@@ -12,12 +12,14 @@ mod audit_event;
 mod avatar_file_source;
 mod avatar_source;
 mod email_status;
+mod session_creation_type;
 mod email_template;
 
 pub use audit_event::AuditEvent;
 pub use avatar_file_source::AvatarFileSource;
 pub use avatar_source::AvatarSource;
 pub use email_status::EmailStatus;
+pub use session_creation_type::SessionCreationType;
 pub use email_template::EmailTemplate;
 
 /// Error parsing an enum from an unknown wire string.

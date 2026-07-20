@@ -348,3 +348,68 @@ async fn database_rejects_concurrent_duplicate_live_invitations() {
   }
   // tx dropped → rolled back; nothing persists.
 }
+
+#[tokio::test]
+async fn sessions_record_ip_and_creation_type() {
+  let (app, pool) = app_and_pool().await;
+
+  // Fresh signup, with a proxy header — the session must capture ip + created_via=signup.
+  let email = unique_email();
+  let signup_req = Request::builder()
+    .method("POST")
+    .uri("/v1/auth/signup")
+    .header("content-type", "application/json")
+    .header("x-forwarded-for", "203.0.113.9, 10.0.0.1")
+    .body(Body::from(serde_json::to_vec(&json!({ "email": email, "password": "password1" })).unwrap()))
+    .unwrap();
+  let signup = app.clone().oneshot(signup_req).await.unwrap();
+  assert_eq!(signup.status(), StatusCode::CREATED);
+  let user_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions.len(), 1);
+  assert_eq!(sessions[0].ip.as_deref(), Some("203.0.113.9"), "client ip (first x-forwarded-for hop) must be stored");
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::Signup);
+
+  // Login → a second session, created_via=login.
+  let login = app
+    .clone()
+    .oneshot(post("/v1/auth/login", json!({ "email": email, "password": "password1" }), None))
+    .await
+    .unwrap();
+  assert_eq!(login.status(), StatusCode::OK);
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions.len(), 2);
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::Login); // newest first
+
+  // Invited signup → created_via=invited_signup.
+  let invitee_email = unique_email();
+  let (app2, pool2, _account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let code = inv["code"].as_str().unwrap();
+  let joined = app2
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": invitee_email, "password": "password1", "invitation": code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(joined.status(), StatusCode::CREATED);
+  let joiner_id: ids::UserId = body_json(joined).await["user"]["id"].as_str().unwrap().parse().unwrap();
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool2, &joiner_id).await.unwrap();
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::InvitedSignup);
+
+  // The devices list surfaces it.
+  let cookie = session_cookie(
+    &app.clone()
+      .oneshot(post("/v1/auth/login", json!({ "email": email, "password": "password1" }), None))
+      .await
+      .unwrap(),
+  )
+  .unwrap();
+  let list = app.clone().oneshot(get("/v1/auth/sessions", Some(&cookie))).await.unwrap();
+  let list = body_json(list).await;
+  assert_eq!(list["sessions"][0]["created_via"], "login");
+  assert!(list["sessions"].as_array().unwrap().iter().any(|s| s["created_via"] == "signup"));
+}

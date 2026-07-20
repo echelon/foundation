@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use enums::SessionCreationType;
 use ids::{SessionId, UserId};
 use sqlx::PgExecutor;
 
@@ -13,6 +14,7 @@ pub struct NewSession<'a> {
   pub device: Option<&'a str>,
   /// Set only for staff impersonation (auth.md §6).
   pub impersonator_user_id: Option<&'a UserId>,
+  pub created_via: SessionCreationType,
 }
 
 pub async fn create_session<'e, E: PgExecutor<'e>>(exec: E, new: NewSession<'_>) -> sqlx::Result<Session> {
@@ -20,11 +22,12 @@ pub async fn create_session<'e, E: PgExecutor<'e>>(exec: E, new: NewSession<'_>)
   let impersonator = new.impersonator_user_id.map(|i| i.as_str());
   sqlx::query_as!(
     Session,
-    r#"INSERT INTO sessions (id, user_id, impersonator_user_id, ip, user_agent, device, expires_at)
-       VALUES ($1, $2, $3, ($4::text)::inet, $5, $6, $7)
+    r#"INSERT INTO sessions (id, user_id, impersonator_user_id, ip, user_agent, device, created_via, expires_at)
+       VALUES ($1, $2, $3, ($4::text)::inet, $5, $6, $7, $8)
        RETURNING id AS "id: SessionId", user_id AS "user_id: UserId",
                  impersonator_user_id AS "impersonator_user_id?: UserId",
-                 ip::text AS "ip?: String", user_agent, device,
+                 host(ip) AS "ip?: String", user_agent, device,
+                 created_via AS "created_via: SessionCreationType",
                  created_at, expires_at, revoked_at"#,
     id.as_str(),
     new.user_id.as_str(),
@@ -32,6 +35,7 @@ pub async fn create_session<'e, E: PgExecutor<'e>>(exec: E, new: NewSession<'_>)
     new.ip,
     new.user_agent,
     new.device,
+    new.created_via.as_str(),
     new.expires_at,
   )
   .fetch_one(exec)

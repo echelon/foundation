@@ -113,6 +113,8 @@ CREATE TABLE sessions (
     ip                   inet,
     user_agent           text,
     device               text,
+    created_via          text not null CHECK (created_via IN
+                             ('signup', 'invited_signup', 'login', 'sso_login', 'sso_signup', 'impersonation')),
     created_at           timestamptz not null default now(),
     expires_at           timestamptz not null,
     revoked_at           timestamptz

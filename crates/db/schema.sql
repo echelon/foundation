@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 5ew91Po2hg0fNhloyFYACa4VqBko1E2aSzHOGQmQBufzWbHL817sU2eFNc6xVFb
+\restrict 6QFBWPdccQH2gTTBPNMNcbgRmZLI7QjKnz1t1PklvF6laO4SjONywTtog9A8SGm
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -1166,9 +1166,11 @@ CREATE TABLE public.sessions (
     ip inet,
     user_agent text,
     device text,
+    created_via text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone NOT NULL,
-    revoked_at timestamp with time zone
+    revoked_at timestamp with time zone,
+    CONSTRAINT sessions_created_via_check CHECK ((created_via = ANY (ARRAY['signup'::text, 'invited_signup'::text, 'login'::text, 'sso_login'::text, 'sso_signup'::text, 'impersonation'::text])))
 );
 
 
@@ -2594,5 +2596,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 5ew91Po2hg0fNhloyFYACa4VqBko1E2aSzHOGQmQBufzWbHL817sU2eFNc6xVFb
+\unrestrict 6QFBWPdccQH2gTTBPNMNcbgRmZLI7QjKnz1t1PklvF6laO4SjONywTtog9A8SGm
 
