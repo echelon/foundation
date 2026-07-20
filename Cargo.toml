@@ -15,11 +15,13 @@ members = [
   "crates/clients/openai_client",
   "crates/clients/google_client",
   "crates/clients/anthropic_client",
+  "crates/clients/email_client",
   # data-layer query crate
   "crates/db-queries",
   # ── deployables ──
   "crates/bin/api-gateway",
   "crates/bin/admin-cli",
+  "crates/bin/gravatar-job",
 ]
 
 [workspace.package]
@@ -70,6 +72,7 @@ kinovi_client = { path = "crates/clients/kinovi_client" }
 openai_client = { path = "crates/clients/openai_client" }
 google_client = { path = "crates/clients/google_client" }
 anthropic_client = { path = "crates/clients/anthropic_client" }
+email_client = { path = "crates/clients/email_client" }
 db_queries = { path = "crates/db-queries" }
 
 [profile.dev]

@@ -1,6 +1,21 @@
-//! Environment / config loading (environments.md). Reads `.env` in dev, then the
-//! process environment. Provider credential pools are optional — a missing key means
-//! that provider is simply unroutable, not a boot failure.
+//! Environment / config loading (environments.md).
+//!
+//! Every service reads its environment from **convention-named env files** loaded at startup by
+//! [`load_env_files`] — `cargo run -p {service}` needs no hand-supplied env vars. Per service
+//! (`{app}` = the binary name, files live in `crates/bin/{app}/config/`):
+//!
+//!   - `{app}.common.env`              — all environments (committed)
+//!   - `{app}.development.env`         — dev defaults (committed; NO real secrets)
+//!   - `{app}.development-secrets.env` — dev secrets (**gitignored**; see the `.example` template)
+//!   - `{app}.production.env`          — prod config (committed; real secrets injected at deploy)
+//!
+//! `FOUNDATION_ENV` (read from the process environment BEFORE any file) picks the set; default is
+//! dev. Real process env vars always win over file values, and more-specific files win over
+//! `common` — so a deploy platform or a one-off `DATABASE_URL=… cargo run` override just works.
+//! Provider credential pools are optional — a missing key means that provider is simply
+//! unroutable, not a boot failure.
+
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -66,10 +81,57 @@ fn opt(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
+/// Load the convention-named env files for `app_name` (see the crate docs for the file set).
+/// Call this FIRST in every binary's `main`, before initializing logging (so `RUST_LOG` from a
+/// file takes effect) and before [`Config::load`].
+///
+/// Semantics:
+///   - `FOUNDATION_ENV` is read from the process environment only (a file can't switch it —
+///     chicken-and-egg), defaulting to dev.
+///   - Files load most-specific-first (`…-secrets` → `…{env}` → `common`); dotenvy never
+///     overrides an already-set var, so earlier-loaded files and the real process env win.
+///   - Each file is searched across the service dir (`crates/bin/{app}/config`), `./config`,
+///     and `.` — so running from the repo root or the crate dir both work.
+///   - Missing files are fine (the secrets file won't exist until someone creates it).
+///
+/// Returns the paths actually loaded so the caller can log them once tracing is up.
+pub fn load_env_files(app_name: &str) -> Vec<PathBuf> {
+    let environment = Environment::parse(&std::env::var("FOUNDATION_ENV").unwrap_or_default());
+
+    let file_names: Vec<String> = match environment {
+        Environment::Dev => vec![
+            format!("{app_name}.development-secrets.env"), // gitignored
+            format!("{app_name}.development.env"),
+            format!("{app_name}.common.env"),
+        ],
+        Environment::Test => vec![format!("{app_name}.test.env"), format!("{app_name}.common.env")],
+        Environment::Stage => vec![format!("{app_name}.stage.env"), format!("{app_name}.common.env")],
+        Environment::Prod => vec![format!("{app_name}.production.env"), format!("{app_name}.common.env")],
+    };
+
+    let service_config_dir = format!("crates/bin/{app_name}/config");
+    let search_dirs = [service_config_dir.as_str(), "config", "."];
+
+    let mut loaded = Vec::new();
+    for file_name in &file_names {
+        for dir in &search_dirs {
+            let path = Path::new(dir).join(file_name);
+            if path.is_file() {
+                // from_path never overrides vars that are already set.
+                if dotenvy::from_path(&path).is_ok() {
+                    loaded.push(path);
+                }
+                break; // first hit wins; don't load the same file name from a later dir
+            }
+        }
+    }
+    loaded
+}
+
 impl Config {
-    /// Load config, sourcing `.env` first (best-effort — absent file is fine).
+    /// Parse config from the process environment. Env files are NOT read here — call
+    /// [`load_env_files`] first (every binary's `main` does).
     pub fn load() -> Result<Config> {
-        let _ = dotenvy::dotenv();
         Ok(Config {
             environment: Environment::parse(&std::env::var("FOUNDATION_ENV").unwrap_or_default()),
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is required")?,

@@ -5,6 +5,8 @@ use anyhow::{bail, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Env files by convention (crates/bin/admin-cli/config/…) — no hand-supplied vars needed.
+    let _ = config::load_env_files("admin-cli");
     let cfg = config::Config::load()?;
     let cmd = std::env::args().nth(1).unwrap_or_default();
 

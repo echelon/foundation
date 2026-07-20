@@ -69,6 +69,7 @@ dependencies = [
  "config",
  "db",
  "db_queries",
+ "email_client",
  "hex",
  "id_core",
  "ids",
@@ -407,6 +408,7 @@ dependencies = [
  "db",
  "id_core",
  "ids",
+ "serde_json",
  "sqlx",
  "tokio",
 ]
@@ -464,6 +466,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "email_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "client-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -667,6 +683,21 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "gravatar-job"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "client-core",
+ "config",
+ "db",
+ "db_queries",
+ "reqwest",
  "tokio",
  "tracing",
  "tracing-subscriber",

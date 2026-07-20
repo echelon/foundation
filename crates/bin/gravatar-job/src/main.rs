@@ -25,12 +25,20 @@ const ERROR_BACKOFF: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+  // Env files first (convention: crates/bin/gravatar-job/config/gravatar-job.{env}.env), so
+  // `cargo run -p gravatar-job` needs no hand-supplied env vars and RUST_LOG from a file works.
+  let loaded = config::load_env_files("gravatar-job");
+
   tracing_subscriber::fmt()
     .with_env_filter(
       tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "info,gravatar_job=debug".into()),
     )
     .init();
+
+  for path in &loaded {
+    tracing::info!("loaded env file: {}", path.display());
+  }
 
   let cfg = config::Config::load()?;
   let pool = db::connect(&cfg.database_url).await?;
