@@ -190,9 +190,9 @@ function AvatarCard() {
 
   const selected = avatar?.preferred_source;
 
-  // Gravatar earns the middle slot only once one is mirrored; otherwise it trails.
   const photoTile = (
         <AvatarOption
+          key="photo"
           label="Photo"
           selected={selected === "custom"}
           selectable={!!avatar?.has_custom}
@@ -233,6 +233,7 @@ function AvatarCard() {
 
   const gravatarTile = (
         <AvatarOption
+          key="gravatar"
           label="Gravatar"
           selected={selected === "gravatar"}
           selectable={!!avatar?.has_gravatar}
@@ -277,6 +278,7 @@ function AvatarCard() {
 
   const initialsTile = (
         <AvatarOption
+          key="initials"
           label="Initials"
           selected={selected === "letter"}
           selectable
@@ -304,6 +306,19 @@ function AvatarCard() {
         />
   );
 
+  // Whatever the user actually has leads: a photo puts Photo first (else Photo sits second
+  // as the nudge to add one); a mirrored gravatar takes the second slot (or first when
+  // there's no photo); initials fill what remains.
+  const hasCustom = !!avatar?.has_custom;
+  const hasGravatar = !!avatar?.has_gravatar;
+  const tileOrder = hasCustom
+    ? hasGravatar
+      ? [photoTile, gravatarTile, initialsTile]
+      : [photoTile, initialsTile, gravatarTile]
+    : hasGravatar
+      ? [gravatarTile, photoTile, initialsTile]
+      : [initialsTile, photoTile, gravatarTile];
+
   return (
     <Card className="p-6">
       <h2 className="font-display font-semibold">Profile picture</h2>
@@ -321,9 +336,7 @@ function AvatarCard() {
       />
 
       <div className="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
-        {photoTile}
-        {avatar?.has_gravatar ? gravatarTile : initialsTile}
-        {avatar?.has_gravatar ? initialsTile : gravatarTile}
+        {tileOrder}
       </div>
 
       <NoticeRow notice={notice} />
