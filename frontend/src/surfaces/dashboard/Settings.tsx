@@ -6,9 +6,8 @@ import { UserAvatar, userInitials } from "@/components/UserAvatar";
 import { api, ApiError, type ApiLoginMethods, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { MONOGRAM_GRADIENTS, monogramGradientCss } from "@/lib/gradients";
-import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { githubSsoEnabled, startGithubSignIn } from "@/lib/github";
-import { googleSsoEnabled } from "@/lib/google";
+import { googleSsoEnabled, requestGoogleAccessToken } from "@/lib/google";
 
 export default function Settings() {
   const { user, ssoProviders } = useAuth();
@@ -659,9 +658,24 @@ function LoginMethodsCard() {
     }
   };
 
-  const linkGoogle = async (credential: string) => {
-    await api.linkGoogle(credential);
-    await load();
+  // The custom-button flow: consent popup → access token → backend link. Matches the site's
+  // styling instead of embedding Google's branded iframe.
+  const connectGoogle = async () => {
+    setBusy("google-connect");
+    setNotice(null);
+    try {
+      const token = await requestGoogleAccessToken();
+      await api.linkGoogleAccessToken(token);
+      await load();
+      await refresh(); // factoids update
+      setNotice({ tone: "ok", text: "Google connected." });
+    } catch (err) {
+      const text =
+        err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Couldn't connect Google.";
+      setNotice({ tone: "err", text });
+    } finally {
+      setBusy(null);
+    }
   };
 
   const connection = (provider: string) => methods?.sso_connections.find((c) => c.provider === provider);
@@ -715,10 +729,9 @@ function LoginMethodsCard() {
           "google",
           "Google",
           googleSsoEnabled ? (
-            <GoogleSignInButton
-              onSuccess={() => setNotice({ tone: "ok", text: "Google connected." })}
-              onCredential={linkGoogle}
-            />
+            <Button variant="outline" size="sm" disabled={busy !== null} onClick={() => void connectGoogle()}>
+              {busy === "google-connect" ? "…" : "Connect"}
+            </Button>
           ) : (
             <span className="text-xs text-muted">not configured</span>
           ),

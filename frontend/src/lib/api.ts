@@ -288,6 +288,11 @@ export const api = {
   linkGoogle: (credential: string) =>
     request<ApiLoginMethods>("POST", "/v1/auth/login_methods/google", { credential }),
 
+  /** Link Google via a token-client access token (the custom, site-styled Connect button —
+   * the backend verifies it via tokeninfo + userinfo). */
+  linkGoogleAccessToken: (accessToken: string) =>
+    request<ApiLoginMethods>("POST", "/v1/auth/login_methods/google", { access_token: accessToken }),
+
   /** Link GitHub to the CURRENT user (code exchanged server-side; 409 if linked elsewhere). */
   linkGithub: (code: string, codeVerifier: string) =>
     request<ApiLoginMethods>("POST", "/v1/auth/login_methods/github", { code, code_verifier: codeVerifier }),

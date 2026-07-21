@@ -15,8 +15,11 @@ pub struct VerifiedSsoIdentity {
 
 /// The client-supplied proof material (which field applies depends on the provider).
 pub struct SsoProof<'a> {
-  /// Google: the GIS ID-token JWT.
+  /// Google: the GIS ID-token JWT (the official button).
   pub credential: Option<&'a str>,
+  /// Google: a token-client access token (the custom-button "connect" flow) — verified via
+  /// tokeninfo (aud check) + userinfo.
+  pub access_token: Option<&'a str>,
   /// GitHub: the authorization code from the web application flow.
   pub code: Option<&'a str>,
   /// GitHub: the PKCE verifier for that code.
@@ -34,11 +37,16 @@ pub async fn verify_sso_identity(
         .google
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("Google sign-in is not configured on this server".into()))?;
-      let credential =
-        proof.credential.ok_or_else(|| ApiError::BadRequest("`credential` is required for google".into()))?;
-      let id = google.verify(credential).await.map_err(|e| {
-        tracing::warn!(error = %e, "google credential rejected");
-        ApiError::Unauthorized("Google credential could not be verified".into())
+      let id = match (proof.credential, proof.access_token) {
+        (Some(credential), _) => google.verify(credential).await,
+        (None, Some(access_token)) => google.verify_access_token(access_token).await,
+        (None, None) => {
+          return Err(ApiError::BadRequest("`credential` or `access_token` is required for google".into()));
+        }
+      }
+      .map_err(|e| {
+        tracing::warn!(error = %e, "google proof rejected");
+        ApiError::Unauthorized("Google sign-in could not be verified".into())
       })?;
       // We mark SSO emails verified (accounts.md §3B) — so only accept ones Google vouches for.
       if !id.email_verified {

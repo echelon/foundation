@@ -22,6 +22,8 @@ use crate::state::AppState;
 pub struct OAuthCallbackBody {
   /// Google: the GIS credential (ID-token JWT) from `google.accounts.id`.
   pub credential: Option<String>,
+  /// Google: a token-client access token (custom-button flow) — alternative to `credential`.
+  pub access_token: Option<String>,
   /// GitHub: the authorization code from the web application flow.
   pub code: Option<String>,
   /// GitHub: the PKCE verifier that produced the authorize request's `code_challenge`.
@@ -51,6 +53,7 @@ pub async fn oauth_callback_handler(
     &provider,
     SsoProof {
       credential: body.credential.as_deref(),
+      access_token: body.access_token.as_deref(),
       code: body.code.as_deref(),
       code_verifier: body.code_verifier.as_deref(),
     },

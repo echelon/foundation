@@ -13,6 +13,7 @@ const CLIENT_ID = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined)?
 export const googleSsoEnabled = Boolean(CLIENT_ID);
 
 type CredentialResponse = { credential: string };
+type TokenResponse = { access_token?: string; error?: string };
 
 /** The slice of the GSI API we use. */
 type GsiApi = {
@@ -20,6 +21,14 @@ type GsiApi = {
     id: {
       initialize: (config: { client_id: string; callback: (r: CredentialResponse) => void }) => void;
       renderButton: (el: HTMLElement, options: Record<string, unknown>) => void;
+    };
+    oauth2: {
+      initTokenClient: (config: {
+        client_id: string;
+        scope: string;
+        callback: (r: TokenResponse) => void;
+        error_callback?: (e: { type?: string }) => void;
+      }) => { requestAccessToken: () => void };
     };
   };
 };
@@ -62,4 +71,30 @@ export async function renderGoogleButton(el: HTMLElement, onCredential: (credent
   if (!gsi) throw new Error("Google sign-in failed to initialize.");
   gsi.initialize({ client_id: CLIENT_ID, callback: (r) => onCredential(r.credential) });
   gsi.renderButton(el, { theme: "outline", size: "large", text: "continue_with", width: 320 });
+}
+
+/**
+ * The custom-button flow (used in settings, where Google's branded iframe would clash with
+ * the site): opens Google's consent popup via the OAuth token client and resolves with an
+ * access token, which the BACKEND verifies (tokeninfo aud-check + userinfo). Rejects if the
+ * user closes the popup.
+ */
+export async function requestGoogleAccessToken(): Promise<string> {
+  if (!CLIENT_ID) throw new Error("VITE_GOOGLE_CLIENT_ID is not set");
+  await loadGsiScript();
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2) throw new Error("Google sign-in failed to initialize.");
+  return new Promise<string>((resolve, reject) => {
+    const client = oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: "openid email profile",
+      callback: (r) => {
+        if (r.access_token) resolve(r.access_token);
+        else reject(new Error(r.error ?? "Google did not grant access."));
+      },
+      error_callback: (e) =>
+        reject(new Error(e.type === "popup_closed" ? "The Google window was closed." : "Google sign-in failed.")),
+    });
+    client.requestAccessToken();
+  });
 }

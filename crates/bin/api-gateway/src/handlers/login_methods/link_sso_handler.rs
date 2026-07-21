@@ -20,6 +20,8 @@ use crate::state::AppState;
 pub struct LinkSsoBody {
   /// Google: the GIS credential (ID-token JWT).
   pub credential: Option<String>,
+  /// Google: a token-client access token (custom-button flow) — alternative to `credential`.
+  pub access_token: Option<String>,
   /// GitHub: the authorization code.
   pub code: Option<String>,
   /// GitHub: the PKCE verifier for that code.
@@ -53,6 +55,7 @@ pub async fn link_sso_handler(
     &provider,
     SsoProof {
       credential: body.credential.as_deref(),
+      access_token: body.access_token.as_deref(),
       code: body.code.as_deref(),
       code_verifier: body.code_verifier.as_deref(),
     },

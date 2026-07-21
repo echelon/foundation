@@ -70,14 +70,20 @@ struct CachedKeys {
   keys: Vec<Jwk>,
 }
 
-/// Verifies GIS credentials for one OAuth client id.
+const GOOGLE_TOKENINFO_URL: &str = "https://oauth2.googleapis.com/tokeninfo";
+const GOOGLE_USERINFO_URL: &str = "https://openidconnect.googleapis.com/v1/userinfo";
+
+/// Verifies GIS credentials (ID tokens) AND token-client access tokens for one OAuth client id.
 pub struct GoogleAuth {
   client_id: String,
   source: KeySource,
+  http: reqwest::Client,
+  tokeninfo_url: String,
+  userinfo_url: String,
 }
 
 impl GoogleAuth {
-  /// Production verifier against Google's live JWKS endpoint.
+  /// Production verifier against Google's live endpoints.
   pub fn new(client_id: String) -> Self {
     Self {
       client_id,
@@ -86,6 +92,9 @@ impl GoogleAuth {
         url: GOOGLE_JWKS_URL.to_string(),
         cache: RwLock::new(None),
       },
+      http: reqwest::Client::new(),
+      tokeninfo_url: GOOGLE_TOKENINFO_URL.to_string(),
+      userinfo_url: GOOGLE_USERINFO_URL.to_string(),
     }
   }
 
@@ -93,7 +102,20 @@ impl GoogleAuth {
   /// input — it's a fixture.
   pub fn with_static_jwks(client_id: String, jwks_json: &str) -> Self {
     let set: JwkSet = serde_json::from_str(jwks_json).expect("valid JWKS fixture");
-    Self { client_id, source: KeySource::Static(set.keys) }
+    Self {
+      client_id,
+      source: KeySource::Static(set.keys),
+      http: reqwest::Client::new(),
+      tokeninfo_url: GOOGLE_TOKENINFO_URL.to_string(),
+      userinfo_url: GOOGLE_USERINFO_URL.to_string(),
+    }
+  }
+
+  /// Point tokeninfo/userinfo at a mock server (tests).
+  pub fn with_token_endpoints(mut self, tokeninfo_url: String, userinfo_url: String) -> Self {
+    self.tokeninfo_url = tokeninfo_url;
+    self.userinfo_url = userinfo_url;
+    self
   }
 
   /// Verify a GIS credential and extract the identity. Errors are deliberately generic
@@ -122,6 +144,60 @@ impl GoogleAuth {
       email_verified: data.claims.email_verified,
       display_name: data.claims.name,
     })
+  }
+
+  /// Verify a token-client ACCESS token (the custom-button "connect" flow): `tokeninfo`
+  /// proves the token was issued to OUR client id (blocking token substitution — an access
+  /// token minted for some other app must never authenticate here) and is unexpired; then
+  /// `userinfo` supplies the identity. No client secret involved.
+  pub async fn verify_access_token(&self, access_token: &str) -> Result<GoogleIdentity, String> {
+    #[derive(Deserialize)]
+    struct TokenInfo {
+      aud: Option<String>,
+      expires_in: Option<serde_json::Value>, // Google returns a string; tolerate numbers
+    }
+    let resp = self
+      .http
+      .get(&self.tokeninfo_url)
+      .query(&[("access_token", access_token)])
+      .send()
+      .await
+      .map_err(|e| format!("tokeninfo failed: {e}"))?;
+    if !resp.status().is_success() {
+      return Err(format!("tokeninfo rejected the token: status {}", resp.status()));
+    }
+    let info: TokenInfo = resp.json().await.map_err(|e| format!("tokeninfo unreadable: {e}"))?;
+    if info.aud.as_deref() != Some(self.client_id.as_str()) {
+      return Err("access token was issued for a different client".into());
+    }
+    let expires_in = info
+      .expires_in
+      .and_then(|v| v.as_str().and_then(|s| s.parse::<i64>().ok()).or_else(|| v.as_i64()))
+      .unwrap_or(0);
+    if expires_in <= 0 {
+      return Err("access token is expired".into());
+    }
+
+    #[derive(Deserialize)]
+    struct UserInfo {
+      sub: String,
+      email: Option<String>,
+      #[serde(default)]
+      email_verified: bool,
+      name: Option<String>,
+    }
+    let user: UserInfo = self
+      .http
+      .get(&self.userinfo_url)
+      .bearer_auth(access_token)
+      .send()
+      .await
+      .map_err(|e| format!("userinfo failed: {e}"))?
+      .json()
+      .await
+      .map_err(|e| format!("userinfo unreadable: {e}"))?;
+    let email = user.email.ok_or("userinfo carries no email")?;
+    Ok(GoogleIdentity { sub: user.sub, email, email_verified: user.email_verified, display_name: user.name })
   }
 
   async fn key_for(&self, kid: &str) -> Result<Jwk, String> {
@@ -265,6 +341,68 @@ mod tests {
     )
     .unwrap();
     assert!(verifier().verify(&hs).await.is_err());
+  }
+
+  /// A local stand-in for Google's tokeninfo + userinfo endpoints.
+  async fn mock_token_endpoints(aud: &'static str, expires_in: &'static str) -> String {
+    use axum::extract::Query;
+    use axum::routing::get;
+    use axum::{Json as AxJson, Router};
+    use std::collections::HashMap;
+
+    let tokeninfo = get(move |Query(q): Query<HashMap<String, String>>| async move {
+      if q.get("access_token").map(String::as_str) != Some("ya29.valid") {
+        return (axum::http::StatusCode::BAD_REQUEST, AxJson(serde_json::json!({ "error": "invalid_token" })));
+      }
+      (
+        axum::http::StatusCode::OK,
+        AxJson(serde_json::json!({ "aud": aud, "expires_in": expires_in, "scope": "openid email profile" })),
+      )
+    });
+    let userinfo = get(|| async {
+      axum::Json(serde_json::json!({
+        "sub": "108898765432101234567",
+        "email": "ada@example.com",
+        "email_verified": true,
+        "name": "Ada Rivera"
+      }))
+    });
+    let app = Router::new().route("/tokeninfo", tokeninfo).route("/userinfo", userinfo);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+  }
+
+  fn token_verifier(base: &str) -> GoogleAuth {
+    GoogleAuth::with_static_jwks(CLIENT_ID.to_string(), TEST_JWKS)
+      .with_token_endpoints(format!("{base}/tokeninfo"), format!("{base}/userinfo"))
+  }
+
+  #[tokio::test]
+  async fn access_token_for_our_client_verifies() {
+    let base = mock_token_endpoints(CLIENT_ID, "3599").await;
+    let id = token_verifier(&base).verify_access_token("ya29.valid").await.unwrap();
+    assert_eq!(id.sub, "108898765432101234567");
+    assert_eq!(id.email, "ada@example.com");
+    assert!(id.email_verified);
+  }
+
+  #[tokio::test]
+  async fn access_token_for_another_client_is_rejected() {
+    // Token substitution: a perfectly valid Google token minted for someone ELSE'S app.
+    let base = mock_token_endpoints("other-app.apps.googleusercontent.com", "3599").await;
+    let err = token_verifier(&base).verify_access_token("ya29.valid").await.unwrap_err();
+    assert!(err.contains("different client"), "{err}");
+  }
+
+  #[tokio::test]
+  async fn expired_or_unknown_access_tokens_are_rejected() {
+    let base = mock_token_endpoints(CLIENT_ID, "0").await;
+    let err = token_verifier(&base).verify_access_token("ya29.valid").await.unwrap_err();
+    assert!(err.contains("expired"), "{err}");
+    let err = token_verifier(&base).verify_access_token("ya29.garbage").await.unwrap_err();
+    assert!(err.contains("rejected"), "{err}");
   }
 
   #[test]
