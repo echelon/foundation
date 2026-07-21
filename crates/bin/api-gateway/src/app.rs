@@ -46,12 +46,19 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
     cdn_base_url: cfg.cdn_base_url.clone(),
     environment: cfg.environment.clone(),
     status_message: cfg.status_message.clone(),
+    google: cfg
+      .google_client_id
+      .clone()
+      .map(|id| Arc::new(crate::auth::google::GoogleAuth::new(id))),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
   }
   if state.bucket.is_none() {
     tracing::warn!("R2 storage not configured — avatar uploads disabled");
+  }
+  if state.google.is_none() {
+    tracing::warn!("GOOGLE_CLIENT_ID not set — Google sign-in disabled");
   }
   // Asset URLs are derived from this base — surface what we resolved, and catch the classic
   // dev misconfig: R2 secrets set but CDN base still pointing at the (dead) local-minio default.

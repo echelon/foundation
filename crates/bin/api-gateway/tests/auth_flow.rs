@@ -28,6 +28,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     cdn_base_url: "http://localhost:9000/foundation".into(),
     environment: config::Environment::Test,
     status_message: None,
+    google: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -154,26 +155,147 @@ async fn logout_revokes_the_session() {
   assert_eq!(me.status(), StatusCode::UNAUTHORIZED);
 }
 
-#[tokio::test]
-async fn sso_login_creates_user_then_logs_in_on_repeat() {
-  let (app, _pool) = app_and_pool().await;
-  let email = unique_email();
-  let sub = format!("sub-{}", id_core::mint("g"));
+/* ── Google SSO (GIS credential flow — tokens signed with a throwaway TEST key) ── */
 
+const GOOGLE_TEST_KEY_PEM: &str = include_str!("fixtures/google_test_key.pem");
+const GOOGLE_TEST_JWKS: &str = include_str!("fixtures/google_test_jwks.json");
+const GOOGLE_TEST_CLIENT_ID: &str = "test-client-id.apps.googleusercontent.com";
+
+/// An app whose Google verifier trusts the TEST keypair — full flow, no network, no secrets.
+async fn app_with_google() -> (Router, db::PgPool) {
+  let pool = db::test_fixtures::create_test_pool().await;
+  let state = AppState {
+    pool: pool.clone(),
+    jwt: Arc::new(JwtKeys::new("test-secret")),
+    cookie_domain: "localhost".into(),
+    cookie_secure: false,
+    app_base_url: "http://localhost:3000".into(),
+    email_from: "Foundation <noreply@localhost>".into(),
+    resend_api_key: None,
+    bucket: None,
+    cdn_base_url: "http://localhost:9000/foundation".into(),
+    environment: config::Environment::Test,
+    status_message: None,
+    google: Some(Arc::new(api_gateway::auth::google::GoogleAuth::with_static_jwks(
+      GOOGLE_TEST_CLIENT_ID.to_string(),
+      GOOGLE_TEST_JWKS,
+    ))),
+  };
+  (api_gateway::build_router(state), pool)
+}
+
+fn google_credential(sub: &str, email: &str, name: &str, email_verified: bool) -> String {
+  use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+  let now = chrono::Utc::now().timestamp();
+  let claims = json!({
+    "iss": "https://accounts.google.com",
+    "aud": GOOGLE_TEST_CLIENT_ID,
+    "sub": sub,
+    "email": email,
+    "email_verified": email_verified,
+    "name": name,
+    "iat": now,
+    "exp": now + 300,
+  });
+  let mut header = Header::new(Algorithm::RS256);
+  header.kid = Some("foundation-test-key".to_string());
+  encode(&header, &claims, &EncodingKey::from_rsa_pem(GOOGLE_TEST_KEY_PEM.as_bytes()).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn google_sso_signs_up_then_logs_in_on_repeat() {
+  let (app, pool) = app_with_google().await;
+  let email = unique_email();
+  let sub = format!("10881{}", id_core::mint("g"));
+
+  // First visit: verified credential → user + own org created, session cookie set.
+  let credential = google_credential(&sub, &email, "SSO User", true);
   let first = app
     .clone()
-    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "provider_user_id": sub, "email": email, "display_name": "SSO User" }), None))
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": credential }), None))
     .await
     .unwrap();
   assert_eq!(first.status(), StatusCode::OK);
-  assert!(session_cookie(&first).is_some());
+  let cookie = session_cookie(&first).unwrap();
+  let body = body_json(first).await;
+  assert_eq!(body["user"]["email"], email);
+  assert_eq!(body["user"]["display_name"], "SSO User");
+  let user_id: ids::UserId = body["user"]["id"].as_str().unwrap().parse().unwrap();
 
-  // Same (provider, sub) again → logs into the same user.
+  // SSO emails count as verified, the session works, and created_via says sso_signup.
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  assert_eq!(body_json(me).await["user"]["email_verified"], true);
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::SsoSignup);
+
+  // Same (provider, sub) again — even with a CHANGED email — logs into the same user.
+  let second_credential = google_credential(&sub, &unique_email(), "SSO User", true);
   let second = app
-    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "provider_user_id": sub, "email": email, "display_name": "SSO User" }), None))
+    .clone()
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": second_credential }), None))
     .await
     .unwrap();
   assert_eq!(second.status(), StatusCode::OK);
+  assert_eq!(body_json(second).await["user"]["id"], user_id.to_string());
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::SsoLogin);
+}
+
+#[tokio::test]
+async fn google_sso_rejects_bad_credentials_and_collisions() {
+  let (app, _pool) = app_with_google().await;
+
+  // Garbage / unverifiable credential → 401.
+  let bad = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": "not-a-real-jwt" }), None))
+    .await
+    .unwrap();
+  assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
+
+  // Google-unverified email → 401 (we mark SSO emails verified, so we require Google's word).
+  let email = unique_email();
+  let unverified = google_credential(&format!("10882{}", id_core::mint("g")), &email, "X", false);
+  let resp = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": unverified }), None))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+  // Email already registered with a password and NO Google link → 409, no silent merge.
+  let taken = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": taken, "password": "password1" }), None))
+    .await
+    .unwrap();
+  assert_eq!(signup.status(), StatusCode::CREATED);
+  let colliding = google_credential(&format!("10883{}", id_core::mint("g")), &taken, "X", true);
+  let resp = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": colliding }), None))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+  // Unsupported provider → 400.
+  let gh = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/github/callback", json!({ "credential": "x" }), None))
+    .await
+    .unwrap();
+  assert_eq!(gh.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn google_sso_unconfigured_server_says_so() {
+  let (app, _pool) = app_and_pool().await; // google: None
+  let resp = app
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": "anything" }), None))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -254,6 +376,7 @@ async fn api_status_reports_reachability_and_operator_message() {
     cdn_base_url: "http://localhost:9000/foundation".into(),
     environment: config::Environment::Test,
     status_message: Some("Scheduled maintenance at 03:00 UTC.".into()),
+    google: None,
   };
   let app = api_gateway::build_router(state);
   let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();

@@ -1,5 +1,7 @@
 import { type ReactNode } from "react";
 import { Card } from "@/components/ui";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { googleSsoEnabled } from "@/lib/google";
 
 /** Shared shell for the auth forms. */
 export function AuthCard({ title, subtitle, children, footer }: { title: string; subtitle: string; children: ReactNode; footer: ReactNode }) {
@@ -15,22 +17,16 @@ export function AuthCard({ title, subtitle, children, footer }: { title: string;
   );
 }
 
-export function SsoRow() {
-  return (
-    <div className="grid grid-cols-2 gap-3">
-      {["Google", "GitHub"].map((p) => (
-        <button
-          key={p}
-          className="flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-surface text-sm font-medium text-fg transition hover:border-brand/50"
-        >
-          {p}
-        </button>
-      ))}
-    </div>
-  );
+/** The SSO options. Google is live (GIS); hidden entirely when unconfigured. `onSignedIn`
+ * fires after the session is established (signup or login — same button). */
+export function SsoRow({ onSignedIn }: { onSignedIn: () => void }) {
+  if (!googleSsoEnabled) return null;
+  return <GoogleSignInButton onSuccess={onSignedIn} />;
 }
 
+/** Renders nothing when there are no SSO options to divide from. */
 export function Divider() {
+  if (!googleSsoEnabled) return null;
   return (
     <div className="flex items-center gap-3 text-xs text-muted">
       <span className="h-px flex-1 bg-border" />

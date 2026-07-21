@@ -26,6 +26,7 @@ anyhow.workspace = true
 chrono.workspace = true
 sqlx.workspace = true
 utoipa.workspace = true
+reqwest.workspace = true
 # auth
 argon2.workspace = true
 jsonwebtoken.workspace = true

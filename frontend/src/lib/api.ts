@@ -248,6 +248,11 @@ export const api = {
   login: (email: string, password: string) =>
     request<AuthResponse>("POST", "/v1/auth/login", { email, password }),
 
+  /** SSO: POST the provider credential (Google: the GIS ID-token JWT) for server-side
+   * verification. Signup on first visit, login after; sets the session cookie. */
+  oauthCallback: (provider: "google", credential: string) =>
+    request<AuthResponse>("POST", `/v1/auth/oauth/${provider}/callback`, { credential }),
+
   logout: () => request<{ ok: boolean }>("POST", "/v1/auth/logout"),
 
   me: () => request<MeResponse>("GET", "/v1/auth/me"),

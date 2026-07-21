@@ -50,7 +50,7 @@ export default function Login() {
         </>
       }
     >
-      <SsoRow />
+      <SsoRow onSignedIn={() => navigate(from, { replace: true })} />
       <Divider />
       <form className="space-y-4" onSubmit={submit}>
         <div>

@@ -60,6 +60,9 @@ pub struct Config {
     /// Operator-set status/downtime message, surfaced verbatim by `GET /v1/api_status` for
     /// frontend banners (`API_STATUS_MESSAGE` — set at deploy, unset/blank = all quiet).
     pub status_message: Option<String>,
+    /// Google OAuth client id (`GOOGLE_CLIENT_ID`) for "Sign in with Google" — a PUBLIC
+    /// identifier (the GIS ID-token flow needs no client secret). Unset = Google SSO off.
+    pub google_client_id: Option<String>,
     /// Object storage (R2 in prod, minio locally). `None` when unconfigured — avatar mirroring
     /// and uploads are disabled, not a boot failure.
     pub storage: Option<StorageConfig>,
@@ -199,6 +202,7 @@ impl Config {
                     .unwrap_or_else(|_| "Foundation <noreply@localhost>".into()),
             },
             status_message: opt("API_STATUS_MESSAGE"),
+            google_client_id: opt("GOOGLE_CLIENT_ID"),
             storage: match (opt("R2_ENDPOINT"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY"), opt("R2_BUCKET_NAME")) {
                 (Some(endpoint), Some(access_key_id), Some(secret_access_key), Some(bucket_name)) => {
                     Some(StorageConfig {

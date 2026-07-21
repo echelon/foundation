@@ -35,4 +35,7 @@ pub struct AppState {
   /// Operator-set status/downtime message for `GET /v1/api_status` (frontend banners).
   /// `None` = all quiet.
   pub status_message: Option<String>,
+  /// Google ID-token verifier. `None` when GOOGLE_CLIENT_ID is unset — the SSO endpoint
+  /// reports Google sign-in as unavailable rather than failing boot.
+  pub google: Option<Arc<crate::auth::google::GoogleAuth>>,
 }

@@ -163,18 +163,22 @@ pub async fn login(
   start_session(pool, jwt, user, None, meta, SessionCreationType::Login).await
 }
 
+/// A verified SSO identity (named fields — the provider/sub/email `&str` run is exactly the
+/// transposition hazard the args-struct rule exists for). The caller (the handler) has
+/// already VERIFIED this identity cryptographically — nothing here is client-trusted.
+pub struct SsoLoginArgs<'a> {
+  pub provider: &'a str,
+  /// The provider's stable subject (`sub`) — the identity anchor, never the email.
+  pub provider_user_id: &'a str,
+  pub email: &'a str,
+  pub display_name: Option<&'a str>,
+}
+
 /// SSO login/signup (accounts.md §3B/C, §5). Resolves on `(provider, provider_user_id)` —
 /// NEVER on email. A matching email with no existing connection is a hard stop (no silent
-/// merge — prevents takeover). `provider_user_id` is the stable `sub`/numeric id.
-pub async fn oauth_login(
-  pool: &db::PgPool,
-  jwt: &JwtKeys,
-  provider: &str,
-  provider_user_id: &str,
-  email: &str,
-  display_name: Option<&str>,
-  meta: &ReqMeta,
-) -> ApiResult<AuthOutcome> {
+/// merge — prevents takeover).
+pub async fn oauth_login(pool: &db::PgPool, jwt: &JwtKeys, args: SsoLoginArgs<'_>, meta: &ReqMeta) -> ApiResult<AuthOutcome> {
+  let SsoLoginArgs { provider, provider_user_id, email, display_name } = args;
   if provider != "google" && provider != "github" {
     return Err(ApiError::BadRequest(format!("unsupported provider: {provider}")));
   }
