@@ -34,6 +34,15 @@ export class ApiError extends Error {
   }
 }
 
+/** Nudge the status banner (lib/api-status.ts) to re-check sooner. Fire-and-forget. */
+function reportRequestFailure() {
+  try {
+    window.dispatchEvent(new Event("foundation:api-request-failed"));
+  } catch {
+    // never let the helper hurt the actual request path
+  }
+}
+
 async function send<T>(method: string, path: string, init: { headers?: Record<string, string>; body?: BodyInit }): Promise<T> {
   let resp: Response;
   try {
@@ -44,8 +53,10 @@ async function send<T>(method: string, path: string, init: { headers?: Record<st
       body: init.body,
     });
   } catch {
+    reportRequestFailure();
     throw new ApiError(0, "network", `Could not reach the API at ${API_BASE_URL}. Is the server running?`);
   }
+  if (resp.status >= 500) reportRequestFailure();
   const json = await resp.json().catch(() => null);
   if (!resp.ok) {
     const err = (json as { error?: { code?: string; message?: string } } | null)?.error;

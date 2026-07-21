@@ -27,6 +27,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     bucket: None,         // storage off — avatar uploads error, avatar links absent
     cdn_base_url: "http://localhost:9000/foundation".into(),
     environment: config::Environment::Test,
+    status_message: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -228,4 +229,36 @@ async fn invite_create_resolve_and_accept() {
     .await
     .unwrap();
   assert!(forbidden.status() == StatusCode::NOT_FOUND || forbidden.status() == StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn api_status_reports_reachability_and_operator_message() {
+  // Quiet by default: ok, no message.
+  let (app, pool) = app_and_pool().await;
+  let resp = app.clone().oneshot(get("/v1/api_status", None)).await.unwrap();
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = body_json(resp).await;
+  assert_eq!(body["ok"], true);
+  assert_eq!(body["message"], Value::Null);
+
+  // With an operator message (API_STATUS_MESSAGE at deploy) it's surfaced verbatim.
+  let state = AppState {
+    pool,
+    jwt: Arc::new(JwtKeys::new("test-secret")),
+    cookie_domain: "localhost".into(),
+    cookie_secure: false,
+    app_base_url: "http://localhost:3000".into(),
+    email_from: "Foundation <noreply@localhost>".into(),
+    resend_api_key: None,
+    bucket: None,
+    cdn_base_url: "http://localhost:9000/foundation".into(),
+    environment: config::Environment::Test,
+    status_message: Some("Scheduled maintenance at 03:00 UTC.".into()),
+  };
+  let app = api_gateway::build_router(state);
+  let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();
+  assert_eq!(resp.status(), StatusCode::OK);
+  let body = body_json(resp).await;
+  assert_eq!(body["ok"], true);
+  assert_eq!(body["message"], "Scheduled maintenance at 03:00 UTC.");
 }

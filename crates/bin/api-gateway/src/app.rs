@@ -45,6 +45,7 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
     },
     cdn_base_url: cfg.cdn_base_url.clone(),
     environment: cfg.environment.clone(),
+    status_message: cfg.status_message.clone(),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -99,6 +100,7 @@ pub fn build_router(state: AppState) -> Router {
     .route("/", get(root::index_handler))
     // health + public catalog
     .route("/health", get(catalog::health_handler))
+    .route("/v1/api_status", get(root::api_status_handler))
     .route("/v1/models", get(catalog::list_models_handler))
     .route("/v1/models/:slug", get(catalog::get_model_handler))
     // auth

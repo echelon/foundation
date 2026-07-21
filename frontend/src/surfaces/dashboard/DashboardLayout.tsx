@@ -12,6 +12,7 @@ import {
   Users,
   Wallet,
 } from "lucide-react";
+import { ApiStatusBanner } from "@/components/ApiStatusBanner";
 import { Badge, Logo, ThemeToggle } from "@/components/ui";
 import { UserAvatar } from "@/components/UserAvatar";
 import { accountDisplayName } from "@/lib/api";
@@ -124,6 +125,7 @@ function DashboardShell() {
 
         {/* ── Main ── */}
         <div className="flex min-w-0 flex-1 flex-col">
+          <ApiStatusBanner />
           <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-bg/80 px-5 backdrop-blur sm:px-8">
             <div className="flex items-center gap-3">
               <OrgSwitcher />

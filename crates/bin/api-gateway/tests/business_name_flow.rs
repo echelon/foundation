@@ -26,6 +26,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     bucket: None,
     cdn_base_url: "http://localhost:9000/foundation".into(),
     environment: config::Environment::Test,
+    status_message: None,
   };
   (api_gateway::build_router(state), pool)
 }

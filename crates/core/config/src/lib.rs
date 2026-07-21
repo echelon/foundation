@@ -57,6 +57,9 @@ pub struct Config {
     /// link `{app_base_url}/reset-password?token=…`).
     pub app_base_url: String,
     pub email: EmailConfig,
+    /// Operator-set status/downtime message, surfaced verbatim by `GET /v1/api_status` for
+    /// frontend banners (`API_STATUS_MESSAGE` — set at deploy, unset/blank = all quiet).
+    pub status_message: Option<String>,
     /// Object storage (R2 in prod, minio locally). `None` when unconfigured — avatar mirroring
     /// and uploads are disabled, not a boot failure.
     pub storage: Option<StorageConfig>,
@@ -195,6 +198,7 @@ impl Config {
                 from_address: std::env::var("EMAIL_FROM_ADDRESS")
                     .unwrap_or_else(|_| "Foundation <noreply@localhost>".into()),
             },
+            status_message: opt("API_STATUS_MESSAGE"),
             storage: match (opt("R2_ENDPOINT"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY"), opt("R2_BUCKET_NAME")) {
                 (Some(endpoint), Some(access_key_id), Some(secret_access_key), Some(bucket_name)) => {
                     Some(StorageConfig {

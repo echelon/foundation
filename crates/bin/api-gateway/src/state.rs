@@ -32,4 +32,7 @@ pub struct AppState {
   /// Which environment we're in — picks the thumbnail-template shape (prod has an image
   /// resizer; dev serves full images).
   pub environment: config::Environment,
+  /// Operator-set status/downtime message for `GET /v1/api_status` (frontend banners).
+  /// `None` = all quiet.
+  pub status_message: Option<String>,
 }
