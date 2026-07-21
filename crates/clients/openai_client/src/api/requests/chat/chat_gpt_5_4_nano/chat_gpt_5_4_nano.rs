@@ -80,17 +80,19 @@ mod tests {
     ));
   }
 
-  #[tokio::test]
-  #[ignore] // live — costs money; needs external/credentials/openai_api_key.txt
-  async fn live_chat_gpt_5_4_nano() -> anyhow::Result<()> {
+  // ── Live tests — cost money. Run with:
+  //    cargo test -p openai_client chat_gpt_5_4_nano -- --ignored --nocapture
+  // Responses are PRINTED before each test ends (that's half the fun).
+
+  async fn run_live(messages: Vec<ChatMessage>, max_output_tokens: u32) -> anyhow::Result<String> {
     use crate::api::requests::responses::await_response::{await_response, AwaitResponseArgs, PollConfig};
     use crate::api::types::response_types::response_status::ResponseStatus;
     use crate::test_utils::get_test_api_key::get_test_api_key;
     use crate::test_utils::setup_test_logging::setup_test_logging;
     setup_test_logging();
     let key = get_test_api_key()?;
-    let mut req = ChatGpt5_4NanoRequest::new(vec![ChatMessage::user("Reply with exactly one word: hello")]);
-    req.max_output_tokens = Some(2048);
+    let mut req = ChatGpt5_4NanoRequest::new(messages);
+    req.max_output_tokens = Some(max_output_tokens);
     let started = chat_gpt_5_4_nano(ChatGpt5_4NanoArgs { api_key: &key, request: req }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let done = await_response(
       AwaitResponseArgs { api_key: &key, response_id: &started.response_id },
@@ -99,7 +101,48 @@ mod tests {
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     anyhow::ensure!(done.status == ResponseStatus::Completed, "status: {:?} ({:?})", done.status, done.failure);
-    anyhow::ensure!(done.output_text.as_deref().is_some_and(|t| !t.is_empty()));
+    let text = done.output_text.unwrap_or_default();
+    anyhow::ensure!(!text.is_empty(), "empty response text");
+    if let Some(u) = &done.usage {
+      println!("\n── gpt-5.4-nano · {} in / {} out tokens", u.input_tokens, u.output_tokens);
+    }
+    println!("── gpt-5.4-nano says:\n{text}\n");
+    Ok(text)
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_chat_gpt_5_4_nano() -> anyhow::Result<()> {
+    let text = run_live(vec![ChatMessage::user("Reply with exactly one word: hello")], 2048).await?;
+    anyhow::ensure!(text.to_lowercase().contains("hello"), "expected a hello, got: {text}");
+    Ok(())
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_gpt_5_4_nano_tells_a_joke() -> anyhow::Result<()> {
+    let text = run_live(
+      vec![ChatMessage::user("Tell me one short, original joke about API rate limits.")],
+      2048,
+    )
+    .await?;
+    anyhow::ensure!(text.len() > 10, "suspiciously short joke: {text}");
+    Ok(())
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_gpt_5_4_nano_names_a_business() -> anyhow::Result<()> {
+    // Fitting, given our placeholder-business-name generator.
+    let text = run_live(
+      vec![ChatMessage::user(
+        "Invent five two-word fictional business names in the pattern 'Adjective Noun'. \
+         One per line, no numbering, no commentary.",
+      )],
+      2048,
+    )
+    .await?;
+    anyhow::ensure!(text.lines().filter(|l| l.trim().split(' ').count() == 2).count() >= 3, "unexpected shape: {text}");
     Ok(())
   }
 }

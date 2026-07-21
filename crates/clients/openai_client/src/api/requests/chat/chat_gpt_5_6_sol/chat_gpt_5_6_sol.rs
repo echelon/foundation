@@ -80,17 +80,19 @@ mod tests {
     ));
   }
 
-  #[tokio::test]
-  #[ignore] // live — costs money; needs external/credentials/openai_api_key.txt
-  async fn live_chat_gpt_5_6_sol() -> anyhow::Result<()> {
+  // ── Live tests — cost money. Run with:
+  //    cargo test -p openai_client chat_gpt_5_6_sol -- --ignored --nocapture
+  // Responses are PRINTED before each test ends (that's half the fun).
+
+  async fn run_live(messages: Vec<ChatMessage>, max_output_tokens: u32) -> anyhow::Result<String> {
     use crate::api::requests::responses::await_response::{await_response, AwaitResponseArgs, PollConfig};
     use crate::api::types::response_types::response_status::ResponseStatus;
     use crate::test_utils::get_test_api_key::get_test_api_key;
     use crate::test_utils::setup_test_logging::setup_test_logging;
     setup_test_logging();
     let key = get_test_api_key()?;
-    let mut req = ChatGpt5_6SolRequest::new(vec![ChatMessage::user("Reply with exactly one word: hello")]);
-    req.max_output_tokens = Some(2048);
+    let mut req = ChatGpt5_6SolRequest::new(messages);
+    req.max_output_tokens = Some(max_output_tokens);
     let started = chat_gpt_5_6_sol(ChatGpt5_6SolArgs { api_key: &key, request: req }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let done = await_response(
       AwaitResponseArgs { api_key: &key, response_id: &started.response_id },
@@ -99,7 +101,50 @@ mod tests {
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     anyhow::ensure!(done.status == ResponseStatus::Completed, "status: {:?} ({:?})", done.status, done.failure);
-    anyhow::ensure!(done.output_text.as_deref().is_some_and(|t| !t.is_empty()));
+    let text = done.output_text.unwrap_or_default();
+    anyhow::ensure!(!text.is_empty(), "empty response text");
+    if let Some(u) = &done.usage {
+      println!("\n── gpt-5.6-sol · {} in / {} out tokens", u.input_tokens, u.output_tokens);
+    }
+    println!("── gpt-5.6-sol says:\n{text}\n");
+    Ok(text)
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_chat_gpt_5_6_sol() -> anyhow::Result<()> {
+    let text = run_live(vec![ChatMessage::user("Reply with exactly one word: hello")], 2048).await?;
+    anyhow::ensure!(text.to_lowercase().contains("hello"), "expected a hello, got: {text}");
+    Ok(())
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_gpt_5_6_sol_writes_a_haiku() -> anyhow::Result<()> {
+    let text = run_live(
+      vec![
+        ChatMessage::system("You are a poet who admires systems programming."),
+        ChatMessage::user("Write a haiku about a borrow checker that finally learns to let go."),
+      ],
+      4096,
+    )
+    .await?;
+    anyhow::ensure!(text.lines().filter(|l| !l.trim().is_empty()).count() >= 3, "expected 3+ lines: {text}");
+    Ok(())
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_gpt_5_6_sol_solves_a_riddle() -> anyhow::Result<()> {
+    let text = run_live(
+      vec![ChatMessage::user(
+        "Riddle: I speak without a mouth and hear without ears. I have no body, but I come alive with wind. \
+         What am I? Answer in one word, then explain in one sentence.",
+      )],
+      4096,
+    )
+    .await?;
+    anyhow::ensure!(text.to_lowercase().contains("echo"), "expected 'echo' in: {text}");
     Ok(())
   }
 }
