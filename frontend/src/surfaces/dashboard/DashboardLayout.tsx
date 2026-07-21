@@ -29,7 +29,7 @@ const NAV = [
   { rest: "/requests", label: "Requests", icon: ListTree },
   { rest: "/keys", label: "API keys", icon: KeyRound },
   { rest: "/billing", label: "Billing", icon: CreditCard },
-  { rest: "/organization", label: "Organization", icon: Users },
+  { rest: "/organization", label: "Team", icon: Users },
   { rest: "/business", label: "Business", icon: Building2 },
   { rest: "/audit", label: "Audit log", icon: ScrollText },
 ];
