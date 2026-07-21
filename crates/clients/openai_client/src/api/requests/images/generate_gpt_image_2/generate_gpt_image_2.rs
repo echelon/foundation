@@ -105,23 +105,29 @@ mod tests {
   }
 
   /// The EDIT modality: input images ride in the message (URL / file id — never base64);
-  /// the mask in the tool config.
+  /// the mask in the tool config. URLs are REAL stable test assets (`test_data` crate).
   #[test]
   fn wire_shape_edit_with_mask() {
+    use test_data::web::image_urls::{
+      TALL_MOCHI_WITH_GLASSES_GLASSES_MASK_IMAGE_URL, TALL_MOCHI_WITH_GLASSES_IMAGE_URL,
+    };
     let mut req = GptImage2Request::new("make it night");
     req.input_images = vec![
-      InputImageSource::url("https://cdn.test/room.png"),
+      InputImageSource::url(TALL_MOCHI_WITH_GLASSES_IMAGE_URL),
       InputImageSource::file_id("file-9"),
     ];
-    req.mask = Some(InputImageSource::url("https://cdn.test/mask.png"));
+    req.mask = Some(InputImageSource::url(TALL_MOCHI_WITH_GLASSES_GLASSES_MASK_IMAGE_URL));
     let body = serde_json::to_value(build_image_body(&to_start(&req)).unwrap()).unwrap();
     let content = &body["input"][0]["content"];
     assert_eq!(content[1]["type"], "input_image");
-    assert_eq!(content[1]["image_url"], "https://cdn.test/room.png");
+    assert_eq!(content[1]["image_url"], TALL_MOCHI_WITH_GLASSES_IMAGE_URL);
     assert!(content[1].get("file_id").is_none());
     assert_eq!(content[2]["file_id"], "file-9");
     assert!(content[2].get("image_url").is_none());
-    assert_eq!(body["tools"][0]["input_image_mask"]["image_url"], "https://cdn.test/mask.png");
+    assert_eq!(
+      body["tools"][0]["input_image_mask"]["image_url"],
+      TALL_MOCHI_WITH_GLASSES_GLASSES_MASK_IMAGE_URL
+    );
   }
 
   #[test]
@@ -132,25 +138,26 @@ mod tests {
       Err(OpenAiClientError::InvalidRequest(_))
     ));
     let mut orphan = GptImage2Request::new("x");
-    orphan.mask = Some(InputImageSource::url("https://cdn.test/mask.png"));
+    orphan.mask = Some(InputImageSource::url(test_data::web::image_urls::GHOST_IMAGE_URL));
     assert!(matches!(
       build_image_body(&to_start(&orphan)),
       Err(OpenAiClientError::InvalidRequest(_))
     ));
   }
 
-  #[tokio::test]
-  #[ignore] // live — costs money; needs external/credentials/openai_api_key.txt
-  async fn live_generate_gpt_image_2() -> anyhow::Result<()> {
+  // ── Live tests — cost money. Run with:
+  //    cargo test -p openai_client generate_gpt_image_2 -- --ignored --nocapture
+  // OpenAI's image tool returns BYTES (no hosted URL), so results are saved to the OS temp
+  // dir and their file:// URLs printed before each test ends.
+
+  async fn run_live(req: GptImage2Request, label: &str) -> anyhow::Result<Vec<String>> {
     use crate::api::requests::responses::await_response::{await_response, AwaitResponseArgs, PollConfig};
     use crate::api::types::response_types::response_status::ResponseStatus;
     use crate::test_utils::get_test_api_key::get_test_api_key;
+    use crate::test_utils::save_result_image::save_result_image;
     use crate::test_utils::setup_test_logging::setup_test_logging;
     setup_test_logging();
     let key = get_test_api_key()?;
-    let mut req = GptImage2Request::new("a tiny pixel-art rocket, plain background");
-    req.quality = Some(ImageQuality::Low);
-    req.size = Some(ImageSize::Square1024);
     let started = generate_gpt_image_2(GenerateGptImage2Args { api_key: &key, request: req }).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let done = await_response(
       AwaitResponseArgs { api_key: &key, response_id: &started.response_id },
@@ -159,7 +166,36 @@ mod tests {
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     anyhow::ensure!(done.status == ResponseStatus::Completed, "status: {:?} ({:?})", done.status, done.failure);
-    anyhow::ensure!(!done.images.is_empty() && !done.images[0].bytes.is_empty());
-    Ok(())
+    anyhow::ensure!(!done.images.is_empty(), "no images in completed response");
+    let mut urls = Vec::new();
+    for (i, image) in done.images.iter().enumerate() {
+      anyhow::ensure!(!image.bytes.is_empty(), "image {i} is empty");
+      urls.push(save_result_image(image, &format!("{label}_{i}"))?);
+    }
+    println!("\n── gpt-image-2 result URL(s):");
+    for url in &urls {
+      println!("   {url}");
+    }
+    Ok(urls)
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_generate_gpt_image_2() -> anyhow::Result<()> {
+    let mut req = GptImage2Request::new("a tiny pixel-art rocket, plain background");
+    req.quality = Some(ImageQuality::Low);
+    req.size = Some(ImageSize::Square1024);
+    run_live(req, "generate_gpt_image_2").await.map(|_| ())
+  }
+
+  #[tokio::test]
+  #[ignore] // live — costs money
+  async fn live_generate_gpt_image_2_edit_from_url() -> anyhow::Result<()> {
+    // The EDIT modality end to end, from a REAL public test image URL (`test_data`).
+    let mut req = GptImage2Request::new("Add a tattered pirate flag rising from the water behind them.");
+    req.input_images = vec![InputImageSource::url(test_data::web::image_urls::WIDE_CORGI_SHIBA_TREASURE_OCEAN_URL)];
+    req.quality = Some(ImageQuality::Low);
+    req.size = Some(ImageSize::Square1024);
+    run_live(req, "generate_gpt_image_2_edit").await.map(|_| ())
   }
 }

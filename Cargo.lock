@@ -1613,6 +1613,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "test_data",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2666,6 +2667,10 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "test_data"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

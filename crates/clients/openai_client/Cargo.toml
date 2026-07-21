@@ -17,4 +17,5 @@ tracing.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
+test_data.workspace = true
 tracing-subscriber.workspace = true
