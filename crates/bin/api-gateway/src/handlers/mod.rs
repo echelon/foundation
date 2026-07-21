@@ -11,6 +11,7 @@ pub mod auth;
 pub mod avatar;
 pub mod catalog;
 pub mod invitations;
+pub mod login_methods;
 pub mod org;
 pub mod root;
 pub mod sessions;

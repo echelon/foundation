@@ -10,7 +10,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
-use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
+use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, login_methods, org, root, sessions};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
@@ -125,6 +125,13 @@ pub fn build_router(state: AppState) -> Router {
     .route("/v1/auth/oauth/:provider/callback", post(auth::oauth_callback_handler))
     // account security: password, email, forgot/reset, sessions
     .route("/v1/auth/password", put(account::change_password_handler))
+    // login methods: the password entry + SSO connections (POST {provider} links, DELETE
+    // {sso_id} unlinks — one axum route, two param meanings)
+    .route("/v1/auth/login_methods", get(login_methods::list_login_methods_handler))
+    .route(
+      "/v1/auth/login_methods/:provider_or_id",
+      post(login_methods::link_sso_handler).delete(login_methods::unlink_sso_handler),
+    )
     .route("/v1/auth/email", put(account::change_email_handler))
     .route("/v1/auth/profile", put(account::update_profile_handler))
     .route("/v1/auth/email/verification", post(account::request_email_verification_handler))

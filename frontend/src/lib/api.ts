@@ -218,6 +218,18 @@ export type ApiKeyItem = {
   expires_at: string | null;
 };
 
+/** Every way the user can sign in: the password entry + SSO connections. */
+export type ApiLoginMethods = {
+  password: { is_enabled: boolean };
+  sso_connections: {
+    id: string;
+    provider: string;
+    provider_email: string;
+    created_at: string;
+    last_used_at: string;
+  }[];
+};
+
 /** One audit-log row (user or account trail). */
 export type AuditItem = {
   id: string;
@@ -267,6 +279,21 @@ export const api = {
    * (with the client secret) and verifies the identity. */
   oauthGithubCallback: (code: string, codeVerifier: string) =>
     request<AuthResponse>("POST", "/v1/auth/oauth/github/callback", { code, code_verifier: codeVerifier }),
+
+  /* ── Login methods (settings): password entry + SSO connections ── */
+
+  listLoginMethods: () => request<ApiLoginMethods>("GET", "/v1/auth/login_methods"),
+
+  /** Link Google to the CURRENT user (verified server-side; 409 if linked elsewhere). */
+  linkGoogle: (credential: string) =>
+    request<ApiLoginMethods>("POST", "/v1/auth/login_methods/google", { credential }),
+
+  /** Link GitHub to the CURRENT user (code exchanged server-side; 409 if linked elsewhere). */
+  linkGithub: (code: string, codeVerifier: string) =>
+    request<ApiLoginMethods>("POST", "/v1/auth/login_methods/github", { code, code_verifier: codeVerifier }),
+
+  /** Disconnect an SSO connection (403 when it could lock the user out). */
+  unlinkSso: (ssoId: string) => request<{ ok: boolean }>("DELETE", `/v1/auth/login_methods/${ssoId}`),
 
   logout: () => request<{ ok: boolean }>("POST", "/v1/auth/logout"),
 

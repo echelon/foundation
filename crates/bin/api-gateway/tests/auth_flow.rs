@@ -627,3 +627,153 @@ async fn github_sso_unconfigured_server_says_so() {
     .unwrap();
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/* ── Login methods: link / unlink SSO from settings ── */
+
+#[tokio::test]
+async fn login_methods_link_and_unlink_google() {
+  let (app, _pool) = app_with_google().await;
+
+  // A password user (email not yet verified — the password alone permits removal).
+  let email = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": email, "password": "password1" }), None))
+    .await
+    .unwrap();
+  let cookie = session_cookie(&signup).unwrap();
+
+  let list = app.clone().oneshot(get("/v1/auth/login_methods", Some(&cookie))).await.unwrap();
+  let list = body_json(list).await;
+  assert_eq!(list["password"]["is_enabled"], true);
+  assert_eq!(list["sso_connections"], json!([]));
+
+  // Link Google (provider email may differ from the account email — allowed by design).
+  let sub = format!("10885{}", id_core::mint("g"));
+  let credential = google_credential(&sub, &unique_email(), "Ada", true);
+  let linked = app
+    .clone()
+    .oneshot(post("/v1/auth/login_methods/google", json!({ "credential": credential }), Some(&cookie)))
+    .await
+    .unwrap();
+  assert_eq!(linked.status(), StatusCode::OK);
+  let linked = body_json(linked).await;
+  assert_eq!(linked["sso_connections"].as_array().unwrap().len(), 1);
+  assert_eq!(linked["sso_connections"][0]["provider"], "google");
+  let sso_id = linked["sso_connections"][0]["id"].as_str().unwrap().to_string();
+
+  // Linking the same sub to a DIFFERENT user → 409, never a silent move.
+  let other = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": unique_email(), "password": "password1" }), None))
+    .await
+    .unwrap();
+  let other_cookie = session_cookie(&other).unwrap();
+  let stolen = google_credential(&sub, &unique_email(), "Ada", true);
+  let conflict = app
+    .clone()
+    .oneshot(post("/v1/auth/login_methods/google", json!({ "credential": stolen }), Some(&other_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(conflict.status(), StatusCode::CONFLICT);
+
+  // Unlink (password set → allowed); the connect/disconnect pair is audited.
+  let unlink = Request::builder()
+    .method("DELETE")
+    .uri(format!("/v1/auth/login_methods/{sso_id}"))
+    .header(header::COOKIE, &cookie)
+    .body(Body::empty())
+    .unwrap();
+  let resp = app.clone().oneshot(unlink).await.unwrap();
+  assert_eq!(resp.status(), StatusCode::OK);
+  let list = app.clone().oneshot(get("/v1/auth/login_methods", Some(&cookie))).await.unwrap();
+  assert_eq!(body_json(list).await["sso_connections"], json!([]));
+
+  let audit = app.clone().oneshot(get("/v1/user/audit_logs", Some(&cookie))).await.unwrap();
+  let audit = body_json(audit).await;
+  let events: Vec<&str> = audit["items"].as_array().unwrap().iter().map(|i| i["event"].as_str().unwrap()).collect();
+  assert!(events.contains(&"sso_connected"), "events: {events:?}");
+  assert!(events.contains(&"sso_disconnected"), "events: {events:?}");
+
+  // Unknown id → 404.
+  let ghost = ids::SsoConnectionId::generate();
+  let resp = app
+    .clone()
+    .oneshot(
+      Request::builder()
+        .method("DELETE")
+        .uri(format!("/v1/auth/login_methods/{ghost}"))
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn unlink_is_refused_when_it_could_lock_the_user_out() {
+  let (app, pool) = app_and_pool().await;
+
+  // Hand-craft the dangerous state: NO password, UNVERIFIED email, one SSO connection.
+  let email = unique_email();
+  let user = db_queries::users::create_user(
+    &pool,
+    db_queries::users::NewUser {
+      email: email.clone(),
+      email_clean: email.clone(),
+      email_original: email.clone(),
+      password_hash: None,
+      display_name: None,
+      email_verified_at: None,
+    },
+  )
+  .await
+  .unwrap();
+  let conn = db_queries::sso::create_sso_connection(
+    &pool,
+    db_queries::sso::NewSsoConnection {
+      user_id: &user.id,
+      provider: "google",
+      provider_user_id: &format!("10886{}", id_core::mint("g")),
+      provider_email: &email,
+      provider_user_display_name: None,
+    },
+  )
+  .await
+  .unwrap();
+  let session = db_queries::sessions::create_session(
+    &pool,
+    db_queries::sessions::NewSession {
+      user_id: &user.id,
+      expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+      ip: None,
+      user_agent: None,
+      device: None,
+      impersonator_user_id: None,
+      created_via: enums::SessionCreationType::SsoLogin,
+    },
+  )
+  .await
+  .unwrap();
+  let token = JwtKeys::new("test-secret").mint(session.id.as_str(), user.id.as_str(), user.session_version).unwrap();
+  let cookie = format!("foundation_session={token}");
+
+  // Removal would strand them: no password to log in with, no verified email to reset with.
+  let unlink = |cookie: String| {
+    Request::builder()
+      .method("DELETE")
+      .uri(format!("/v1/auth/login_methods/{}", conn.id))
+      .header(header::COOKIE, cookie)
+      .body(Body::empty())
+      .unwrap()
+  };
+  let refused = app.clone().oneshot(unlink(cookie.clone())).await.unwrap();
+  assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+
+  // A password gives them a way back in — now removal is allowed.
+  db_queries::users::set_password_hash(&pool, &user.id, "argon2$fakehash").await.unwrap();
+  let allowed = app.clone().oneshot(unlink(cookie)).await.unwrap();
+  assert_eq!(allowed.status(), StatusCode::OK);
+}

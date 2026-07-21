@@ -733,6 +733,88 @@ pub async fn resolve_invitation_for_join_page(
   Ok(ResolvedInvitation { invitation, account_name, invitee_user_exists })
 }
 
+/// Link a VERIFIED SSO identity to the CURRENT user (accounts.md §5 flow 1/3). Connections
+/// are never moved implicitly: (provider, sub) already linked to a different user is a hard
+/// 409. Idempotent for the same user. Audited (`sso_connected`, org-visible).
+pub async fn link_sso(pool: &db::PgPool, user: &User, args: SsoLoginArgs<'_>, ip: Option<&str>) -> ApiResult<()> {
+  if let Some(existing) = sso::find_sso_by_provider_sub(pool, args.provider, args.provider_user_id).await? {
+    if existing.user_id == user.id {
+      return Ok(()); // already linked here — nothing to do
+    }
+    return Err(ApiError::Conflict("this account is already connected to a different user".into()));
+  }
+  let mut tx = pool.begin().await?;
+  let conn = sso::create_sso_connection(
+    &mut *tx,
+    sso::NewSsoConnection {
+      user_id: &user.id,
+      provider: args.provider,
+      provider_user_id: args.provider_user_id,
+      provider_email: &canonicalize(args.email),
+      provider_user_display_name: args.display_name,
+    },
+  )
+  .await?;
+  user_audit_logs::create_user_audit_log(
+    &mut *tx,
+    user_audit_logs::NewUserAuditLog {
+      user_id: &user.id,
+      actor_user_id: Some(&user.id),
+      event: AuditEvent::SsoConnected,
+      target_type: Some("sso_connection"),
+      target_id: Some(conn.id.as_str()),
+      data: Some(serde_json::json!({ "provider": args.provider })),
+      ip,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(())
+}
+
+/// Disconnect an SSO connection (accounts.md §5, removal rule per bt 2026-07-21: allowed
+/// when the user has a password OR a verified email — either leaves them a way back in.
+/// Neither = removal would risk a lockout, so it's refused). 404 for unknown/foreign ids.
+pub async fn unlink_sso(
+  pool: &db::PgPool,
+  user: &User,
+  sso_id: &ids::SsoConnectionId,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  let connections = sso::list_sso_for_user(pool, &user.id).await?;
+  let conn = connections
+    .iter()
+    .find(|c| &c.id == sso_id)
+    .ok_or_else(|| ApiError::NotFound("connection not found".into()))?;
+
+  if user.password_hash.is_none() && user.email_verified_at.is_none() {
+    return Err(ApiError::Forbidden(
+      "set a password or verify your email first — removing this connection could lock you out".into(),
+    ));
+  }
+
+  let mut tx = pool.begin().await?;
+  let deleted = sso::delete_sso_connection(&mut *tx, &user.id, sso_id).await?;
+  if deleted == 0 {
+    return Err(ApiError::NotFound("connection not found".into()));
+  }
+  user_audit_logs::create_user_audit_log(
+    &mut *tx,
+    user_audit_logs::NewUserAuditLog {
+      user_id: &user.id,
+      actor_user_id: Some(&user.id),
+      event: AuditEvent::SsoDisconnected,
+      target_type: Some("sso_connection"),
+      target_id: Some(sso_id.as_str()),
+      data: Some(serde_json::json!({ "provider": conn.provider })),
+      ip,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(())
+}
+
 /// Cancel a pending invitation (owner/admin, authorized by the handler). 404 for an unknown,
 /// foreign, or already-closed invitation. Writes `invitation_revoked` in the same tx.
 pub async fn cancel_invitation(

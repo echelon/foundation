@@ -3,9 +3,12 @@ import { Check, Image as ImageIcon, Laptop, Loader2, Palette, RefreshCw, ShieldC
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { AvatarEditorModal } from "@/components/AvatarEditorModal";
 import { UserAvatar, userInitials } from "@/components/UserAvatar";
-import { api, ApiError, type ApiSession } from "@/lib/api";
+import { api, ApiError, type ApiLoginMethods, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { MONOGRAM_GRADIENTS, monogramGradientCss } from "@/lib/gradients";
+import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { githubSsoEnabled, startGithubSignIn } from "@/lib/github";
+import { googleSsoEnabled } from "@/lib/google";
 
 export default function Settings() {
   const { user, ssoProviders } = useAuth();
@@ -74,6 +77,7 @@ export default function Settings() {
 
       <ChangeEmailCard />
       <ChangePasswordCard />
+      <LoginMethodsCard />
       <SessionsCard />
     </div>
   );
@@ -611,6 +615,132 @@ function ChangePasswordCard() {
           </Button>
         </div>
       </form>
+    </Card>
+  );
+}
+
+/* ── Connected sign-in methods (SSO link/unlink) ── */
+
+function LoginMethodsCard() {
+  const { user, refresh } = useAuth();
+  const [methods, setMethods] = useState<ApiLoginMethods | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMethods(await api.listLoginMethods());
+    } catch {
+      setMethods(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // The lockout guard, mirrored from the backend: removal needs a password OR a verified
+  // email — either leaves a way back in.
+  const canRemove = (user?.has_password ?? false) || (user?.email_verified ?? false);
+
+  const unlink = async (ssoId: string, provider: string) => {
+    if (!window.confirm(`Disconnect ${provider}? You'll no longer be able to sign in with it.`)) return;
+    setBusy(ssoId);
+    setNotice(null);
+    try {
+      await api.unlinkSso(ssoId);
+      await load();
+      await refresh(); // factoids update
+      setNotice({ tone: "ok", text: `${provider} disconnected.` });
+    } catch (err) {
+      setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Couldn't disconnect." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const linkGoogle = async (credential: string) => {
+    await api.linkGoogle(credential);
+    await load();
+  };
+
+  const connection = (provider: string) => methods?.sso_connections.find((c) => c.provider === provider);
+
+  const row = (provider: "google" | "github", label: string, connectUi: ReactNode) => {
+    const conn = connection(provider);
+    return (
+      <div
+        key={provider}
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-surface2/40 px-4 py-3"
+      >
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-fg">{label}</div>
+          {conn ? (
+            <div className="truncate text-xs text-muted">
+              {conn.provider_email} · connected {new Date(conn.created_at).toLocaleDateString()}
+            </div>
+          ) : (
+            <div className="text-xs text-muted">Not connected</div>
+          )}
+        </div>
+        {conn ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void unlink(conn.id, label)}
+            disabled={busy !== null || !canRemove}
+            title={
+              canRemove ? undefined : "Set a password or verify your email first — otherwise you could be locked out."
+            }
+            className="border-rose-500/40 text-rose-500 hover:border-rose-500 disabled:opacity-50"
+          >
+            {busy === conn.id ? "…" : "Disconnect"}
+          </Button>
+        ) : (
+          connectUi
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <Card className="p-6">
+      <h2 className="font-display font-semibold">Connected sign-in methods</h2>
+      <p className="mt-1 text-sm text-muted">
+        Sign in with Google or GitHub alongside your email.
+        {!canRemove && " Disconnecting is disabled until you set a password or verify your email."}
+      </p>
+      <div className="mt-4 space-y-2">
+        {row(
+          "google",
+          "Google",
+          googleSsoEnabled ? (
+            <GoogleSignInButton
+              onSuccess={() => setNotice({ tone: "ok", text: "Google connected." })}
+              onCredential={linkGoogle}
+            />
+          ) : (
+            <span className="text-xs text-muted">not configured</span>
+          ),
+        )}
+        {row(
+          "github",
+          "GitHub",
+          githubSsoEnabled ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => void startGithubSignIn("/dashboard/user/settings", "link")}
+            >
+              Connect
+            </Button>
+          ) : (
+            <span className="text-xs text-muted">not configured</span>
+          ),
+        )}
+      </div>
+      <NoticeRow notice={notice} />
     </Card>
   );
 }

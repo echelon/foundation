@@ -1,9 +1,9 @@
 //! `POST /v1/auth/oauth/{provider}/callback` — SSO login/signup (accounts.md §3B/C).
 //!
-//! Google uses the modern Google Identity Services flow: the frontend's GIS button hands us
-//! a **credential** (an ID-token JWT), verified server-side in [`crate::auth::google`]
-//! (signature via Google's JWKS, `aud` = our client id, `iss` = accounts.google.com, `exp`).
-//! The client-supplied token proves the identity — nothing else from the client is trusted.
+//! Google: the GIS credential (ID-token JWT), verified in [`crate::auth::google`].
+//! GitHub: the web-application-flow code (+ PKCE verifier), exchanged server-side in
+//! [`crate::auth::github`]. Either way the proof is verified in
+//! [`crate::auth::sso_verify`] — nothing identity-shaped is client-trusted.
 
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -13,7 +13,8 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::auth::service;
-use crate::error::{ApiError, ApiResult};
+use crate::auth::sso_verify::{verify_sso_identity, SsoProof};
+use crate::error::ApiResult;
 use crate::handlers::support::{auth_success, req_meta, AuthSuccessResponse};
 use crate::state::AppState;
 
@@ -45,46 +46,16 @@ pub async fn oauth_callback_handler(
   headers: HeaderMap,
   Json(body): Json<OAuthCallbackBody>,
 ) -> ApiResult<Response> {
-  // Resolve a VERIFIED identity per provider — nothing about identity is client-trusted.
-  struct Verified {
-    provider: &'static str,
-    sub: String,
-    email: String,
-    display_name: Option<String>,
-  }
-  let verified: Verified = match provider.as_str() {
-    "google" => {
-      let google = state
-        .google
-        .as_ref()
-        .ok_or_else(|| ApiError::BadRequest("Google sign-in is not configured on this server".into()))?;
-      let credential =
-        body.credential.as_deref().ok_or_else(|| ApiError::BadRequest("`credential` is required for google".into()))?;
-      let id = google.verify(credential).await.map_err(|e| {
-        tracing::warn!(error = %e, "google credential rejected");
-        ApiError::Unauthorized("Google credential could not be verified".into())
-      })?;
-      // We mark SSO emails verified (accounts.md §3B) — so only accept ones Google vouches for.
-      if !id.email_verified {
-        return Err(ApiError::Unauthorized("Google reports this email as unverified".into()));
-      }
-      Verified { provider: "google", sub: id.sub, email: id.email, display_name: id.display_name }
-    }
-    "github" => {
-      let github = state
-        .github
-        .as_ref()
-        .ok_or_else(|| ApiError::BadRequest("GitHub sign-in is not configured on this server".into()))?;
-      let code = body.code.as_deref().ok_or_else(|| ApiError::BadRequest("`code` is required for github".into()))?;
-      // resolve_code enforces a VERIFIED email via /user/emails (accounts.md §3C).
-      let id = github.resolve_code(code, body.code_verifier.as_deref()).await.map_err(|e| {
-        tracing::warn!(error = %e, "github code rejected");
-        ApiError::Unauthorized("GitHub sign-in could not be verified".into())
-      })?;
-      Verified { provider: "github", sub: id.sub, email: id.email, display_name: id.display_name }
-    }
-    other => return Err(ApiError::BadRequest(format!("unsupported provider: {other}"))),
-  };
+  let verified = verify_sso_identity(
+    &state,
+    &provider,
+    SsoProof {
+      credential: body.credential.as_deref(),
+      code: body.code.as_deref(),
+      code_verifier: body.code_verifier.as_deref(),
+    },
+  )
+  .await?;
 
   let outcome = service::oauth_login(
     &state.pool,

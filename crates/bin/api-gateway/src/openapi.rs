@@ -5,7 +5,7 @@
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
+use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, login_methods, org, root, sessions};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -35,6 +35,9 @@ use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invi
     account::confirm_email_verification_handler,
     account::request_password_reset_handler,
     account::confirm_password_reset_handler,
+    login_methods::list_login_methods_handler,
+    login_methods::link_sso_handler,
+    login_methods::unlink_sso_handler,
     sessions::list_sessions_handler,
     sessions::revoke_other_sessions_handler,
     sessions::revoke_session_handler,
@@ -105,7 +108,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 42 operations over 38 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
-    assert_eq!(documented.len(), 38, "unexpected number of documented paths: {documented:#?}");
+    // 45 operations over 41 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
+    assert_eq!(documented.len(), 41, "unexpected number of documented paths: {documented:#?}");
   }
 }

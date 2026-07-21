@@ -5,11 +5,13 @@ use chrono::{DateTime, Utc};
 use ids::{SsoConnectionId, UserId};
 
 mod create_sso_connection;
+mod delete_sso_connection;
 mod find_sso_by_provider_sub;
 mod list_sso_for_user;
 mod touch_sso_last_used;
 
 pub use create_sso_connection::{create_sso_connection, NewSsoConnection};
+pub use delete_sso_connection::delete_sso_connection;
 pub use find_sso_by_provider_sub::find_sso_by_provider_sub;
 pub use list_sso_for_user::list_sso_for_user;
 pub use touch_sso_last_used::touch_sso_last_used;

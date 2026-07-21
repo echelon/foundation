@@ -9,7 +9,15 @@ import { googleSsoEnabled, renderGoogleButton } from "@/lib/google";
  * after). Renders nothing when VITE_GOOGLE_CLIENT_ID is unset — SSO is additive, and its
  * failure modes must never break the email/password forms around it.
  */
-export function GoogleSignInButton({ onSuccess }: { onSuccess: () => void }) {
+export function GoogleSignInButton({
+  onSuccess,
+  onCredential,
+}: {
+  onSuccess: () => void;
+  /** Override what happens with the credential (e.g. LINK it to the current user from
+   * settings) — default is login/signup via the oauth callback. */
+  onCredential?: (credential: string) => Promise<void>;
+}) {
   const container = useRef<HTMLDivElement>(null);
   const { refresh } = useAuth();
   const [error, setError] = useState<string | null>(null);
@@ -22,8 +30,10 @@ export function GoogleSignInButton({ onSuccess }: { onSuccess: () => void }) {
       if (cancelled) return;
       setBusy(true);
       setError(null);
-      api
-        .oauthCallback("google", credential)
+      const complete = onCredential
+        ? onCredential(credential)
+        : api.oauthCallback("google", credential).then(() => undefined);
+      complete
         .then(async () => {
           await refresh(); // /me → user (with avatar) into the auth context
           if (!cancelled) onSuccess();

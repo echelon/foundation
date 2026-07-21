@@ -33,8 +33,13 @@ export default function GithubCallback() {
       setError("This sign-in attempt is stale or invalid — please start again.");
       return;
     }
-    api
-      .oauthGithubCallback(code, flow.verifier)
+    // "login" signs in (creating on first visit); "link" attaches GitHub to the CURRENT user
+    // (started from settings — the session cookie rides along).
+    const complete =
+      flow.intent === "link"
+        ? api.linkGithub(code, flow.verifier).then(() => undefined)
+        : api.oauthGithubCallback(code, flow.verifier).then(() => undefined);
+    complete
       .then(async () => {
         await refresh();
         navigate(safeRedirectPath(flow.destination) ?? "/dashboard", { replace: true });

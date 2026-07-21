@@ -7,4 +7,5 @@ pub mod github;
 pub mod google;
 pub mod password;
 pub mod service;
+pub mod sso_verify;
 pub mod token;
