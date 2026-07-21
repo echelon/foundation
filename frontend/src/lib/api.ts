@@ -184,6 +184,18 @@ export type ApiInvitation = {
   invitee_user_exists: boolean;
 };
 
+/** An API key as lists report it — identifying prefix only; the secret is shown once. */
+export type ApiKeyItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  key_prefix: string;
+  created_by_user_id: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+};
+
 /** One audit-log row (user or account trail). */
 export type AuditItem = {
   id: string;
@@ -335,6 +347,22 @@ export const api = {
   /** Accept an invitation as the logged-in user (creates the membership). */
   acceptInvitation: (invitationId: string) =>
     request<{ ok: boolean; invitation_id: string }>("POST", `/v1/invitations/${invitationId}/accept`),
+
+  /* ── API keys (any member may list/create/delete) ── */
+
+  listApiKeys: (accountId: string) =>
+    request<{ api_keys: ApiKeyItem[] }>("GET", `/v1/accounts/${accountId}/api_keys`),
+
+  /** Mint a key. `secret` in the response is shown ONCE — it can never be retrieved again. */
+  createApiKey: (accountId: string, title: string, description?: string) =>
+    request<{ api_key: ApiKeyItem; secret: string }>("POST", `/v1/accounts/${accountId}/api_keys`, {
+      title,
+      description: description || undefined,
+    }),
+
+  /** Revoke ("delete") a key — it stops authenticating immediately. */
+  deleteApiKey: (accountId: string, keyId: string) =>
+    request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/api_keys/${keyId}`),
 
   /* ── Audit logs (keyset-paginated) ── */
 

@@ -9,6 +9,7 @@
 
 pub mod account_audit_logs;
 pub mod accounts;
+pub mod api_keys;
 pub mod email_changes;
 pub mod email_sends;
 pub mod email_verifications;
@@ -25,6 +26,7 @@ pub mod users;
 // Row structs are re-exported at the crate root for ergonomic imports by consumers.
 pub use account_audit_logs::AccountAuditLog;
 pub use accounts::Account;
+pub use api_keys::ApiKey;
 pub use email_changes::EmailChange;
 pub use email_sends::EmailSend;
 pub use email_verifications::EmailVerification;

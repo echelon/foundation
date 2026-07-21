@@ -5,7 +5,7 @@
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-use crate::handlers::{account, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
+use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -48,6 +48,9 @@ use crate::handlers::{account, audit_logs, auth, avatar, catalog, invitations, o
     org::list_account_users_handler,
     org::remove_account_member_handler,
     org::update_business_name_handler,
+    api_keys::list_api_keys_handler,
+    api_keys::create_api_key_handler,
+    api_keys::delete_api_key_handler,
     audit_logs::list_my_audit_logs_handler,
     audit_logs::list_account_audit_logs_handler,
     audit_logs::list_member_audit_logs_handler,
@@ -64,6 +67,7 @@ use crate::handlers::{account, audit_logs, auth, avatar, catalog, invitations, o
     (name = "sessions", description = "The devices list and session revocation"),
     (name = "avatar", description = "Avatar upload/crop, preference, and gravatar mirroring"),
     (name = "org", description = "Organizations: switcher list, roster, membership"),
+    (name = "api-keys", description = "API keys: list, mint (secret shown once), revoke"),
     (name = "invitations", description = "Inviting people into an organization"),
     (name = "audit-logs", description = "Keyset-paginated audit trails"),
   )
@@ -98,7 +102,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 36 operations over 34 paths (`/v1/auth/sessions` and `/v1/auth/avatar` each carry two).
-    assert_eq!(documented.len(), 34, "unexpected number of documented paths: {documented:#?}");
+    // 39 operations over 36 paths (sessions, avatar, and api_keys each carry two on one path).
+    assert_eq!(documented.len(), 36, "unexpected number of documented paths: {documented:#?}");
   }
 }

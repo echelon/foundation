@@ -5,6 +5,7 @@ pub mod api_types;
 pub(crate) mod support;
 
 pub mod account;
+pub mod api_keys;
 pub mod audit_logs;
 pub mod auth;
 pub mod avatar;

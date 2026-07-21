@@ -10,7 +10,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
-use crate::handlers::{account, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
+use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, org, root, sessions};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
@@ -134,6 +134,12 @@ pub fn build_router(state: AppState) -> Router {
     // organizations: switcher list, roster, member removal, audit trails
     .route("/v1/accounts", get(org::list_my_accounts_handler))
     .route("/v1/accounts/:account_id/business", put(org::update_business_name_handler))
+    // api keys: any member may list/create/delete (auth.md §4, revised 2026-07-21)
+    .route(
+      "/v1/accounts/:account_id/api_keys",
+      get(api_keys::list_api_keys_handler).post(api_keys::create_api_key_handler),
+    )
+    .route("/v1/accounts/:account_id/api_keys/:key_id", delete(api_keys::delete_api_key_handler))
     .route("/v1/accounts/:account_id/members", get(org::list_account_members_handler))
     .route("/v1/accounts/:account_id/users", get(org::list_account_users_handler))
     .route("/v1/accounts/:account_id/members/:user_id", delete(org::remove_account_member_handler))
