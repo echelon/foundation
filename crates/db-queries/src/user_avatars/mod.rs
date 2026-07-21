@@ -25,6 +25,7 @@ mod request_gravatar_repoll;
 mod reset_avatar_for_email_change;
 mod set_custom_avatar;
 mod set_gravatar_mirrored;
+mod set_monogram_gradient;
 mod set_person_letters;
 mod set_preferred_source;
 
@@ -39,6 +40,7 @@ pub use request_gravatar_repoll::request_gravatar_repoll;
 pub use reset_avatar_for_email_change::reset_avatar_for_email_change;
 pub use set_custom_avatar::set_custom_avatar;
 pub use set_gravatar_mirrored::set_gravatar_mirrored;
+pub use set_monogram_gradient::set_monogram_gradient;
 pub use set_person_letters::set_person_letters;
 pub use set_preferred_source::set_preferred_source;
 
@@ -59,4 +61,6 @@ pub struct UserAvatar {
   pub person_name_last_letter: Option<String>,
   pub created_at: DateTime<Utc>,
   pub updated_at: DateTime<Utc>,
+  /// User-picked initials gradient; null = the default (`brand`).
+  pub monogram_gradient: Option<enums::MonogramGradient>,
 }

@@ -14,7 +14,8 @@ pub async fn find_user_avatar_by_user<'e, E: PgExecutor<'e>>(
               gravatar_file_id AS "gravatar_file_id?: ids::UserAvatarFileId",
               preferred_source AS "preferred_source: enums::AvatarSource", gravatar_hash, gravatar_checked_at,
               generated_seed, email_first_letter, email_last_letter,
-              person_name_first_letter, person_name_last_letter, created_at, updated_at
+              person_name_first_letter, person_name_last_letter, created_at, updated_at,
+              monogram_gradient AS "monogram_gradient?: enums::MonogramGradient"
        FROM user_avatars
        WHERE user_id = $1"#,
     user_id.as_str(),

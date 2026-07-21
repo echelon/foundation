@@ -99,12 +99,19 @@ export type ApiAvatar = {
   /** The user's stated choice; "not_yet_set" until they pick (system auto-picks meanwhile). */
   preferred_source: PreferredSource;
   links: AvatarLinks | null;
+  /** Preview links for the custom upload, present whenever one exists (settings shows all
+   * options side by side). */
+  custom_links: AvatarLinks | null;
+  /** Preview links for the mirrored gravatar, present whenever one exists. */
+  gravatar_links: AvatarLinks | null;
   /** A custom upload exists (choosable even when not displaying). */
   has_custom: boolean;
   /** A mirrored gravatar exists (choosable even when not displaying). */
   has_gravatar: boolean;
   /** False while a gravatar (re-)poll is pending — the background job hasn't checked yet. */
   gravatar_checked: boolean;
+  /** User-picked initials gradient slug; null = the default ("brand"). */
+  monogram_gradient: string | null;
 };
 
 /** Crop rect in source-image pixels (square — encodes zoom + translate of a square viewport). */
@@ -135,7 +142,8 @@ export type ApiSession = {
 };
 
 type AuthResponse = { user: ApiUser; session_id: string };
-type MeResponse = { user: ApiUser; session_id: string; impersonation: boolean };
+type MeResponse = { user: ApiUser; session_id: string; impersonation: boolean; sso_providers: string[] };
+export type { MeResponse };
 
 /** One of the caller's organizations (memberships), for the org switcher. */
 export type ApiAccount = {
@@ -322,6 +330,10 @@ export const api = {
 
   /** Re-request the gravatar — the background job re-fetches within seconds. */
   refreshGravatar: () => request<{ ok: boolean; avatar: ApiAvatar }>("POST", "/v1/auth/avatar/gravatar/refresh"),
+
+  /** Pick the initials-monogram gradient (stored; shown to everyone who sees the monogram). */
+  setMonogramGradient: (gradient: string) =>
+    request<{ ok: boolean; avatar: ApiAvatar }>("PUT", "/v1/auth/avatar/monogram", { gradient }),
 
   /* ── Organizations ── */
 

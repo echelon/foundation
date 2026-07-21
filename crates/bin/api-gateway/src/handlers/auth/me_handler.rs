@@ -20,6 +20,9 @@ pub struct MeResponse {
   pub session_id: SessionId,
   /// True when this is a staff impersonation session (auth.md §6).
   pub impersonation: bool,
+  /// Connected SSO providers ("google", "github") — with `user.has_password`, the login-method
+  /// factoids the settings profile shows.
+  pub sso_providers: Vec<String>,
 }
 
 /// The caller's identity, including avatar state + CDN links (the gateway serves no bytes).
@@ -36,5 +39,15 @@ pub async fn me_handler(State(state): State<AppState>, auth: AuthContext) -> Api
   let avatar = avatar_info(&state, &auth.user.id).await?;
   let mut user = UserBody::from_user(&auth.user);
   user.avatar = Some(avatar);
-  Ok(Json(MeResponse { user, session_id: auth.session.id.clone(), impersonation: auth.is_impersonation() }))
+  let sso_providers = db_queries::sso::list_sso_for_user(&state.pool, &auth.user.id)
+    .await?
+    .into_iter()
+    .map(|c| c.provider)
+    .collect();
+  Ok(Json(MeResponse {
+    user,
+    session_id: auth.session.id.clone(),
+    impersonation: auth.is_impersonation(),
+    sso_providers,
+  }))
 }

@@ -14,6 +14,7 @@ mod avatar_source;
 mod email_status;
 mod session_creation_type;
 mod email_template;
+mod monogram_gradient;
 
 pub use audit_event::AuditEvent;
 pub use avatar_file_source::AvatarFileSource;
@@ -21,6 +22,7 @@ pub use avatar_source::AvatarSource;
 pub use email_status::EmailStatus;
 pub use session_creation_type::SessionCreationType;
 pub use email_template::EmailTemplate;
+pub use monogram_gradient::MonogramGradient;
 
 /// Error parsing an enum from an unknown wire string.
 #[derive(Debug, Clone, PartialEq, Eq)]

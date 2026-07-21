@@ -10,6 +10,8 @@ import { api, type ApiUser } from "./api";
  */
 type AuthContextValue = {
   user: ApiUser | null;
+  /** Connected SSO providers ("google", …) from /me — login-method factoids in settings. */
+  ssoProviders: string[];
   loading: boolean;
   login: (email: string, password: string) => Promise<ApiUser>;
   /** `invitation` (code or token) redeems an invite during signup — see api.signup. */
@@ -21,6 +23,7 @@ type AuthContextValue = {
 
 const AuthCtx = createContext<AuthContextValue>({
   user: null,
+  ssoProviders: [],
   loading: true,
   login: async () => {
     throw new Error("AuthProvider missing");
@@ -34,6 +37,7 @@ const AuthCtx = createContext<AuthContextValue>({
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<ApiUser | null>(null);
+  const [ssoProviders, setSsoProviders] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,7 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api
       .me()
       .then((r) => {
-        if (!cancelled) setUser(r.user);
+        if (!cancelled) {
+          setUser(r.user);
+          setSsoProviders(r.sso_providers);
+        }
       })
       .catch(() => {
         if (!cancelled) setUser(null); // no/expired session — that's fine
@@ -55,7 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // login/signup responses don't carry the avatar — backfill from /me in the background.
-  const backfill = () => void api.me().then((m) => setUser(m.user)).catch(() => {});
+  const backfill = () =>
+    void api
+      .me()
+      .then((m) => {
+        setUser(m.user);
+        setSsoProviders(m.sso_providers);
+      })
+      .catch(() => {});
 
   const login = useCallback(async (email: string, password: string) => {
     const r = await api.login(email, password);
@@ -83,12 +97,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const r = await api.me();
       setUser(r.user);
+      setSsoProviders(r.sso_providers);
     } catch {
       setUser(null);
+      setSsoProviders([]);
     }
   }, []);
 
-  return <AuthCtx.Provider value={{ user, loading, login, signup, logout, refresh }}>{children}</AuthCtx.Provider>;
+  return <AuthCtx.Provider value={{ user, ssoProviders, loading, login, signup, logout, refresh }}>{children}</AuthCtx.Provider>;
 }
 
 export const useAuth = () => useContext(AuthCtx);

@@ -224,7 +224,10 @@ async fn google_sso_signs_up_then_logs_in_on_repeat() {
 
   // SSO emails count as verified, the session works, and created_via says sso_signup.
   let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
-  assert_eq!(body_json(me).await["user"]["email_verified"], true);
+  let me = body_json(me).await;
+  assert_eq!(me["user"]["email_verified"], true);
+  assert_eq!(me["user"]["has_password"], false);
+  assert_eq!(me["sso_providers"], json!(["google"]));
   let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
   assert_eq!(sessions[0].created_via, enums::SessionCreationType::SsoSignup);
 
@@ -447,4 +450,42 @@ fn post_put(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
     b = b.header(header::COOKIE, c);
   }
   b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
+}
+
+#[tokio::test]
+async fn settings_factoids_and_monogram_gradient() {
+  let (app, _pool) = app_and_pool().await;
+  let email = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(post("/v1/auth/signup", json!({ "email": email, "password": "password1" }), None))
+    .await
+    .unwrap();
+  let cookie = session_cookie(&signup).unwrap();
+
+  // Password signup: has_password true, no SSO connections, default (null) monogram gradient.
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  let me = body_json(me).await;
+  assert_eq!(me["user"]["has_password"], true);
+  assert_eq!(me["sso_providers"], json!([]));
+  assert_eq!(me["user"]["avatar"]["monogram_gradient"], Value::Null);
+
+  // Pick a gradient — stored, echoed, and visible on /me thereafter.
+  let set = app
+    .clone()
+    .oneshot(post_put("/v1/auth/avatar/monogram", json!({ "gradient": "ocean" }), Some(&cookie)))
+    .await
+    .unwrap();
+  assert_eq!(set.status(), StatusCode::OK);
+  assert_eq!(body_json(set).await["avatar"]["monogram_gradient"], "ocean");
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  assert_eq!(body_json(me).await["user"]["avatar"]["monogram_gradient"], "ocean");
+
+  // Unknown slugs are rejected at deserialization.
+  let bad = app
+    .clone()
+    .oneshot(post_put("/v1/auth/avatar/monogram", json!({ "gradient": "neon-zebra" }), Some(&cookie)))
+    .await
+    .unwrap();
+  assert!(bad.status().is_client_error(), "got {}", bad.status());
 }

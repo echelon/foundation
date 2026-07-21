@@ -9,6 +9,7 @@
 mod refresh_my_gravatar_handler;
 mod remove_my_avatar_handler;
 mod remove_my_gravatar_handler;
+mod set_monogram_gradient_handler;
 mod set_my_avatar_preference_handler;
 pub mod support;
 mod upload_my_avatar_handler;
@@ -16,5 +17,6 @@ mod upload_my_avatar_handler;
 pub use refresh_my_gravatar_handler::*;
 pub use remove_my_avatar_handler::*;
 pub use remove_my_gravatar_handler::*;
+pub use set_monogram_gradient_handler::*;
 pub use set_my_avatar_preference_handler::*;
 pub use upload_my_avatar_handler::*;

@@ -136,6 +136,7 @@ pub fn build_router(state: AppState) -> Router {
       post(avatar::upload_my_avatar_handler).delete(avatar::remove_my_avatar_handler),
     )
     .route("/v1/auth/avatar/preference", put(avatar::set_my_avatar_preference_handler))
+    .route("/v1/auth/avatar/monogram", put(avatar::set_monogram_gradient_handler))
     .route("/v1/auth/avatar/gravatar", delete(avatar::remove_my_gravatar_handler))
     .route("/v1/auth/avatar/gravatar/refresh", post(avatar::refresh_my_gravatar_handler))
     // organizations: switcher list, roster, member removal, audit trails

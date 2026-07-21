@@ -183,6 +183,9 @@ CREATE TABLE user_avatars (
     -- it's satisfiable (custom needs custom_file_id, gravatar needs gravatar_file_id), else
     -- the letter monogram.
     preferred_source         text not null default 'not_yet_set' CHECK (preferred_source IN ('not_yet_set', 'custom', 'gravatar', 'letter', 'generated')),
+    -- The monogram's gradient, user-picked in settings (2026-07-21); null = default 'brand'.
+    monogram_gradient        text CHECK (monogram_gradient IN
+                                 ('brand', 'ocean', 'sunset', 'forest', 'berry', 'gold', 'slate', 'rose')),
     gravatar_hash            text,
     gravatar_checked_at      timestamptz,
     generated_seed           text not null,

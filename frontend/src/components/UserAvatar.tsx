@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ApiAvatar } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { monogramGradientCss } from "@/lib/gradients";
 
 /** The minimum a caller must know to render someone: any of ApiUser / ApiMember /
  * ApiAccountUser satisfies this shape. */
@@ -43,10 +44,8 @@ export function UserAvatar({ user, className }: { user: AvatarUser; className?: 
   }
   return (
     <span
-      className={cn(
-        "grid place-items-center rounded-full brand-gradient font-semibold text-white",
-        className,
-      )}
+      className={cn("grid place-items-center rounded-full font-semibold text-white", className)}
+      style={{ background: monogramGradientCss(user.avatar?.monogram_gradient) }}
     >
       {userInitials(user)}
     </span>

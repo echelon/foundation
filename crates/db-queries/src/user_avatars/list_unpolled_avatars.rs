@@ -15,7 +15,8 @@ pub async fn list_unpolled_avatars<'e, E: PgExecutor<'e>>(
               gravatar_file_id AS "gravatar_file_id?: ids::UserAvatarFileId",
               preferred_source AS "preferred_source: enums::AvatarSource", gravatar_hash, gravatar_checked_at,
               generated_seed, email_first_letter, email_last_letter,
-              person_name_first_letter, person_name_last_letter, created_at, updated_at
+              person_name_first_letter, person_name_last_letter, created_at, updated_at,
+              monogram_gradient AS "monogram_gradient?: enums::MonogramGradient"
        FROM user_avatars
        WHERE gravatar_checked_at IS NULL
        ORDER BY sid ASC

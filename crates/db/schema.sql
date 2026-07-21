@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 6QFBWPdccQH2gTTBPNMNcbgRmZLI7QjKnz1t1PklvF6laO4SjONywTtog9A8SGm
+\restrict H0S3k8Suh0cn46saAfRVdDKQUfPQ1A5lFrc0BIofjq12NAN5NsOKgfJDob85dpz
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -1513,6 +1513,7 @@ CREATE TABLE public.user_avatars (
     custom_file_id text,
     gravatar_file_id text,
     preferred_source text DEFAULT 'not_yet_set'::text NOT NULL,
+    monogram_gradient text,
     gravatar_hash text,
     gravatar_checked_at timestamp with time zone,
     generated_seed text NOT NULL,
@@ -1522,6 +1523,7 @@ CREATE TABLE public.user_avatars (
     person_name_last_letter text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT user_avatars_monogram_gradient_check CHECK ((monogram_gradient = ANY (ARRAY['brand'::text, 'ocean'::text, 'sunset'::text, 'forest'::text, 'berry'::text, 'gold'::text, 'slate'::text, 'rose'::text]))),
     CONSTRAINT user_avatars_preferred_source_check CHECK ((preferred_source = ANY (ARRAY['not_yet_set'::text, 'custom'::text, 'gravatar'::text, 'letter'::text, 'generated'::text])))
 );
 
@@ -2596,5 +2598,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 6QFBWPdccQH2gTTBPNMNcbgRmZLI7QjKnz1t1PklvF6laO4SjONywTtog9A8SGm
+\unrestrict H0S3k8Suh0cn46saAfRVdDKQUfPQ1A5lFrc0BIofjq12NAN5NsOKgfJDob85dpz
 

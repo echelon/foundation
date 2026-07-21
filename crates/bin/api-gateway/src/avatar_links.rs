@@ -44,12 +44,19 @@ pub struct AvatarInfo {
   #[schema(value_type = String, example = "not_yet_set")]
   pub preferred_source: AvatarSource,
   pub links: Option<AvatarLinks>,
+  /// Preview links for the custom upload, present whenever one exists (even when not
+  /// displaying) — the settings page shows all options side by side.
+  pub custom_links: Option<AvatarLinks>,
+  /// Preview links for the mirrored gravatar, present whenever one exists.
+  pub gravatar_links: Option<AvatarLinks>,
   /// A custom upload exists (choosable even when not displaying).
   pub has_custom: bool,
   /// A mirrored gravatar exists (choosable even when not displaying).
   pub has_gravatar: bool,
   /// False while a gravatar (re-)poll is pending — the job hasn't checked yet.
   pub gravatar_checked: bool,
+  /// User-picked initials gradient slug (enums::MonogramGradient); null = default `brand`.
+  pub monogram_gradient: Option<String>,
 }
 
 /// The default for users with no avatar row: the letter monogram.
@@ -58,9 +65,12 @@ pub fn letter_only() -> AvatarInfo {
     source: AvatarSource::Letter,
     preferred_source: AvatarSource::Letter,
     links: None,
+    custom_links: None,
+    gravatar_links: None,
     has_custom: false,
     has_gravatar: false,
     gravatar_checked: false,
+    monogram_gradient: None,
   }
 }
 
@@ -77,15 +87,30 @@ fn effective_display(avatar: &db_queries::UserAvatar) -> (AvatarSource, Option<U
   }
 }
 
-fn assemble(state: &AppState, avatar: &db_queries::UserAvatar, file: Option<&UserAvatarFile>) -> AvatarInfo {
+fn assemble(
+  state: &AppState,
+  avatar: &db_queries::UserAvatar,
+  custom_file: Option<&UserAvatarFile>,
+  gravatar_file: Option<&UserAvatarFile>,
+) -> AvatarInfo {
   let (source, _) = effective_display(avatar);
+  let custom_links = custom_file.map(|f| links_for_file(state, f));
+  let gravatar_links = gravatar_file.map(|f| links_for_file(state, f));
+  let links = match source {
+    AvatarSource::Custom => custom_links.clone(),
+    AvatarSource::Gravatar => gravatar_links.clone(),
+    _ => None,
+  };
   AvatarInfo {
     source,
     preferred_source: avatar.preferred_source,
-    links: file.map(|f| links_for_file(state, f)),
+    links,
+    custom_links,
+    gravatar_links,
     has_custom: avatar.custom_file_id.is_some(),
     has_gravatar: avatar.gravatar_file_id.is_some(),
     gravatar_checked: avatar.gravatar_checked_at.is_some(),
+    monogram_gradient: avatar.monogram_gradient.map(|g| g.as_str().to_string()),
   }
 }
 
@@ -96,12 +121,11 @@ pub async fn avatar_info(state: &AppState, user_id: &UserId) -> ApiResult<Avatar
   let Some(avatar) = user_avatars::find_user_avatar_by_user(&state.pool, user_id).await? else {
     return Ok(letter_only());
   };
-  let (_, file_id) = effective_display(&avatar);
-  let file = match file_id {
-    Some(file_id) => user_avatar_files::find_user_avatar_file_by_id(&state.pool, &file_id).await?,
-    None => None,
-  };
-  Ok(assemble(state, &avatar, file.as_ref()))
+  let wanted: Vec<UserAvatarFileId> =
+    [avatar.custom_file_id.clone(), avatar.gravatar_file_id.clone()].into_iter().flatten().collect();
+  let files = user_avatar_files::list_user_avatar_files_by_ids(&state.pool, &wanted).await?;
+  let by_id = |id: &Option<UserAvatarFileId>| id.as_ref().and_then(|id| files.iter().find(|f| &f.id == id));
+  Ok(assemble(state, &avatar, by_id(&avatar.custom_file_id), by_id(&avatar.gravatar_file_id)))
 }
 
 /// Batch [`avatar_info`] — two queries total, however many users (rosters, audit actors).
@@ -112,10 +136,13 @@ pub async fn avatar_infos(state: &AppState, user_ids: &[UserId]) -> ApiResult<Ha
   }
   let avatars = user_avatars::list_user_avatars_by_user_ids(&state.pool, user_ids).await?;
 
-  let display_file_ids: Vec<UserAvatarFileId> =
-    avatars.iter().filter_map(|a| effective_display(a).1).collect();
+  let wanted_file_ids: Vec<UserAvatarFileId> = avatars
+    .iter()
+    .flat_map(|a| [a.custom_file_id.clone(), a.gravatar_file_id.clone()])
+    .flatten()
+    .collect();
   let files: HashMap<UserAvatarFileId, UserAvatarFile> =
-    user_avatar_files::list_user_avatar_files_by_ids(&state.pool, &display_file_ids)
+    user_avatar_files::list_user_avatar_files_by_ids(&state.pool, &wanted_file_ids)
       .await?
       .into_iter()
       .map(|f| (f.id.clone(), f))
@@ -124,8 +151,9 @@ pub async fn avatar_infos(state: &AppState, user_ids: &[UserId]) -> ApiResult<Ha
   let mut by_user: HashMap<UserId, AvatarInfo> = avatars
     .into_iter()
     .map(|a| {
-      let file = effective_display(&a).1.and_then(|id| files.get(&id));
-      (a.user_id.clone(), assemble(state, &a, file))
+      let custom = a.custom_file_id.as_ref().and_then(|id| files.get(id));
+      let gravatar = a.gravatar_file_id.as_ref().and_then(|id| files.get(id));
+      (a.user_id.clone(), assemble(state, &a, custom, gravatar))
     })
     .collect();
   for id in user_ids {

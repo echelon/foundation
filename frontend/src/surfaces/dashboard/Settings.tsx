@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Laptop, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, Image as ImageIcon, Laptop, Loader2, Palette, RefreshCw, ShieldCheck } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { AvatarEditorModal } from "@/components/AvatarEditorModal";
-import { UserAvatar } from "@/components/UserAvatar";
+import { UserAvatar, userInitials } from "@/components/UserAvatar";
 import { api, ApiError, type ApiSession } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { MONOGRAM_GRADIENTS, monogramGradientCss } from "@/lib/gradients";
 
 export default function Settings() {
-  const { user } = useAuth();
+  const { user, ssoProviders } = useAuth();
   if (!user) return null;
+
+  const factoids: { label: string; on: boolean }[] = [
+    { label: "password", on: user.has_password },
+    { label: "Google SSO", on: ssoProviders.includes("google") },
+    { label: "GitHub SSO", on: ssoProviders.includes("github") },
+  ];
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -17,7 +24,8 @@ export default function Settings() {
         <p className="mt-1 text-muted">Manage your profile, security, and sessions.</p>
       </div>
 
-      {/* ── Profile ── */}
+      {/* ── Profile — a 100% read-only snapshot; everything here is edited in the
+             sections below. ── */}
       <Card className="p-6">
         <h2 className="font-display font-semibold">Profile</h2>
         <div className="mt-4 flex items-center gap-4">
@@ -34,10 +42,25 @@ export default function Settings() {
             </div>
           </div>
         </div>
-        {!user.email_verified && <VerifyEmailRow />}
-        <NameEditor />
-        <AvatarManager />
+        {/* Login-method factoids. */}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {factoids.map((f) => (
+            <Badge key={f.label} tone={f.on ? "green" : "muted"}>
+              {f.on ? `has ${f.label}` : `no ${f.label}`}
+            </Badge>
+          ))}
+        </div>
       </Card>
+
+      {!user.email_verified && <VerifyEmailRow />}
+
+      {/* ── Name ── */}
+      <Card className="p-6">
+        <h2 className="font-display font-semibold">Name</h2>
+        <NameEditor />
+      </Card>
+
+      <AvatarCard />
 
       <ChangeEmailCard />
       <ChangePasswordCard />
@@ -105,7 +128,7 @@ function NameEditor() {
   };
 
   return (
-    <form className="mt-5 border-t border-border pt-4" onSubmit={save}>
+    <form className="mt-3" onSubmit={save}>
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Label hint="shown to your team; changes are audit-logged">Name</Label>
@@ -120,12 +143,13 @@ function NameEditor() {
   );
 }
 
-/* ── Avatar management ── */
+/* ── Avatar ── */
 
-function AvatarManager() {
+function AvatarCard() {
   const { user, refresh } = useAuth();
   const fileInput = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<File | null>(null);
+  const [pickingGradient, setPickingGradient] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
 
@@ -152,18 +176,19 @@ function AvatarManager() {
     if (fileInput.current) fileInput.current.value = ""; // allow re-picking the same file
   };
 
-  const prefer = (source: "custom" | "gravatar" | "letter") =>
-    act(`prefer-${source}`, () => api.setAvatarPreference(source));
+  const thumb = (links: { cdn_url: string; thumbnail_template: string } | null | undefined) =>
+    links ? links.thumbnail_template.replace("{WIDTH}", "320") : null;
 
-  // The three display choices; disabled when nothing backs them yet.
-  const choices: { key: "custom" | "gravatar" | "letter"; label: string; available: boolean; hint?: string }[] = [
-    { key: "custom", label: "Photo", available: !!avatar?.has_custom, hint: "upload one first" },
-    { key: "gravatar", label: "Gravatar", available: !!avatar?.has_gravatar, hint: "none found yet" },
-    { key: "letter", label: "Initials", available: true },
-  ];
+  const selected = avatar?.preferred_source;
 
   return (
-    <div className="mt-5 border-t border-border pt-4">
+    <Card className="p-6">
+      <h2 className="font-display font-semibold">Profile picture</h2>
+      <p className="mt-1 text-sm text-muted">
+        Pick what displays: your photo, your gravatar, or your initials.
+        {avatar?.preferred_source === "not_yet_set" && " (Auto-picked until you choose.)"}
+      </p>
+
       <input
         ref={fileInput}
         type="file"
@@ -172,73 +197,115 @@ function AvatarManager() {
         onChange={(e) => pickFile(e.target.files)}
       />
 
-      {/* Which avatar to display — the user's explicit preference. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted">Display:</span>
-        <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-          {choices.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => c.available && prefer(c.key)}
-              disabled={busy !== null || !c.available}
-              title={c.available ? undefined : c.hint}
-              className={cnPill(avatar?.preferred_source === c.key, c.available)}
-            >
-              {busy === `prefer-${c.key}` ? "…" : c.label}
-            </button>
-          ))}
-        </div>
-        {avatar?.preferred_source === "not_yet_set" && <Badge tone="muted">auto</Badge>}
-        {avatar && avatar.preferred_source !== "not_yet_set" && avatar.preferred_source !== avatar.source && (
-          <Badge tone="amber">showing initials until it's ready</Badge>
-        )}
-      </div>
-
-      {/* Photo management */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted">Photo:</span>
-        <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
-          {avatar?.has_custom ? "Replace" : "Upload"}
-        </Button>
-        {avatar?.has_custom && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => act("remove-photo", api.removeAvatar, "Photo removed.")}
-            disabled={busy !== null}
-            className="border-rose-500/40 text-rose-500 hover:border-rose-500"
-          >
-            {busy === "remove-photo" ? "…" : "Remove"}
-          </Button>
-        )}
-      </div>
-
-      {/* Gravatar management */}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted">Gravatar:</span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            act("refresh", api.refreshGravatar, "Checking gravatar.com — takes a few seconds; reload to see the result.")
+      <div className="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
+        {/* ── Photo ── */}
+        <AvatarOption
+          label="Photo"
+          selected={selected === "custom"}
+          selectable={!!avatar?.has_custom}
+          unavailableHint="upload a photo first"
+          onSelect={() => act("prefer-custom", () => api.setAvatarPreference("custom"))}
+          preview={
+            thumb(avatar?.custom_links) ? (
+              <img src={thumb(avatar?.custom_links)!} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <EmptyPreview icon={<ImageIcon className="h-8 w-8" />} />
+            )
           }
-          disabled={busy !== null}
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {busy === "refresh" ? "…" : avatar?.has_gravatar ? "Refresh" : "Check for one"}
-        </Button>
-        {avatar?.has_gravatar && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => act("remove-gravatar", api.removeGravatar, "Gravatar removed. Refresh brings it back.")}
-            disabled={busy !== null}
-            className="border-rose-500/40 text-rose-500 hover:border-rose-500"
-          >
-            {busy === "remove-gravatar" ? "…" : "Remove"}
-          </Button>
-        )}
-        {avatar && !avatar.gravatar_checked && <Badge tone="amber">checking…</Badge>}
+          action={
+            avatar?.has_custom ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-rose-500/40 text-rose-500 hover:border-rose-500"
+                disabled={busy !== null}
+                onClick={() => act("clear-photo", api.removeAvatar, "Photo removed.")}
+              >
+                {busy === "clear-photo" ? "…" : "Clear"}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={busy !== null}
+                onClick={() => fileInput.current?.click()}
+              >
+                Upload
+              </Button>
+            )
+          }
+        />
+
+        {/* ── Gravatar ── */}
+        <AvatarOption
+          label="Gravatar"
+          selected={selected === "gravatar"}
+          selectable
+          badge={avatar && !avatar.gravatar_checked ? "checking…" : undefined}
+          onSelect={() => act("prefer-gravatar", () => api.setAvatarPreference("gravatar"))}
+          preview={
+            thumb(avatar?.gravatar_links) ? (
+              <img src={thumb(avatar?.gravatar_links)!} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <EmptyPreview icon={<ImageIcon className="h-8 w-8" />} />
+            )
+          }
+          action={
+            avatar?.has_gravatar ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full border-rose-500/40 text-rose-500 hover:border-rose-500"
+                disabled={busy !== null}
+                onClick={() => act("remove-gravatar", api.removeGravatar, "Gravatar removed. Check brings it back.")}
+              >
+                {busy === "remove-gravatar" ? "…" : "Remove"}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={busy !== null}
+                onClick={() =>
+                  act("check-gravatar", api.refreshGravatar, "Checking gravatar.com — takes a few seconds.")
+                }
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {busy === "check-gravatar" ? "…" : "Check"}
+              </Button>
+            )
+          }
+        />
+
+        {/* ── Initials ── */}
+        <AvatarOption
+          label="Initials"
+          selected={selected === "letter"}
+          selectable
+          onSelect={() => act("prefer-letter", () => api.setAvatarPreference("letter"))}
+          preview={
+            <div
+              className="grid h-full w-full place-items-center font-display text-4xl font-bold text-white"
+              style={{ background: monogramGradientCss(avatar?.monogram_gradient) }}
+            >
+              {user ? userInitials(user) : "?"}
+            </div>
+          }
+          action={
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={busy !== null}
+              onClick={() => setPickingGradient(true)}
+            >
+              <Palette className="h-3.5 w-3.5" />
+              Change Color
+            </Button>
+          }
+        />
       </div>
 
       <NoticeRow notice={notice} />
@@ -246,15 +313,123 @@ function AvatarManager() {
       {editing && (
         <AvatarEditorModal file={editing} onClose={() => setEditing(null)} onSaved={() => refresh()} />
       )}
+      {pickingGradient && (
+        <GradientModal
+          current={avatar?.monogram_gradient ?? "brand"}
+          onClose={() => setPickingGradient(false)}
+          onPick={(slug) =>
+            act("gradient", () => api.setMonogramGradient(slug), "Color updated.").then(() =>
+              setPickingGradient(false),
+            )
+          }
+        />
+      )}
+    </Card>
+  );
+}
+
+/** One third-width option: preview tile (click to select), label, and its action button. */
+function AvatarOption({
+  label,
+  selected,
+  selectable,
+  unavailableHint,
+  badge,
+  onSelect,
+  preview,
+  action,
+}: {
+  label: string;
+  selected: boolean;
+  selectable: boolean;
+  unavailableHint?: string;
+  badge?: string;
+  onSelect: () => void;
+  preview: ReactNode;
+  action: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => selectable && !selected && onSelect()}
+        disabled={!selectable}
+        title={selectable ? undefined : unavailableHint}
+        className={
+          "relative aspect-square w-full overflow-hidden rounded-xl border-2 transition " +
+          (selected
+            ? "border-[hsl(var(--brand))] shadow-glow"
+            : selectable
+              ? "border-border opacity-70 hover:opacity-100"
+              : "cursor-not-allowed border-border opacity-40")
+        }
+      >
+        {preview}
+        {selected && (
+          <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full brand-gradient text-white shadow">
+            <Check className="h-3.5 w-3.5" />
+          </span>
+        )}
+        {badge && (
+          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+            {badge}
+          </span>
+        )}
+      </button>
+      <div className="text-center text-xs font-medium text-muted">{label}</div>
+      {action}
     </div>
   );
 }
 
-/** Segmented-control pill styling for the display choices. */
-function cnPill(active: boolean, available: boolean): string {
-  if (active) return "rounded-md px-3 py-1.5 text-xs font-medium brand-gradient text-white shadow-glow";
-  if (!available) return "rounded-md px-3 py-1.5 text-xs font-medium text-muted opacity-40 cursor-not-allowed";
-  return "rounded-md px-3 py-1.5 text-xs font-medium text-muted transition hover:text-fg";
+function EmptyPreview({ icon }: { icon: ReactNode }) {
+  return (
+    <div className="grid h-full w-full place-items-center bg-surface2 text-muted/40">{icon}</div>
+  );
+}
+
+/** Gradient choices for the initials monogram — stored server-side, shown to everyone. */
+function GradientModal({
+  current,
+  onClose,
+  onPick,
+}: {
+  current: string;
+  onClose: () => void;
+  onPick: (slug: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+      <Card className="p-6">
+        <h3 className="font-display font-semibold">Initials color</h3>
+        <p className="mt-1 text-sm text-muted">Pick a gradient — everyone who sees your initials sees it.</p>
+        <div className="mt-4 grid grid-cols-4 gap-3">
+          {MONOGRAM_GRADIENTS.map((g) => (
+            <button
+              key={g.slug}
+              type="button"
+              onClick={() => onPick(g.slug)}
+              title={g.label}
+              className={
+                "flex flex-col items-center gap-1.5 rounded-lg p-2 transition hover:bg-surface2 " +
+                (g.slug === current ? "bg-surface2 ring-2 ring-[hsl(var(--brand))]" : "")
+              }
+            >
+              <span className="h-10 w-10 rounded-full" style={{ background: g.css }} />
+              <span className="text-[10px] text-muted">{g.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 text-right">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </Card>
+      </div>
+    </div>
+  );
 }
 
 /* ── Change email ── */
