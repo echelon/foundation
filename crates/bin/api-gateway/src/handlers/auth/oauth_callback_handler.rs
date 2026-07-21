@@ -19,19 +19,23 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct OAuthCallbackBody {
-  /// The GIS credential: the ID-token JWT from `google.accounts.id` (verified server-side).
-  pub credential: String,
+  /// Google: the GIS credential (ID-token JWT) from `google.accounts.id`.
+  pub credential: Option<String>,
+  /// GitHub: the authorization code from the web application flow.
+  pub code: Option<String>,
+  /// GitHub: the PKCE verifier that produced the authorize request's `code_challenge`.
+  pub code_verifier: Option<String>,
 }
 
 #[utoipa::path(
   post, path = "/v1/auth/oauth/{provider}/callback",
   tag = "auth",
-  params(("provider" = String, Path, description = "`google` (github: not yet available)")),
+  params(("provider" = String, Path, description = "`google` (send `credential`) or `github` (send `code` + `code_verifier`)")),
   request_body = OAuthCallbackBody,
   responses(
     (status = 200, description = "Logged in (created on first visit); session cookie set", body = AuthSuccessResponse),
-    (status = 400, description = "Unsupported provider, or Google SSO not configured on this server"),
-    (status = 401, description = "The credential failed verification"),
+    (status = 400, description = "Unsupported provider, missing field, or that provider is not configured on this server"),
+    (status = 401, description = "The credential/code failed verification"),
     (status = 409, description = "Email exists without this SSO link — log in to link")
   )
 )]
@@ -41,31 +45,55 @@ pub async fn oauth_callback_handler(
   headers: HeaderMap,
   Json(body): Json<OAuthCallbackBody>,
 ) -> ApiResult<Response> {
-  if provider != "google" {
-    return Err(ApiError::BadRequest(format!("unsupported provider: {provider}")));
+  // Resolve a VERIFIED identity per provider — nothing about identity is client-trusted.
+  struct Verified {
+    provider: &'static str,
+    sub: String,
+    email: String,
+    display_name: Option<String>,
   }
-  let google = state
-    .google
-    .as_ref()
-    .ok_or_else(|| ApiError::BadRequest("Google sign-in is not configured on this server".into()))?;
-
-  let identity = google.verify(&body.credential).await.map_err(|e| {
-    tracing::warn!(error = %e, "google credential rejected");
-    ApiError::Unauthorized("Google credential could not be verified".into())
-  })?;
-  // We mark SSO emails verified (accounts.md §3B) — so only accept ones Google vouches for.
-  if !identity.email_verified {
-    return Err(ApiError::Unauthorized("Google reports this email as unverified".into()));
-  }
+  let verified: Verified = match provider.as_str() {
+    "google" => {
+      let google = state
+        .google
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("Google sign-in is not configured on this server".into()))?;
+      let credential =
+        body.credential.as_deref().ok_or_else(|| ApiError::BadRequest("`credential` is required for google".into()))?;
+      let id = google.verify(credential).await.map_err(|e| {
+        tracing::warn!(error = %e, "google credential rejected");
+        ApiError::Unauthorized("Google credential could not be verified".into())
+      })?;
+      // We mark SSO emails verified (accounts.md §3B) — so only accept ones Google vouches for.
+      if !id.email_verified {
+        return Err(ApiError::Unauthorized("Google reports this email as unverified".into()));
+      }
+      Verified { provider: "google", sub: id.sub, email: id.email, display_name: id.display_name }
+    }
+    "github" => {
+      let github = state
+        .github
+        .as_ref()
+        .ok_or_else(|| ApiError::BadRequest("GitHub sign-in is not configured on this server".into()))?;
+      let code = body.code.as_deref().ok_or_else(|| ApiError::BadRequest("`code` is required for github".into()))?;
+      // resolve_code enforces a VERIFIED email via /user/emails (accounts.md §3C).
+      let id = github.resolve_code(code, body.code_verifier.as_deref()).await.map_err(|e| {
+        tracing::warn!(error = %e, "github code rejected");
+        ApiError::Unauthorized("GitHub sign-in could not be verified".into())
+      })?;
+      Verified { provider: "github", sub: id.sub, email: id.email, display_name: id.display_name }
+    }
+    other => return Err(ApiError::BadRequest(format!("unsupported provider: {other}"))),
+  };
 
   let outcome = service::oauth_login(
     &state.pool,
     &state.jwt,
     service::SsoLoginArgs {
-      provider: "google",
-      provider_user_id: &identity.sub,
-      email: &identity.email,
-      display_name: identity.display_name.as_deref(),
+      provider: verified.provider,
+      provider_user_id: &verified.sub,
+      email: &verified.email,
+      display_name: verified.display_name.as_deref(),
     },
     &req_meta(&headers),
   )

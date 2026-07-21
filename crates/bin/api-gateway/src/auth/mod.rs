@@ -3,6 +3,7 @@
 
 pub mod cookie;
 pub mod email;
+pub mod github;
 pub mod google;
 pub mod password;
 pub mod service;

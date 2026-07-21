@@ -50,6 +50,10 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       .google_client_id
       .clone()
       .map(|id| Arc::new(crate::auth::google::GoogleAuth::new(id))),
+    github: cfg
+      .github_oauth
+      .clone()
+      .map(|g| Arc::new(crate::auth::github::GithubAuth::new(g.client_id, g.client_secret))),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -59,6 +63,9 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
   }
   if state.google.is_none() {
     tracing::warn!("GOOGLE_CLIENT_ID not set — Google sign-in disabled");
+  }
+  if state.github.is_none() {
+    tracing::warn!("GITHUB_CLIENT_ID/GITHUB_CLIENT_SECRET not set — GitHub sign-in disabled");
   }
   // Asset URLs are derived from this base — surface what we resolved, and catch the classic
   // dev misconfig: R2 secrets set but CDN base still pointing at the (dead) local-minio default.

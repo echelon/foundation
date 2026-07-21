@@ -18,6 +18,7 @@ import RankingModel from "@/surfaces/rankings/RankingModel";
 import AuthLayout from "@/surfaces/auth/AuthLayout";
 import Login from "@/surfaces/auth/Login";
 import Signup from "@/surfaces/auth/Signup";
+import GithubCallback from "@/surfaces/auth/GithubCallback";
 import Join from "@/surfaces/auth/Join";
 import Reset from "@/surfaces/auth/Reset";
 import ResetConfirm from "@/surfaces/auth/ResetConfirm";
@@ -81,6 +82,8 @@ export default function App() {
         <Route path="/reset-password" element={<ResetConfirm />} />
         {/* The emailed verification link lands here with ?token=… */}
         <Route path="/verify-email" element={<VerifyEmail />} />
+        {/* GitHub redirects back here with ?code&state (not guest-only: mid-flow state). */}
+        <Route path="/auth/github/callback" element={<GithubCallback />} />
       </Route>
 
       {/* ── Dashboard (requires login) ── */}

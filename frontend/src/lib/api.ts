@@ -263,6 +263,11 @@ export const api = {
   oauthCallback: (provider: "google", credential: string) =>
     request<AuthResponse>("POST", `/v1/auth/oauth/${provider}/callback`, { credential }),
 
+  /** GitHub SSO: POST the authorization code + PKCE verifier — the backend exchanges them
+   * (with the client secret) and verifies the identity. */
+  oauthGithubCallback: (code: string, codeVerifier: string) =>
+    request<AuthResponse>("POST", "/v1/auth/oauth/github/callback", { code, code_verifier: codeVerifier }),
+
   logout: () => request<{ ok: boolean }>("POST", "/v1/auth/logout"),
 
   me: () => request<MeResponse>("GET", "/v1/auth/me"),

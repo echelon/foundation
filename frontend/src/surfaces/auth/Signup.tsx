@@ -44,7 +44,10 @@ export default function Signup() {
         </>
       }
     >
-      <SsoRow onSignedIn={() => navigate(safeRedirectPath(params.get("redirect_to")) ?? "/dashboard", { replace: true })} />
+      <SsoRow
+        onSignedIn={() => navigate(safeRedirectPath(params.get("redirect_to")) ?? "/dashboard", { replace: true })}
+        destination={safeRedirectPath(params.get("redirect_to")) ?? "/dashboard"}
+      />
       <Divider />
       <form className="space-y-4" onSubmit={submit}>
         <div>

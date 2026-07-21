@@ -50,7 +50,7 @@ export default function Login() {
         </>
       }
     >
-      <SsoRow onSignedIn={() => navigate(from, { replace: true })} />
+      <SsoRow onSignedIn={() => navigate(from, { replace: true })} destination={from} />
       <Divider />
       <form className="space-y-4" onSubmit={submit}>
         <div>

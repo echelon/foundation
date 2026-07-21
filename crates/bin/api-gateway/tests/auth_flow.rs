@@ -29,6 +29,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     environment: config::Environment::Test,
     status_message: None,
     google: None,
+    github: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -180,6 +181,7 @@ async fn app_with_google() -> (Router, db::PgPool) {
       GOOGLE_TEST_CLIENT_ID.to_string(),
       GOOGLE_TEST_JWKS,
     ))),
+    github: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -380,6 +382,7 @@ async fn api_status_reports_reachability_and_operator_message() {
     environment: config::Environment::Test,
     status_message: Some("Scheduled maintenance at 03:00 UTC.".into()),
     google: None,
+    github: None,
   };
   let app = api_gateway::build_router(state);
   let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();
@@ -488,4 +491,139 @@ async fn settings_factoids_and_monogram_gradient() {
     .await
     .unwrap();
   assert!(bad.status().is_client_error(), "got {}", bad.status());
+}
+
+/* ── GitHub SSO (web application flow against a LOCAL mock github — no secrets) ── */
+
+const GITHUB_TEST_CLIENT_ID: &str = "Iv23test";
+const GITHUB_TEST_CLIENT_SECRET: &str = "test-secret-not-real";
+
+/// A local stand-in for github.com: token exchange (validating our creds + the code),
+/// /user, and /user/emails.
+async fn mock_github(user_id: u64, email: &str) -> String {
+  use axum::extract::Form;
+  use axum::routing::{get as axget, post as axpost};
+  use axum::Json as AxJson;
+
+  let email = email.to_string();
+  let token = axpost(|Form(form): Form<Vec<(String, String)>>| async move {
+    let field = |k: &str| form.iter().find(|(fk, _)| fk == k).map(|(_, v)| v.as_str());
+    if field("client_id") != Some(GITHUB_TEST_CLIENT_ID)
+      || field("client_secret") != Some(GITHUB_TEST_CLIENT_SECRET)
+      || field("code") != Some("good-code")
+    {
+      return AxJson(json!({ "error": "bad_verification_code" }));
+    }
+    AxJson(json!({ "access_token": "ghu_testtoken", "token_type": "bearer" }))
+  });
+  let user = axget(move || async move {
+    AxJson(json!({ "id": user_id, "login": "octocat", "name": "Octo Cat", "email": null }))
+  });
+  let emails = axget(move || {
+    let email = email.clone();
+    async move { AxJson(json!([{ "email": email, "primary": true, "verified": true }])) }
+  });
+  let app = Router::new()
+    .route("/login/oauth/access_token", token)
+    .route("/user", user)
+    .route("/user/emails", emails);
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+  format!("http://{addr}")
+}
+
+async fn app_with_github(mock_base: &str) -> (Router, db::PgPool) {
+  let pool = db::test_fixtures::create_test_pool().await;
+  let state = AppState {
+    pool: pool.clone(),
+    jwt: Arc::new(JwtKeys::new("test-secret")),
+    cookie_domain: "localhost".into(),
+    cookie_secure: false,
+    app_base_url: "http://localhost:3000".into(),
+    email_from: "Foundation <noreply@localhost>".into(),
+    resend_api_key: None,
+    bucket: None,
+    cdn_base_url: "http://localhost:9000/foundation".into(),
+    environment: config::Environment::Test,
+    status_message: None,
+    google: None,
+    github: Some(Arc::new(api_gateway::auth::github::GithubAuth::with_endpoints(
+      GITHUB_TEST_CLIENT_ID.into(),
+      GITHUB_TEST_CLIENT_SECRET.into(),
+      format!("{mock_base}/login/oauth/access_token"),
+      mock_base.to_string(),
+    ))),
+  };
+  (api_gateway::build_router(state), pool)
+}
+
+#[tokio::test]
+async fn github_sso_signs_up_then_logs_in_on_repeat() {
+  // Unique numeric id + email per run (the mock echoes them).
+  let numeric_id = 100_000 + (chrono::Utc::now().timestamp_micros() % 1_000_000) as u64;
+  let email = unique_email();
+  let base = mock_github(numeric_id, &email).await;
+  let (app, pool) = app_with_github(&base).await;
+
+  // First visit: code exchanged, verified email fetched → user + org + session.
+  let first = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/oauth/github/callback",
+      json!({ "code": "good-code", "code_verifier": "pkce-verifier-123" }),
+      None,
+    ))
+    .await
+    .unwrap();
+  assert_eq!(first.status(), StatusCode::OK);
+  let cookie = session_cookie(&first).unwrap();
+  let body = body_json(first).await;
+  assert_eq!(body["user"]["email"], email);
+  assert_eq!(body["user"]["display_name"], "Octo Cat");
+  let user_id: ids::UserId = body["user"]["id"].as_str().unwrap().parse().unwrap();
+
+  // The factoids know, the email counts as verified, created_via says sso_signup.
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  let me = body_json(me).await;
+  assert_eq!(me["sso_providers"], json!(["github"]));
+  assert_eq!(me["user"]["email_verified"], true);
+  assert_eq!(me["user"]["has_password"], false);
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::SsoSignup);
+
+  // Same numeric id again → logs into the same user (created_via sso_login).
+  let second = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/github/callback", json!({ "code": "good-code" }), None))
+    .await
+    .unwrap();
+  assert_eq!(second.status(), StatusCode::OK);
+  assert_eq!(body_json(second).await["user"]["id"], user_id.to_string());
+  let sessions = db_queries::sessions::list_live_sessions_for_user(&pool, &user_id).await.unwrap();
+  assert_eq!(sessions[0].created_via, enums::SessionCreationType::SsoLogin);
+
+  // A bad/stolen code → 401; a missing code → 400.
+  let bad = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/github/callback", json!({ "code": "stolen" }), None))
+    .await
+    .unwrap();
+  assert_eq!(bad.status(), StatusCode::UNAUTHORIZED);
+  let missing = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/github/callback", json!({}), None))
+    .await
+    .unwrap();
+  assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn github_sso_unconfigured_server_says_so() {
+  let (app, _pool) = app_and_pool().await; // github: None
+  let resp = app
+    .oneshot(post("/v1/auth/oauth/github/callback", json!({ "code": "anything" }), None))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }

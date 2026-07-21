@@ -63,6 +63,10 @@ pub struct Config {
     /// Google OAuth client id (`GOOGLE_CLIENT_ID`) for "Sign in with Google" — a PUBLIC
     /// identifier (the GIS ID-token flow needs no client secret). Unset = Google SSO off.
     pub google_client_id: Option<String>,
+    /// GitHub App credentials (`GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`) for "Sign in with
+    /// GitHub" (web application flow — the secret is used server-side only, for the code
+    /// exchange). Requires BOTH; unset = GitHub SSO off.
+    pub github_oauth: Option<GithubOauthConfig>,
     /// Object storage (R2 in prod, minio locally). `None` when unconfigured — avatar mirroring
     /// and uploads are disabled, not a boot failure.
     pub storage: Option<StorageConfig>,
@@ -89,6 +93,23 @@ impl std::fmt::Debug for StorageConfig {
             .field("secret_access_key", &"<redacted>")
             .field("bucket_name", &self.bucket_name)
             .field("region", &self.region)
+            .finish()
+    }
+}
+
+/// GitHub App OAuth credentials. The client id is public; the secret is not.
+#[derive(Clone)]
+pub struct GithubOauthConfig {
+    pub client_id: String,
+    pub client_secret: String,
+}
+
+// Debug redacts the secret so it can't leak through `{:?}` on Config.
+impl std::fmt::Debug for GithubOauthConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GithubOauthConfig")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"<redacted>")
             .finish()
     }
 }
@@ -203,6 +224,10 @@ impl Config {
             },
             status_message: opt("API_STATUS_MESSAGE"),
             google_client_id: opt("GOOGLE_CLIENT_ID"),
+            github_oauth: match (opt("GITHUB_CLIENT_ID"), opt("GITHUB_CLIENT_SECRET")) {
+                (Some(client_id), Some(client_secret)) => Some(GithubOauthConfig { client_id, client_secret }),
+                _ => None,
+            },
             storage: match (opt("R2_ENDPOINT"), opt("R2_ACCESS_KEY_ID"), opt("R2_SECRET_ACCESS_KEY"), opt("R2_BUCKET_NAME")) {
                 (Some(endpoint), Some(access_key_id), Some(secret_access_key), Some(bucket_name)) => {
                     Some(StorageConfig {

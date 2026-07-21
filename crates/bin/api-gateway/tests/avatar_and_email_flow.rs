@@ -35,6 +35,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     environment: config::Environment::Test,
     status_message: None,
     google: None,
+    github: None,
   };
   (api_gateway::build_router(state), pool)
 }

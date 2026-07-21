@@ -38,4 +38,6 @@ pub struct AppState {
   /// Google ID-token verifier. `None` when GOOGLE_CLIENT_ID is unset — the SSO endpoint
   /// reports Google sign-in as unavailable rather than failing boot.
   pub google: Option<Arc<crate::auth::google::GoogleAuth>>,
+  /// GitHub code exchanger. `None` when GITHUB_CLIENT_ID/SECRET are unset — same graceful-off.
+  pub github: Option<Arc<crate::auth::github::GithubAuth>>,
 }

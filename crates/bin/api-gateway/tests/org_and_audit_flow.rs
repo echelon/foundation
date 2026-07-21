@@ -27,6 +27,7 @@ async fn app() -> Router {
     environment: config::Environment::Test,
     status_message: None,
     google: None,
+    github: None,
   };
   api_gateway::build_router(state)
 }
