@@ -20,6 +20,10 @@ pub enum OpenAiClientError {
 
   /// A local file (image / mask for edits) could not be read.
   FileReadError(String),
+
+  /// `await_response` gave up: the background response was still non-terminal after the
+  /// configured timeout. The job may still finish server-side — poll again with the id.
+  PollTimeout { waited: std::time::Duration },
 }
 
 impl Error for OpenAiClientError {}
@@ -32,6 +36,9 @@ impl Display for OpenAiClientError {
       Self::RequestSerializationError(e) => write!(f, "Failed to serialize request body to JSON: {e}"),
       Self::InvalidRequest(msg) => write!(f, "Invalid request (rejected client-side before sending): {msg}"),
       Self::FileReadError(msg) => write!(f, "Failed to read a local input file: {msg}"),
+      Self::PollTimeout { waited } => {
+        write!(f, "Timed out waiting for the background response (waited {waited:?}); it may still complete — keep the response id and poll again.")
+      }
     }
   }
 }
