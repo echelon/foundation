@@ -1,9 +1,51 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Button, Card, Select } from "@/components/ui";
-import { api, ApiError, type ApiMember, type AuditItem, type AuditPage } from "@/lib/api";
+import { UserAvatar } from "@/components/UserAvatar";
+import { api, ApiError, type ApiAccountUser, type ApiMember, type AuditItem, type AuditPage } from "@/lib/api";
 import { useOrg } from "@/lib/org";
 
 type Tab = "mine" | "org" | "members";
+
+type UserInfos = Record<string, ApiAccountUser>;
+
+/**
+ * Lazy cache over the account user-info API: audit rows carry bare actor ids; `ensure`
+ * batch-fetches display info (name + chosen avatar) for ids we haven't asked about yet.
+ * Failures are swallowed — rows just render without the portrait.
+ */
+function useUserInfos(accountId: string | null) {
+  const [infos, setInfos] = useState<UserInfos>({});
+  const attempted = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    attempted.current = new Set();
+    setInfos({});
+  }, [accountId]);
+
+  const ensure = useCallback(
+    (ids: (string | null | undefined)[]) => {
+      if (!accountId) return;
+      const fresh = [...new Set(ids.filter((i): i is string => Boolean(i)))]
+        .filter((i) => !attempted.current.has(i))
+        .slice(0, 100);
+      if (fresh.length === 0) return;
+      fresh.forEach((i) => attempted.current.add(i));
+      api
+        .accountUsers(accountId, fresh)
+        .then((r) =>
+          setInfos((prev) => {
+            const next = { ...prev };
+            for (const u of r.users) next[u.user_id] = u;
+            return next;
+          }),
+        )
+        .catch(() => {});
+    },
+    [accountId],
+  );
+
+  return { infos, ensure };
+}
 
 /**
  * Audit log page, tabbed: My Activity | Org Activity | Org Member Activity. Everyone gets the
@@ -15,6 +57,7 @@ export default function AuditLog() {
   const [myRole, setMyRole] = useState<string | null>(null);
   const [members, setMembers] = useState<ApiMember[]>([]);
   const [tab, setTab] = useState<Tab>("mine");
+  const { infos, ensure } = useUserInfos(current?.account_id ?? null);
 
   useEffect(() => {
     setMyRole(null);
@@ -80,6 +123,8 @@ export default function AuditLog() {
           title="My activity"
           subtitle="Everything on your user — including items only you can see."
           fetchPage={(before) => api.userAuditLogs(before)}
+          userInfos={infos}
+          ensureUsers={ensure}
         />
       )}
       {tab === "org" && isOrgAdmin && current && (
@@ -88,10 +133,12 @@ export default function AuditLog() {
           title="Organization activity"
           subtitle="Membership, invitations, keys, and billing-profile events (admins only)."
           fetchPage={(before) => api.accountAuditLogs(current.account_id, before)}
+          userInfos={infos}
+          ensureUsers={ensure}
         />
       )}
       {tab === "members" && isOrgAdmin && current && (
-        <MemberAuditSection accountId={current.account_id} members={members} />
+        <MemberAuditSection accountId={current.account_id} members={members} userInfos={infos} ensureUsers={ensure} />
       )}
     </div>
   );
@@ -103,10 +150,14 @@ function AuditSection({
   title,
   subtitle,
   fetchPage,
+  userInfos,
+  ensureUsers,
 }: {
   title: string;
   subtitle: string;
   fetchPage: (before?: string) => Promise<AuditPage>;
+  userInfos: UserInfos;
+  ensureUsers: (ids: (string | null | undefined)[]) => void;
 }) {
   const [items, setItems] = useState<AuditItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -127,6 +178,11 @@ function AuditSection({
   useEffect(() => {
     void loadFirst();
   }, [loadFirst]);
+
+  // Resolve actors for display — a helper, never a gate on rendering the rows.
+  useEffect(() => {
+    ensureUsers(items.map((i) => i.actor_user_id));
+  }, [items, ensureUsers]);
 
   const loadMore = async () => {
     if (!cursor) return;
@@ -154,7 +210,7 @@ function AuditSection({
       ) : (
         <ul>
           {items.map((item) => (
-            <AuditRow key={item.id} item={item} />
+            <AuditRow key={item.id} item={item} actor={item.actor_user_id ? userInfos[item.actor_user_id] : undefined} />
           ))}
         </ul>
       )}
@@ -171,7 +227,7 @@ function AuditSection({
 
 /* ── Member picker + their org-visible history ── */
 
-function MemberAuditSection({ accountId, members }: { accountId: string; members: ApiMember[] }) {
+function MemberAuditSection({ accountId, members, userInfos, ensureUsers }: { accountId: string; members: ApiMember[]; userInfos: UserInfos; ensureUsers: (ids: (string | null | undefined)[]) => void }) {
   const [userId, setUserId] = useState<string>("");
 
   useEffect(() => {
@@ -195,7 +251,7 @@ function MemberAuditSection({ accountId, members }: { accountId: string; members
         </Select>
       </div>
       {userId ? (
-        <InnerMemberList key={userId} accountId={accountId} userId={userId} />
+        <InnerMemberList key={userId} accountId={accountId} userId={userId} userInfos={userInfos} ensureUsers={ensureUsers} />
       ) : (
         <p className="px-5 py-4 text-sm text-muted">Pick a member to see their organization-visible activity.</p>
       )}
@@ -203,7 +259,7 @@ function MemberAuditSection({ accountId, members }: { accountId: string; members
   );
 }
 
-function InnerMemberList({ accountId, userId }: { accountId: string; userId: string }) {
+function InnerMemberList({ accountId, userId, userInfos, ensureUsers }: { accountId: string; userId: string; userInfos: UserInfos; ensureUsers: (ids: (string | null | undefined)[]) => void }) {
   const [page, setPage] = useState<AuditPage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -228,6 +284,10 @@ function InnerMemberList({ accountId, userId }: { accountId: string; userId: str
     setPage({ items: [...page.items, ...next.items], next_before: next.next_before });
   };
 
+  useEffect(() => {
+    ensureUsers((page?.items ?? []).map((i) => i.actor_user_id));
+  }, [page, ensureUsers]);
+
   if (error) return <p className="px-5 py-4 text-sm text-rose-500">{error}</p>;
   if (!page) return <p className="px-5 py-4 text-sm text-muted">Loading…</p>;
   if (page.items.length === 0) return <p className="px-5 py-4 text-sm text-muted">No organization-visible activity.</p>;
@@ -235,7 +295,7 @@ function InnerMemberList({ accountId, userId }: { accountId: string; userId: str
     <>
       <ul>
         {page.items.map((item) => (
-          <AuditRow key={item.id} item={item} />
+          <AuditRow key={item.id} item={item} actor={item.actor_user_id ? userInfos[item.actor_user_id] : undefined} />
         ))}
       </ul>
       {page.next_before && (
@@ -251,15 +311,22 @@ function InnerMemberList({ accountId, userId }: { accountId: string; userId: str
 
 /* ── One row ── */
 
-function AuditRow({ item }: { item: AuditItem }) {
+function AuditRow({ item, actor }: { item: AuditItem; actor?: ApiAccountUser }) {
   return (
     <li className="flex items-start justify-between gap-3 border-b border-border/60 px-5 py-3 last:border-0">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium text-fg">{humanizeEvent(item.event)}</span>
-          {item.is_org_visible === false && <Badge tone="muted">only you</Badge>}
+      <div className="flex min-w-0 items-start gap-3">
+        {/* The actor's chosen avatar (upload / gravatar / initials) via the user-info API. */}
+        {actor && <UserAvatar user={actor} className="mt-0.5 h-7 w-7 shrink-0 text-[10px]" />}
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-fg">{humanizeEvent(item.event)}</span>
+            {item.is_org_visible === false && <Badge tone="muted">only you</Badge>}
+          </div>
+          {actor && (
+            <div className="mt-0.5 text-xs text-muted">by {actor.display_name ?? actor.email}</div>
+          )}
+          {summarize(item) && <div className="mt-0.5 truncate text-xs text-muted">{summarize(item)}</div>}
         </div>
-        {summarize(item) && <div className="mt-0.5 truncate text-xs text-muted">{summarize(item)}</div>}
       </div>
       <div className="shrink-0 text-right text-xs text-muted">
         <div>{new Date(item.created_at).toLocaleString()}</div>

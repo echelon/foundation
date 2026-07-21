@@ -157,9 +157,19 @@ export type ApiMember = {
   user_id: string;
   display_name: string | null;
   email: string;
+  /** The member's chosen avatar (custom upload, gravatar, or monogram). */
+  avatar: ApiAvatar;
   role: string;
   joined_at: string;
   is_you: boolean;
+};
+
+/** Display info for rendering a user anywhere (audit actors, pickers, …). */
+export type ApiAccountUser = {
+  user_id: string;
+  display_name: string | null;
+  email: string;
+  avatar: ApiAvatar;
 };
 
 /** A resolved invitation, with what the join page needs to branch (see /join). */
@@ -300,6 +310,14 @@ export const api = {
   /** Remove a member (owner/admin; owner is immovable, admins can't remove admins). */
   removeMember: (accountId: string, userId: string) =>
     request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/members/${userId}`),
+
+  /** Display info (name, email, chosen avatar) for user ids — CURRENT members of the
+   * account only; unknown/departed ids are silently omitted. Any member may call. */
+  accountUsers: (accountId: string, ids: string[]) =>
+    request<{ users: ApiAccountUser[] }>(
+      "GET",
+      `/v1/accounts/${accountId}/users?ids=${ids.map(encodeURIComponent).join(",")}`,
+    ),
 
   /** Set or clear the business name (owner/admin only; null/blank clears back to the
    * placeholder). The placeholder itself is immutable. */

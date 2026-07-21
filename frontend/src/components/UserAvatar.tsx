@@ -1,9 +1,17 @@
 import { useState } from "react";
-import type { ApiUser } from "@/lib/api";
+import type { ApiAvatar } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
+/** The minimum a caller must know to render someone: any of ApiUser / ApiMember /
+ * ApiAccountUser satisfies this shape. */
+export type AvatarUser = {
+  display_name: string | null;
+  email: string;
+  avatar?: ApiAvatar | null;
+};
+
 /** Monogram initials from the display name (fallback: email). */
-export function userInitials(user: ApiUser): string {
+export function userInitials(user: AvatarUser): string {
   const name = user.display_name?.trim();
   if (name) {
     const parts = name.split(/\s+/);
@@ -19,7 +27,7 @@ export function userInitials(user: ApiUser): string {
  * renders the image straight from the CDN; otherwise — or if the image fails to load —
  * renders the letter monogram.
  */
-export function UserAvatar({ user, className }: { user: ApiUser; className?: string }) {
+export function UserAvatar({ user, className }: { user: AvatarUser; className?: string }) {
   const [failed, setFailed] = useState(false);
   const links = user.avatar?.links ?? null;
 

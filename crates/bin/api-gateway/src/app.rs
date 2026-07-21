@@ -135,6 +135,7 @@ pub fn build_router(state: AppState) -> Router {
     .route("/v1/accounts", get(org::list_my_accounts_handler))
     .route("/v1/accounts/:account_id/business", put(org::update_business_name_handler))
     .route("/v1/accounts/:account_id/members", get(org::list_account_members_handler))
+    .route("/v1/accounts/:account_id/users", get(org::list_account_users_handler))
     .route("/v1/accounts/:account_id/members/:user_id", delete(org::remove_account_member_handler))
     .route("/v1/user/audit_logs", get(audit_logs::list_my_audit_logs_handler))
     .route("/v1/accounts/:account_id/audit_logs", get(audit_logs::list_account_audit_logs_handler))

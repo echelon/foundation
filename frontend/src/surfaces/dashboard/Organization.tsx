@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Copy, UserMinus } from "lucide-react";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
+import { UserAvatar } from "@/components/UserAvatar";
 import { api, ApiError, type ApiMember } from "@/lib/api";
 import { useOrg } from "@/lib/org";
 
@@ -77,11 +78,17 @@ export default function Organization() {
               {members.map((m) => (
                 <tr key={m.user_id} className="border-b border-border/60 last:border-0">
                   <td className="py-3 pl-5 pr-3">
-                    <div className="font-medium text-fg">
-                      {m.display_name ?? "—"}
-                      {m.is_you && <span className="ml-2 text-xs text-brand">you</span>}
+                    <div className="flex items-center gap-3">
+                      {/* Their chosen avatar: upload, gravatar, or initials. */}
+                      <UserAvatar user={m} className="h-9 w-9 shrink-0 text-xs" />
+                      <div className="min-w-0">
+                        <div className="font-medium text-fg">
+                          {m.display_name ?? "—"}
+                          {m.is_you && <span className="ml-2 text-xs text-brand">you</span>}
+                        </div>
+                        <div className="truncate text-xs text-muted">{m.email}</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted">{m.email}</div>
                   </td>
                   <td className="px-3 py-3">
                     <Badge tone={m.role === "owner" ? "brand" : m.role === "admin" ? "green" : "muted"}>{m.role}</Badge>

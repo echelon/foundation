@@ -8,9 +8,11 @@ use ids::{UserAvatarFileId, UserId};
 
 mod create_user_avatar_file;
 mod find_user_avatar_file_by_id;
+mod list_user_avatar_files_by_ids;
 
 pub use create_user_avatar_file::{create_user_avatar_file, NewUserAvatarFile};
 pub use find_user_avatar_file_by_id::find_user_avatar_file_by_id;
+pub use list_user_avatar_files_by_ids::list_user_avatar_files_by_ids;
 
 #[derive(Debug, Clone)]
 pub struct UserAvatarFile {

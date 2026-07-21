@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 use db_queries::members;
 use ids::{AccountId, UserId};
 
+use crate::avatar_links::{avatar_infos, AvatarInfo};
 use crate::error::{ApiError, ApiResult};
 use crate::middleware::AuthContext;
 use crate::state::AppState;
@@ -19,6 +20,9 @@ pub struct MemberItem {
   pub user_id: UserId,
   pub display_name: Option<String>,
   pub email: String,
+  /// The member's chosen avatar (custom upload, gravatar, or monogram — accounts.md §2),
+  /// resolved exactly as `/v1/auth/me` reports their own.
+  pub avatar: AvatarInfo,
   #[schema(example = "member")]
   pub role: String,
   pub joined_at: DateTime<Utc>,
@@ -57,10 +61,13 @@ pub async fn list_account_members_handler(
     .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
 
   let roster = members::list_members_of_account(&state.pool, &account_id).await?;
+  let ids: Vec<UserId> = roster.iter().map(|m| m.user_id.clone()).collect();
+  let mut avatars = avatar_infos(&state, &ids).await?;
   let members = roster
     .into_iter()
     .map(|m| MemberItem {
       is_you: m.user_id == auth.user.id,
+      avatar: avatars.remove(&m.user_id).unwrap_or_else(crate::avatar_links::letter_only),
       user_id: m.user_id,
       display_name: m.display_name,
       email: m.email,

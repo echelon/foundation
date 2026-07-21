@@ -333,3 +333,92 @@ async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
     get_json(&app, &format!("/v1/accounts/{account_id}/members/{outsider_id}/audit_logs"), &owner_cookie).await;
   assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn roster_and_user_info_carry_avatars() {
+  let app = app().await;
+  let pool = db::test_fixtures::create_test_pool().await;
+
+  // Owner + one member (via invitation), both fresh — no uploads, no gravatar mirrored yet.
+  let owner_email = unique_email();
+  let signup = app
+    .clone()
+    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": owner_email, "password": "ownerpass1" })), None))
+    .await
+    .unwrap();
+  let owner_cookie = session_cookie(&signup).unwrap();
+  let owner_id: ids::UserId = body_json(signup).await["user"]["id"].as_str().unwrap().parse().unwrap();
+  let account_id = db_queries::members::list_memberships_for_user(&pool, &owner_id).await.unwrap()[0]
+    .account_id
+    .clone();
+
+  let invitee_email = unique_email();
+  let inv = app
+    .clone()
+    .oneshot(req(
+      "POST",
+      &format!("/v1/accounts/{account_id}/invitations"),
+      Some(json!({ "email": invitee_email, "role": "member" })),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  let code = body_json(inv).await["code"].as_str().unwrap().to_string();
+  let joined = app
+    .clone()
+    .oneshot(req(
+      "POST",
+      "/v1/auth/signup",
+      Some(json!({ "email": invitee_email, "password": "memberpass1", "invitation": code })),
+      None,
+    ))
+    .await
+    .unwrap();
+  let member_cookie = session_cookie(&joined).unwrap();
+
+  // The roster reports every member's avatar; fresh users show the letter monogram.
+  let roster = app
+    .clone()
+    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/members"), None, Some(&member_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(roster.status(), StatusCode::OK);
+  let roster = body_json(roster).await;
+  for m in roster["members"].as_array().unwrap() {
+    assert_eq!(m["avatar"]["source"], "letter", "fresh users display the monogram: {m:#?}");
+    assert_eq!(m["avatar"]["links"], Value::Null);
+  }
+
+  // The user-info API answers for current members…
+  let info = app
+    .clone()
+    .oneshot(req(
+      "GET",
+      &format!("/v1/accounts/{account_id}/users?ids={owner_id},user_notreal000000000000000000"),
+      None,
+      Some(&member_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(info.status(), StatusCode::OK);
+  let info = body_json(info).await;
+  let users = info["users"].as_array().unwrap();
+  assert_eq!(users.len(), 1, "unknown ids are silently omitted");
+  assert_eq!(users[0]["user_id"], owner_id.to_string());
+  assert_eq!(users[0]["email"], owner_email);
+  assert_eq!(users[0]["avatar"]["source"], "letter");
+
+  // …but not for outsiders (same 404 an unknown account gets).
+  let outsider = app
+    .clone()
+    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": unique_email(), "password": "outsider12" })), None))
+    .await
+    .unwrap();
+  let outsider_cookie = session_cookie(&outsider).unwrap();
+  let denied = app
+    .clone()
+    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/users?ids={owner_id}"), None, Some(&outsider_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(denied.status(), StatusCode::NOT_FOUND);
+}
