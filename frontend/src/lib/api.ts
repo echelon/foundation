@@ -116,6 +116,8 @@ export type ApiUser = {
   display_name: string | null;
   is_staff: boolean;
   email_verified: boolean;
+  /** False for SSO-only accounts — offer "set a password" instead of "change". */
+  has_password: boolean;
   /** Only present on `/me` responses; absent right after login/signup (refreshed on next load). */
   avatar?: ApiAvatar;
 };
@@ -259,9 +261,11 @@ export const api = {
 
   /* ── Account security ── */
 
-  changePassword: (currentPassword: string, newPassword: string, logoutOtherSessions: boolean) =>
+  /** Change the password — pass `null` for `currentPassword` when the account has none yet
+   * (SSO-only, `has_password: false`): that SETS the first password. */
+  changePassword: (currentPassword: string | null, newPassword: string, logoutOtherSessions: boolean) =>
     request<{ ok: boolean }>("PUT", "/v1/auth/password", {
-      current_password: currentPassword,
+      current_password: currentPassword ?? undefined,
       new_password: newPassword,
       logout_other_sessions: logoutOtherSessions,
     }),

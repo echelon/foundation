@@ -385,3 +385,66 @@ async fn api_status_reports_reachability_and_operator_message() {
   assert_eq!(body["ok"], true);
   assert_eq!(body["message"], "Scheduled maintenance at 03:00 UTC.");
 }
+
+#[tokio::test]
+async fn sso_only_user_sets_first_password_without_current_then_rules_apply() {
+  let (app, _pool) = app_with_google().await;
+  let email = unique_email();
+  let sub = format!("10884{}", id_core::mint("g"));
+
+  // SSO signup — /me reports has_password: false (drives the "Set password" form).
+  let credential = google_credential(&sub, &email, "SSO User", true);
+  let sso = app
+    .clone()
+    .oneshot(post("/v1/auth/oauth/google/callback", json!({ "credential": credential }), None))
+    .await
+    .unwrap();
+  let cookie = session_cookie(&sso).unwrap();
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  assert_eq!(body_json(me).await["user"]["has_password"], false);
+
+  // Setting the FIRST password needs no current_password.
+  let set = app
+    .clone()
+    .oneshot(post_put("/v1/auth/password", json!({ "new_password": "brand-new-pass1" }), Some(&cookie)))
+    .await
+    .unwrap();
+  assert_eq!(set.status(), StatusCode::OK);
+  let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
+  assert_eq!(body_json(me).await["user"]["has_password"], true);
+
+  // Email/password login now works alongside SSO.
+  let login = app
+    .clone()
+    .oneshot(post("/v1/auth/login", json!({ "email": email, "password": "brand-new-pass1" }), None))
+    .await
+    .unwrap();
+  assert_eq!(login.status(), StatusCode::OK);
+
+  // From here the normal rules apply: current required (400 absent, 401 wrong).
+  let missing = app
+    .clone()
+    .oneshot(post_put("/v1/auth/password", json!({ "new_password": "another-pass-1" }), Some(&cookie)))
+    .await
+    .unwrap();
+  assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
+  let wrong = app
+    .clone()
+    .oneshot(post_put(
+      "/v1/auth/password",
+      json!({ "current_password": "not-it", "new_password": "another-pass-1" }),
+      Some(&cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// PUT with a JSON body + optional cookie (this file's `post` is POST-only).
+fn post_put(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
+  let mut b = Request::builder().method("PUT").uri(uri).header("content-type", "application/json");
+  if let Some(c) = cookie {
+    b = b.header(header::COOKIE, c);
+  }
+  b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
+}

@@ -38,6 +38,8 @@ pub struct UserBody {
   pub display_name: Option<String>,
   pub is_staff: bool,
   pub email_verified: bool,
+  /// False for SSO-only users — the password form offers "set" instead of "change".
+  pub has_password: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub avatar: Option<AvatarInfo>,
 }
@@ -50,6 +52,7 @@ impl UserBody {
       display_name: u.display_name.clone(),
       is_staff: u.is_staff,
       email_verified: u.email_verified_at.is_some(),
+      has_password: u.password_hash.is_some(),
       avatar: None,
     }
   }

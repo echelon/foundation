@@ -16,21 +16,25 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ChangePasswordBody {
-  pub current_password: String,
+  /// Required when a password exists. SSO-only accounts (see `/me`'s `has_password: false`)
+  /// omit it to SET their first password.
+  pub current_password: Option<String>,
   pub new_password: String,
   /// Also revoke every OTHER session (bumps the session-version clock; this cookie re-mints).
   #[serde(default)]
   pub logout_other_sessions: bool,
 }
 
+/// Change the password — or, for SSO-only accounts (no password yet), set the first one
+/// without a `current_password`.
 #[utoipa::path(
   put, path = "/v1/auth/password",
   tag = "account",
   security(("session_cookie" = [])),
   request_body = ChangePasswordBody,
   responses(
-    (status = 200, description = "Password changed (cookie re-minted when other sessions were purged)", body = OkResponse),
-    (status = 400, description = "New password too short / no password set"),
+    (status = 200, description = "Password changed/set (cookie re-minted when other sessions were purged)", body = OkResponse),
+    (status = 400, description = "New password too short, or current password missing when one exists"),
     (status = 401, description = "Current password incorrect")
   )
 )]
@@ -45,11 +49,13 @@ pub async fn change_password_handler(
     &state.pool,
     &state.jwt,
     &auth.user,
-    &body.current_password,
-    &body.new_password,
-    body.logout_other_sessions,
-    &auth.session.id,
-    meta.ip.as_deref(),
+    service::ChangePasswordArgs {
+      current_password: body.current_password.as_deref(),
+      new_password: &body.new_password,
+      logout_others: body.logout_other_sessions,
+      current_session_id: &auth.session.id,
+      ip: meta.ip.as_deref(),
+    },
   )
   .await?;
 

@@ -319,6 +319,9 @@ function ChangeEmailCard() {
 /* ── Change password ── */
 
 function ChangePasswordCard() {
+  const { user, refresh } = useAuth();
+  // SSO-only accounts have no password yet: no "current" to confirm — the form SETS one.
+  const hasPassword = user?.has_password ?? true;
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -335,14 +338,19 @@ function ChangePasswordCard() {
     setBusy(true);
     setNotice(null);
     try {
-      await api.changePassword(current, next, logoutOthers);
+      await api.changePassword(hasPassword ? current : null, next, logoutOthers);
       setCurrent("");
       setNext("");
       setConfirm("");
       setNotice({
         tone: "ok",
-        text: logoutOthers ? "Password changed. Other devices were signed out." : "Password changed.",
+        text: !hasPassword
+          ? "Password set — you can now also sign in with your email."
+          : logoutOthers
+            ? "Password changed. Other devices were signed out."
+            : "Password changed.",
       });
+      if (!hasPassword) await refresh(); // has_password flips → the form becomes change-mode
     } catch (err) {
       setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Something went wrong." });
     } finally {
@@ -356,11 +364,19 @@ function ChangePasswordCard() {
         <ShieldCheck className="h-4 w-4 text-brand" />
         <h2 className="font-display font-semibold">Password</h2>
       </div>
+      {!hasPassword && (
+        <p className="mt-2 text-sm text-muted">
+          You signed in with Google, so this account has no password yet. Set one to also sign
+          in with your email address.
+        </p>
+      )}
       <form className="mt-4 grid gap-4 sm:grid-cols-3" onSubmit={submit}>
-        <div>
-          <Label>Current password</Label>
-          <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
-        </div>
+        {hasPassword && (
+          <div>
+            <Label>Current password</Label>
+            <Input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required />
+          </div>
+        )}
         <div>
           <Label>New password</Label>
           <Input
@@ -387,7 +403,7 @@ function ChangePasswordCard() {
           </label>
           <NoticeRow notice={notice} />
           <Button type="submit" className="mt-3" disabled={busy}>
-            {busy ? "Saving…" : "Change password"}
+            {busy ? "Saving…" : hasPassword ? "Change password" : "Set password"}
           </Button>
         </div>
       </form>
