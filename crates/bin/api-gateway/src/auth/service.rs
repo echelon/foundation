@@ -608,7 +608,25 @@ pub async fn create_invitation(
   }
 
   let mut tx = pool.begin().await?;
-  invitations::revoke_outstanding_invitations(&mut *tx, account_id, &email_canon).await?;
+  // Re-inviting supersedes any outstanding invitation — and every supersede is audited, so
+  // the org log tells the whole story, not just the fresh send.
+  let superseded = invitations::revoke_outstanding_invitations(&mut *tx, account_id, &email_canon).await?;
+  for old_id in &superseded {
+    account_audit_logs::create_account_audit_log(
+      &mut *tx,
+      account_audit_logs::NewAccountAuditLog {
+        account_id,
+        actor_user_id: Some(inviter_user_id),
+        user_id: None,
+        event: AuditEvent::InvitationRevoked,
+        target_type: Some("invitation"),
+        target_id: Some(old_id.as_str()),
+        data: Some(serde_json::json!({ "email": email_canon, "superseded": true })),
+        ip: None,
+      },
+    )
+    .await?;
+  }
 
   let code = gen_code();
   let token = gen_token();
@@ -692,6 +710,43 @@ pub async fn resolve_invitation_for_join_page(
     .map(|a| a.business_name.unwrap_or(a.placeholder_business_name));
   let invitee_user_exists = users::find_user_by_email(pool, &invitation.email).await?.is_some();
   Ok(ResolvedInvitation { invitation, account_name, invitee_user_exists })
+}
+
+/// Cancel a pending invitation (owner/admin, authorized by the handler). 404 for an unknown,
+/// foreign, or already-closed invitation. Writes `invitation_revoked` in the same tx.
+pub async fn cancel_invitation(
+  pool: &db::PgPool,
+  account_id: &AccountId,
+  actor_user_id: &UserId,
+  invitation_id: &InvitationId,
+  ip: Option<&str>,
+) -> ApiResult<()> {
+  let inv = invitations::find_invitation_by_id(pool, invitation_id)
+    .await?
+    .filter(|i| &i.account_id == account_id)
+    .ok_or_else(|| ApiError::NotFound("invitation not found".into()))?;
+
+  let mut tx = pool.begin().await?;
+  let revoked = invitations::revoke_invitation(&mut *tx, account_id, invitation_id).await?;
+  if revoked == 0 {
+    return Err(ApiError::NotFound("invitation is no longer pending".into()));
+  }
+  account_audit_logs::create_account_audit_log(
+    &mut *tx,
+    account_audit_logs::NewAccountAuditLog {
+      account_id,
+      actor_user_id: Some(actor_user_id),
+      user_id: None,
+      event: AuditEvent::InvitationRevoked,
+      target_type: Some("invitation"),
+      target_id: Some(invitation_id.as_str()),
+      data: Some(serde_json::json!({ "email": inv.email })),
+      ip,
+    },
+  )
+  .await?;
+  tx.commit().await?;
+  Ok(())
 }
 
 /// Accept an invitation as an authenticated user → create the membership (accounts.md §4).

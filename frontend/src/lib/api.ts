@@ -184,6 +184,18 @@ export type ApiInvitation = {
   invitee_user_exists: boolean;
 };
 
+/** A pending (open) invitation, as the org page lists them. */
+export type ApiPendingInvitation = {
+  invitation_id: string;
+  email: string;
+  role: string;
+  /** The short human code — re-shareable ("join with code"). */
+  code: string;
+  invited_by_user_id: string;
+  created_at: string;
+  expires_at: string;
+};
+
 /** An API key as lists report it — identifying prefix only; the secret is shown once. */
 export type ApiKeyItem = {
   id: string;
@@ -339,6 +351,14 @@ export const api = {
       `/v1/accounts/${accountId}/business`,
       { business_name: businessName },
     ),
+
+  /** The org's pending invitations (owner/admin only). */
+  listInvitations: (accountId: string) =>
+    request<{ invitations: ApiPendingInvitation[] }>("GET", `/v1/accounts/${accountId}/invitations`),
+
+  /** Cancel a pending invitation (owner/admin) — its link and code die immediately. */
+  cancelInvitation: (accountId: string, invitationId: string) =>
+    request<{ ok: boolean }>("DELETE", `/v1/accounts/${accountId}/invitations/${invitationId}`),
 
   /** Resolve an invitation (public) for the join page — by short code or magic-link token. */
   resolveInvitation: (codeOrToken: string) =>

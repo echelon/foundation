@@ -8,14 +8,18 @@ mod create_invitation;
 mod find_invitation_by_code;
 mod find_invitation_by_id;
 mod find_invitation_by_token_hash;
+mod list_pending_invitations_for_account;
 mod mark_invitation_accepted;
+mod revoke_invitation;
 mod revoke_outstanding_invitations;
 
 pub use create_invitation::{create_invitation, NewInvitation};
 pub use find_invitation_by_code::find_invitation_by_code;
 pub use find_invitation_by_id::find_invitation_by_id;
 pub use find_invitation_by_token_hash::find_invitation_by_token_hash;
+pub use list_pending_invitations_for_account::list_pending_invitations_for_account;
 pub use mark_invitation_accepted::mark_invitation_accepted;
+pub use revoke_invitation::revoke_invitation;
 pub use revoke_outstanding_invitations::revoke_outstanding_invitations;
 
 #[derive(Debug, Clone)]

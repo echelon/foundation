@@ -102,7 +102,7 @@ export default function Business() {
                     <span className="font-medium">{current.placeholder_business_name}</span> until you pick one.
                   </>
                 ) : (
-                  <>Leave blank and save to fall back to "{current.placeholder_business_name}".</>
+                  <>A pre-generated name will be used if left blank.</>
                 )}
               </p>
             </div>

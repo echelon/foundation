@@ -150,7 +150,14 @@ pub fn build_router(state: AppState) -> Router {
       get(audit_logs::list_member_audit_logs_handler),
     )
     // accounts / invitations
-    .route("/v1/accounts/:account_id/invitations", post(invitations::create_invitation_handler))
+    .route(
+      "/v1/accounts/:account_id/invitations",
+      post(invitations::create_invitation_handler).get(invitations::list_account_invitations_handler),
+    )
+    .route(
+      "/v1/accounts/:account_id/invitations/:invitation_id",
+      delete(invitations::cancel_invitation_handler),
+    )
     .route("/v1/invitations/:code_or_token", get(invitations::resolve_invitation_handler))
     .route("/v1/invitations/:id/accept", post(invitations::accept_invitation_handler))
     // Avatar uploads carry whole photos; the axum default (2 MB) is too small.

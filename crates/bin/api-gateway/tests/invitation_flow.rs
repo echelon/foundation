@@ -43,6 +43,14 @@ fn post(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
   b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
 }
 
+fn delete(uri: &str, cookie: Option<&str>) -> Request<Body> {
+  let mut b = Request::builder().method("DELETE").uri(uri);
+  if let Some(c) = cookie {
+    b = b.header(header::COOKIE, c);
+  }
+  b.body(Body::empty()).unwrap()
+}
+
 fn get(uri: &str, cookie: Option<&str>) -> Request<Body> {
   let mut b = Request::builder().method("GET").uri(uri);
   if let Some(c) = cookie {
@@ -413,4 +421,168 @@ async fn sessions_record_ip_and_creation_type() {
   let list = body_json(list).await;
   assert_eq!(list["sessions"][0]["created_via"], "login");
   assert!(list["sessions"].as_array().unwrap().iter().any(|s| s["created_via"] == "signup"));
+}
+
+#[tokio::test]
+async fn pending_invitations_list_cancel_and_audit() {
+  let invitee_email = unique_email();
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let owner = db_queries::members::list_members_of_account(&pool, &account_id)
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|m| m.role == "owner")
+    .unwrap();
+  let owner_login = app
+    .clone()
+    .oneshot(post("/v1/auth/login", json!({ "email": owner.email, "password": "ownerpass1" }), None))
+    .await
+    .unwrap();
+  let owner_cookie = session_cookie(&owner_login).unwrap();
+
+  // The pending list shows the invite: email, role, code, who issued it, issued/expiry times.
+  let list = app
+    .clone()
+    .oneshot(get(&format!("/v1/accounts/{account_id}/invitations"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(list.status(), StatusCode::OK);
+  let list = body_json(list).await;
+  let items = list["invitations"].as_array().unwrap();
+  assert_eq!(items.len(), 1);
+  let item = &items[0];
+  assert_eq!(item["invitation_id"], inv["invitation_id"]);
+  assert_eq!(item["email"], invitee_email);
+  assert_eq!(item["role"], "member");
+  assert_eq!(item["code"], inv["code"]);
+  assert_eq!(item["invited_by_user_id"], owner.user_id.to_string());
+  let expires = chrono::DateTime::parse_from_rfc3339(item["expires_at"].as_str().unwrap()).unwrap();
+  let days_left = (expires.with_timezone(&chrono::Utc) - chrono::Utc::now()).num_days();
+  assert!((6..=7).contains(&days_left), "default expiry is 7 days, got {days_left}");
+
+  // A regular member can neither view nor cancel pending invitations.
+  let bystander_email = unique_email();
+  let member_inv = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": bystander_email, "role": "member" }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  let member_code = body_json(member_inv).await["code"].as_str().unwrap().to_string();
+  let member_signup = app
+    .clone()
+    .oneshot(post(
+      "/v1/auth/signup",
+      json!({ "email": bystander_email, "password": "password1", "invitation": member_code }),
+      None,
+    ))
+    .await
+    .unwrap();
+  let member_cookie = session_cookie(&member_signup).unwrap();
+  let denied = app
+    .clone()
+    .oneshot(get(&format!("/v1/accounts/{account_id}/invitations"), Some(&member_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+  let invitation_id = inv["invitation_id"].as_str().unwrap();
+  let denied = app
+    .clone()
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/invitations/{invitation_id}"), Some(&member_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+  // The owner cancels: the invite dies (code stops resolving) and leaves the pending list.
+  let cancelled = app
+    .clone()
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/invitations/{invitation_id}"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(cancelled.status(), StatusCode::OK);
+  let code = inv["code"].as_str().unwrap();
+  let dead = app.clone().oneshot(get(&format!("/v1/invitations/{code}"), None)).await.unwrap();
+  assert_eq!(dead.status(), StatusCode::BAD_REQUEST); // revoked
+  let list = app
+    .clone()
+    .oneshot(get(&format!("/v1/accounts/{account_id}/invitations"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  assert!(body_json(list).await["invitations"].as_array().unwrap().is_empty());
+
+  // Cancelling again → 404; a foreign owner can't cancel through their own account either.
+  let again = app
+    .clone()
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/invitations/{invitation_id}"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  assert_eq!(again.status(), StatusCode::NOT_FOUND);
+
+  // The audit log tells the whole story: sent + revoked (with the cancelling actor).
+  let audit = app
+    .clone()
+    .oneshot(get(&format!("/v1/accounts/{account_id}/audit_logs"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  let audit = body_json(audit).await;
+  let revoked: Vec<&Value> = audit["items"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|i| i["event"] == "invitation_revoked")
+    .collect();
+  assert_eq!(revoked.len(), 1);
+  assert_eq!(revoked[0]["actor_user_id"], owner.user_id.to_string());
+  assert_eq!(revoked[0]["data"]["email"], invitee_email);
+  assert_eq!(revoked[0]["target_id"], invitation_id);
+}
+
+#[tokio::test]
+async fn reinviting_audits_the_superseded_revoke() {
+  let invitee_email = unique_email();
+  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, "member").await;
+  let owner = db_queries::members::list_members_of_account(&pool, &account_id)
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|m| m.role == "owner")
+    .unwrap();
+  let owner_login = app
+    .clone()
+    .oneshot(post("/v1/auth/login", json!({ "email": owner.email, "password": "ownerpass1" }), None))
+    .await
+    .unwrap();
+  let owner_cookie = session_cookie(&owner_login).unwrap();
+
+  // Re-invite the same email: the old invite is revoked AND that revoke is audited.
+  let second = app
+    .clone()
+    .oneshot(post(
+      &format!("/v1/accounts/{account_id}/invitations"),
+      json!({ "email": invitee_email, "role": "member" }),
+      Some(&owner_cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(second.status(), StatusCode::OK);
+
+  let audit = app
+    .clone()
+    .oneshot(get(&format!("/v1/accounts/{account_id}/audit_logs"), Some(&owner_cookie)))
+    .await
+    .unwrap();
+  let audit = body_json(audit).await;
+  let superseded: Vec<&Value> = audit["items"]
+    .as_array()
+    .unwrap()
+    .iter()
+    .filter(|i| i["event"] == "invitation_revoked" && i["data"]["superseded"] == true)
+    .collect();
+  assert_eq!(superseded.len(), 1, "the supersede must be audited: {audit:#?}");
+  assert_eq!(superseded[0]["target_id"], first_inv["invitation_id"]);
+  let sent_count = audit["items"].as_array().unwrap().iter().filter(|i| i["event"] == "invitation_sent").count();
+  assert_eq!(sent_count, 2);
 }
