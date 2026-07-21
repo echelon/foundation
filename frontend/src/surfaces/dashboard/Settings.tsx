@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Check, Image as ImageIcon, Laptop, Loader2, Palette, RefreshCw, ShieldCheck } from "lucide-react";
+import { Check, Image as ImageIcon, Laptop, Loader2, Palette, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { AvatarEditorModal } from "@/components/AvatarEditorModal";
 import { UserAvatar, userInitials } from "@/components/UserAvatar";
@@ -12,7 +12,7 @@ export default function Settings() {
   if (!user) return null;
 
   const factoids: { label: string; on: boolean }[] = [
-    { label: "password", on: user.has_password },
+    { label: "Password", on: user.has_password },
     { label: "Google SSO", on: ssoProviders.includes("google") },
     { label: "GitHub SSO", on: ssoProviders.includes("github") },
   ];
@@ -42,12 +42,21 @@ export default function Settings() {
             </div>
           </div>
         </div>
-        {/* Login-method factoids. */}
+        {/* Login-method factoids: whole pill green when connected, gray when absent. */}
         <div className="mt-4 flex flex-wrap gap-2">
           {factoids.map((f) => (
-            <Badge key={f.label} tone={f.on ? "green" : "muted"}>
-              {f.on ? `has ${f.label}` : `no ${f.label}`}
-            </Badge>
+            <span
+              key={f.label}
+              className={
+                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
+                (f.on
+                  ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
+                  : "border-border bg-surface2 text-muted")
+              }
+            >
+              {f.label}
+              {f.on ? <Check className="h-3.5 w-3.5" aria-label="yes" /> : <X className="h-3.5 w-3.5" aria-label="no" />}
+            </span>
           ))}
         </div>
       </Card>
@@ -57,6 +66,7 @@ export default function Settings() {
       {/* ── Name ── */}
       <Card className="p-6">
         <h2 className="font-display font-semibold">Name</h2>
+        <p className="mt-1 text-sm text-muted">Shown to your team — changes are audit-logged.</p>
         <NameEditor />
       </Card>
 
@@ -131,7 +141,6 @@ function NameEditor() {
     <form className="mt-3" onSubmit={save}>
       <div className="flex items-end gap-2">
         <div className="flex-1">
-          <Label hint="shown to your team; changes are audit-logged">Name</Label>
           <Input placeholder="Ada Rivera" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
         </div>
         <Button type="submit" size="sm" disabled={busy || (name.trim() || null) === (user?.display_name ?? null)}>
@@ -181,24 +190,8 @@ function AvatarCard() {
 
   const selected = avatar?.preferred_source;
 
-  return (
-    <Card className="p-6">
-      <h2 className="font-display font-semibold">Profile picture</h2>
-      <p className="mt-1 text-sm text-muted">
-        Pick what displays: your photo, your gravatar, or your initials.
-        {avatar?.preferred_source === "not_yet_set" && " (Auto-picked until you choose.)"}
-      </p>
-
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        className="hidden"
-        onChange={(e) => pickFile(e.target.files)}
-      />
-
-      <div className="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
-        {/* ── Photo ── */}
+  // Gravatar earns the middle slot only once one is mirrored; otherwise it trails.
+  const photoTile = (
         <AvatarOption
           label="Photo"
           selected={selected === "custom"}
@@ -209,7 +202,7 @@ function AvatarCard() {
             thumb(avatar?.custom_links) ? (
               <img src={thumb(avatar?.custom_links)!} alt="" className="h-full w-full object-cover" />
             ) : (
-              <EmptyPreview icon={<ImageIcon className="h-8 w-8" />} />
+              <EmptyPreview icon={<ImageIcon className="h-6 w-6" />} />
             )
           }
           action={
@@ -236,19 +229,21 @@ function AvatarCard() {
             )
           }
         />
+  );
 
-        {/* ── Gravatar ── */}
+  const gravatarTile = (
         <AvatarOption
           label="Gravatar"
           selected={selected === "gravatar"}
-          selectable
+          selectable={!!avatar?.has_gravatar}
+          unavailableHint="no gravatar found yet — try Check"
           badge={avatar && !avatar.gravatar_checked ? "checking…" : undefined}
           onSelect={() => act("prefer-gravatar", () => api.setAvatarPreference("gravatar"))}
           preview={
             thumb(avatar?.gravatar_links) ? (
               <img src={thumb(avatar?.gravatar_links)!} alt="" className="h-full w-full object-cover" />
             ) : (
-              <EmptyPreview icon={<ImageIcon className="h-8 w-8" />} />
+              <EmptyPreview icon={<ImageIcon className="h-6 w-6" />} />
             )
           }
           action={
@@ -278,8 +273,9 @@ function AvatarCard() {
             )
           }
         />
+  );
 
-        {/* ── Initials ── */}
+  const initialsTile = (
         <AvatarOption
           label="Initials"
           selected={selected === "letter"}
@@ -287,7 +283,7 @@ function AvatarCard() {
           onSelect={() => act("prefer-letter", () => api.setAvatarPreference("letter"))}
           preview={
             <div
-              className="grid h-full w-full place-items-center font-display text-4xl font-bold text-white"
+              className="grid h-full w-full place-items-center font-display text-2xl font-bold text-white"
               style={{ background: monogramGradientCss(avatar?.monogram_gradient) }}
             >
               {user ? userInitials(user) : "?"}
@@ -306,6 +302,28 @@ function AvatarCard() {
             </Button>
           }
         />
+  );
+
+  return (
+    <Card className="p-6">
+      <h2 className="font-display font-semibold">Profile picture</h2>
+      <p className="mt-1 text-sm text-muted">
+        Pick what displays: your photo, your gravatar, or your initials.
+        {avatar?.preferred_source === "not_yet_set" && " (Auto-picked until you choose.)"}
+      </p>
+
+      <input
+        ref={fileInput}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => pickFile(e.target.files)}
+      />
+
+      <div className="mt-4 grid grid-cols-3 gap-3 sm:gap-4">
+        {photoTile}
+        {avatar?.has_gravatar ? gravatarTile : initialsTile}
+        {avatar?.has_gravatar ? initialsTile : gravatarTile}
       </div>
 
       <NoticeRow notice={notice} />
@@ -349,29 +367,27 @@ function AvatarOption({
   action: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div
+      className={
+        "flex flex-col gap-2 rounded-xl border-2 p-3 transition " +
+        (selected
+          ? "border-[hsl(var(--brand))] bg-[hsl(var(--brand))]/5 shadow-glow"
+          : "border-transparent opacity-50 hover:opacity-80")
+      }
+    >
       <button
         type="button"
         onClick={() => selectable && !selected && onSelect()}
         disabled={!selectable}
         title={selectable ? undefined : unavailableHint}
         className={
-          "relative aspect-square w-full overflow-hidden rounded-xl border-2 transition " +
-          (selected
-            ? "border-[hsl(var(--brand))] shadow-glow"
-            : selectable
-              ? "border-border opacity-70 hover:opacity-100"
-              : "cursor-not-allowed border-border opacity-40")
+          "relative mx-auto h-20 w-20 overflow-hidden rounded-full border border-border transition" +
+          (selectable ? "" : " cursor-not-allowed")
         }
       >
         {preview}
-        {selected && (
-          <span className="absolute right-1.5 top-1.5 grid h-6 w-6 place-items-center rounded-full brand-gradient text-white shadow">
-            <Check className="h-3.5 w-3.5" />
-          </span>
-        )}
         {badge && (
-          <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+          <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 rounded bg-black/60 px-1.5 py-0.5 text-[9px] text-white">
             {badge}
           </span>
         )}
