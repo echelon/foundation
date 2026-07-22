@@ -54,7 +54,7 @@ pub async fn update_business_name_handler(
   Json(body): Json<UpdateBusinessNameBody>,
 ) -> ApiResult<Json<BusinessNameResponse>> {
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
 
   // Blank clears; the placeholder always remains as the fallback display.
   let business_name = body.business_name.as_deref().map(str::trim).filter(|s| !s.is_empty());

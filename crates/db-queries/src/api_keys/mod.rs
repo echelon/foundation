@@ -8,12 +8,16 @@ use ids::{AccountId, ApiKeyId, UserId};
 mod create_api_key;
 mod find_live_api_key_by_hash;
 mod list_live_api_keys_for_account;
+mod refresh_api_keys_last_used_from_jobs;
 mod revoke_api_key;
+mod touch_api_key_last_used;
 
 pub use create_api_key::{create_api_key, NewApiKey};
 pub use find_live_api_key_by_hash::find_live_api_key_by_hash;
 pub use list_live_api_keys_for_account::list_live_api_keys_for_account;
+pub use refresh_api_keys_last_used_from_jobs::refresh_api_keys_last_used_from_jobs;
 pub use revoke_api_key::revoke_api_key;
+pub use touch_api_key_last_used::touch_api_key_last_used;
 
 /// A row from `api_keys` (exposed columns only — never `sid`, never `key_hash`). Field order
 /// MUST match the `RETURNING`/`SELECT` column order in the queries.

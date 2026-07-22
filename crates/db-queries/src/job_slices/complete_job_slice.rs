@@ -1,4 +1,4 @@
-use enums::JobSliceStatus;
+use enums::{FailureCode, JobSliceStatus};
 use ids::JobSliceId;
 use sqlx::PgExecutor;
 
@@ -6,7 +6,7 @@ use sqlx::PgExecutor;
 pub struct CompleteJobSlice<'a> {
   pub id: &'a JobSliceId,
   pub status: JobSliceStatus,
-  pub failure_code: Option<&'a str>,
+  pub failure_code: Option<FailureCode>,
   pub failure_message: Option<&'a str>,
 }
 
@@ -16,7 +16,7 @@ pub async fn complete_job_slice<'e, E: PgExecutor<'e>>(exec: E, args: CompleteJo
        WHERE id = $1 AND status IN ('queued', 'running')"#,
     args.id.as_str(),
     args.status.as_str(),
-    args.failure_code,
+    args.failure_code.map(|c| c.as_str()),
     args.failure_message,
   )
   .execute(exec)

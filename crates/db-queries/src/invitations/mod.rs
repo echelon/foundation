@@ -29,7 +29,7 @@ pub struct Invitation {
   pub invited_by_user_id: UserId,
   pub accepted_by_user_id: Option<UserId>,
   pub email: String,
-  pub role: String,
+  pub role: enums::MemberRole,
   pub code: String,
   pub token_hash: String,
   pub created_at: DateTime<Utc>,

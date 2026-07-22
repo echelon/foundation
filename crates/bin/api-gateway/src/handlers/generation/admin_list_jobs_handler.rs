@@ -9,7 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 use ids::JobId;
 
 use crate::error::{ApiError, ApiResult};
-use crate::generation::job_response::{job_body, JobBody};
+use crate::generation::job_response::{job_bodies, JobBody};
 use crate::middleware::AuthContext;
 use crate::state::AppState;
 
@@ -65,12 +65,12 @@ pub async fn admin_list_jobs_handler(
   let has_more = rows.len() as i64 > PAGE_SIZE;
   let page = &rows[..rows.len().min(PAGE_SIZE as usize)];
 
-  let mut jobs = Vec::with_capacity(page.len());
-  for job in page {
-    let slices = db_queries::job_slices::list_slices_for_job(&state.pool, &job.id).await?;
-    let outputs = db_queries::outputs::list_outputs_with_files_for_job(&state.pool, &job.id).await?;
-    jobs.push(AdminJobItem { job: job_body(&state, job, &slices, &outputs), account_id: job.account_id.clone() });
-  }
+  let bodies = job_bodies(&state, page).await?;
+  let jobs = bodies
+    .into_iter()
+    .zip(page)
+    .map(|(job, row)| AdminJobItem { job, account_id: row.account_id.clone() })
+    .collect();
   let next_after = has_more.then(|| page.last().map(|j| j.id.clone())).flatten();
   Ok(Json(AdminListJobsResponse { jobs, next_after }))
 }

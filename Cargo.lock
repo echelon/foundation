@@ -926,28 +926,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gravatar_job"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bucket_client",
- "bucket_paths",
- "client_core",
- "config",
- "db",
- "db_queries",
- "enums",
- "hex",
- "ids",
- "image",
- "reqwest",
- "sha2",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2641,6 +2619,28 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "sweeper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bucket_client",
+ "bucket_paths",
+ "client_core",
+ "config",
+ "db",
+ "db_queries",
+ "enums",
+ "hex",
+ "ids",
+ "image",
+ "reqwest",
+ "sha2",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "syn"

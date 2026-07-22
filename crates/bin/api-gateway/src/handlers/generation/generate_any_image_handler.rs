@@ -18,8 +18,8 @@ use crate::state::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct AnyImageBody {
-  /// Catalog slug of the image model to run, e.g. `openai_gpt_image_v1_5`.
-  #[schema(example = "openai_gpt_image_v1_5")]
+  /// Catalog slug of the image model to run, e.g. `openai_gpt_image_1_5`.
+  #[schema(example = "openai_gpt_image_1_5")]
   pub model: String,
   #[serde(flatten)]
   pub params: ImageParamsBody,

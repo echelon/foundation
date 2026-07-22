@@ -53,17 +53,17 @@ async fn memberships_with_accounts_joins_names_and_roles() {
   let user = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
   let acme = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Acme"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
   let globex = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Globex"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
-  members::create_membership(&mut *tx, &acme.id, &user.id, "owner").await.unwrap();
-  members::create_membership(&mut *tx, &globex.id, &user.id, "member").await.unwrap();
+  members::create_membership(&mut *tx, &acme.id, &user.id, enums::MemberRole::Owner).await.unwrap();
+  members::create_membership(&mut *tx, &globex.id, &user.id, enums::MemberRole::Member).await.unwrap();
 
   let list = members::list_memberships_with_accounts(&mut *tx, &user.id).await.unwrap();
   assert_eq!(list.len(), 2);
   // Oldest membership first — the switcher's stable order.
   assert_eq!(list[0].account_id, acme.id);
   assert_eq!(list[0].account_name.as_deref(), Some("Acme"));
-  assert_eq!(list[0].role, "owner");
+  assert_eq!(list[0].role, enums::MemberRole::Owner);
   assert_eq!(list[1].account_name.as_deref(), Some("Globex"));
-  assert_eq!(list[1].role, "member");
+  assert_eq!(list[1].role, enums::MemberRole::Member);
 }
 
 #[tokio::test]
@@ -74,13 +74,13 @@ async fn roster_join_and_member_removal() {
   let owner = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
   let member = users::create_user(&mut *tx, new_user(&unique_email())).await.unwrap();
   let org = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Team"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
-  members::create_membership(&mut *tx, &org.id, &owner.id, "owner").await.unwrap();
-  members::create_membership(&mut *tx, &org.id, &member.id, "member").await.unwrap();
+  members::create_membership(&mut *tx, &org.id, &owner.id, enums::MemberRole::Owner).await.unwrap();
+  members::create_membership(&mut *tx, &org.id, &member.id, enums::MemberRole::Member).await.unwrap();
 
   let roster = members::list_members_of_account(&mut *tx, &org.id).await.unwrap();
   assert_eq!(roster.len(), 2);
   assert_eq!(roster[0].user_id, owner.id, "owner (oldest membership) leads the roster");
-  assert_eq!(roster[0].role, "owner");
+  assert_eq!(roster[0].role, enums::MemberRole::Owner);
   assert_eq!(roster[1].email, member.email);
 
   let removed = members::delete_membership(&mut *tx, &org.id, &member.id).await.unwrap();

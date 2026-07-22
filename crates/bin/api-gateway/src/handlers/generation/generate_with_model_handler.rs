@@ -22,7 +22,7 @@ use crate::state::AppState;
   post, path = "/v1/models/{slug}/generate",
   tag = "generation",
   security(("session_cookie" = []), ("api_key" = [])),
-  params(("slug" = String, Path, description = "Catalog model slug, e.g. `openai_gpt_image_v2`")),
+  params(("slug" = String, Path, description = "Catalog model slug, e.g. `openai_gpt_image_2`")),
   request_body = ImageParamsBody,
   responses(
     (status = 201, description = "Job accepted and queued", body = JobBody),

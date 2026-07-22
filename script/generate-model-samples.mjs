@@ -42,7 +42,7 @@ const QUALITY = "medium";
 /** One themed prompt set per model — no prompt is reused anywhere. */
 const MODELS = [
   {
-    slug: "openai_gpt_image_v1",
+    slug: "openai_gpt_image_1",
     theme: "coastal watercolor",
     cover: {
       size: "1536x1024",
@@ -75,7 +75,7 @@ const MODELS = [
     },
   },
   {
-    slug: "openai_gpt_image_v1_mini",
+    slug: "openai_gpt_image_1_mini",
     theme: "paper craft / origami",
     cover: {
       size: "1536x1024",
@@ -107,7 +107,7 @@ const MODELS = [
     },
   },
   {
-    slug: "openai_gpt_image_v1_5",
+    slug: "openai_gpt_image_1_5",
     theme: "neon / synthwave",
     cover: {
       size: "1536x1024",
@@ -138,7 +138,7 @@ const MODELS = [
     },
   },
   {
-    slug: "openai_gpt_image_v2",
+    slug: "openai_gpt_image_2",
     theme: "cinematic architecture",
     cover: {
       size: "1536x1024",

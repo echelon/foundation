@@ -88,7 +88,7 @@ async fn signup_owner(app: &Router, pool: &db::PgPool) -> (String, ids::UserId, 
 }
 
 /// Add a user to `account_id` in `role` via a real invitation redeemed at signup.
-async fn join_as(app: &Router, owner_cookie: &str, account_id: &ids::AccountId, role: &str) -> String {
+async fn join_as(app: &Router, owner_cookie: &str, account_id: &ids::AccountId, role: enums::MemberRole) -> String {
   let invitee_email = unique_email();
   let inv = app
     .clone()
@@ -197,8 +197,8 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
 async fn admins_can_set_business_name_but_members_cannot() {
   let (app, pool) = app_and_pool().await;
   let (owner_cookie, _owner_id, account_id) = signup_owner(&app, &pool).await;
-  let admin_cookie = join_as(&app, &owner_cookie, &account_id, "admin").await;
-  let member_cookie = join_as(&app, &owner_cookie, &account_id, "member").await;
+  let admin_cookie = join_as(&app, &owner_cookie, &account_id, enums::MemberRole::Admin).await;
+  let member_cookie = join_as(&app, &owner_cookie, &account_id, enums::MemberRole::Member).await;
 
   // Admin: allowed.
   let by_admin = app

@@ -1,6 +1,8 @@
-//! Authorization helpers (auth.md §4). Roles gate account-scoped actions.
+//! Authorization helpers (auth.md §4). Roles gate account-scoped actions — always via
+//! [`enums::MemberRole`], never bare strings.
 
 use db_queries::{members, AccountMember};
+use enums::MemberRole;
 use ids::{AccountId, UserId};
 
 use crate::error::{ApiError, ApiResult};
@@ -12,18 +14,18 @@ pub async fn require_account_role(
   pool: &db::PgPool,
   user_id: &UserId,
   account_id: &AccountId,
-  allowed_roles: &[&str],
+  allowed_roles: &[MemberRole],
 ) -> ApiResult<AccountMember> {
   let membership = members::find_membership(pool, account_id, user_id)
     .await?
     .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
 
-  if allowed_roles.contains(&membership.role.as_str()) {
+  if allowed_roles.contains(&membership.role) {
     Ok(membership)
   } else {
     Err(ApiError::Forbidden(format!(
       "requires one of [{}]; you are '{}'",
-      allowed_roles.join(", "),
+      allowed_roles.iter().map(|r| r.as_str()).collect::<Vec<_>>().join(", "),
       membership.role
     )))
   }

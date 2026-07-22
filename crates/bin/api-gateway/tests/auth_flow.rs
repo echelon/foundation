@@ -349,7 +349,7 @@ async fn invite_create_resolve_and_accept() {
 
   // The joiner is now a member of the owner's account.
   let mem = db_queries::members::find_membership(&pool, &account_id, &joiner_id).await.unwrap();
-  assert_eq!(mem.unwrap().role, "member");
+  assert_eq!(mem.unwrap().role, enums::MemberRole::Member);
 
   // A non-member cannot invite (403/404).
   let outsider_email = unique_email();

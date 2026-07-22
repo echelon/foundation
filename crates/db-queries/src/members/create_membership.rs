@@ -9,7 +9,7 @@ pub async fn create_membership<'e, E: PgExecutor<'e>>(
   exec: E,
   account_id: &AccountId,
   user_id: &UserId,
-  role: &str,
+  role: enums::MemberRole,
 ) -> sqlx::Result<AccountMember> {
   let id = AccountMemberId::generate();
   sqlx::query_as!(
@@ -17,11 +17,11 @@ pub async fn create_membership<'e, E: PgExecutor<'e>>(
     r#"INSERT INTO account_members (id, account_id, user_id, role)
        VALUES ($1, $2, $3, $4)
        RETURNING id AS "id: AccountMemberId", account_id AS "account_id: AccountId",
-                 user_id AS "user_id: UserId", role, created_at"#,
+                 user_id AS "user_id: UserId", role AS "role: enums::MemberRole", created_at"#,
     id.as_str(),
     account_id.as_str(),
     user_id.as_str(),
-    role,
+    role.as_str(),
   )
   .fetch_one(exec)
   .await

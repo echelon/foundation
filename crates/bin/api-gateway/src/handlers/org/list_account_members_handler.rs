@@ -71,9 +71,9 @@ pub async fn list_account_members_handler(
       user_id: m.user_id,
       display_name: m.display_name,
       email: m.email,
-      role: m.role,
+      role: m.role.to_string(),
       joined_at: m.created_at,
     })
     .collect();
-  Ok(Json(MembersResponse { members, your_role: my_membership.role }))
+  Ok(Json(MembersResponse { members, your_role: my_membership.role.to_string() }))
 }

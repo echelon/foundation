@@ -33,7 +33,7 @@ pub async fn list_account_audit_logs_handler(
   Query(page): Query<PageParams>,
 ) -> ApiResult<Json<AccountAuditLogsPage>> {
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
 
   let before = page.cursor::<AccountAuditLogId>()?;
   let limit = page.limit();

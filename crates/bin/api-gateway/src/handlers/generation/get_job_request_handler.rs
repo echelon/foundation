@@ -25,7 +25,7 @@ pub struct JobRequestResponse {
   #[schema(value_type = String, example = "job_01k0…")]
   pub job_id: JobId,
   /// Catalog model slug the job ran on (the path resource for a replay).
-  #[schema(example = "openai_gpt_image_v1_5")]
+  #[schema(example = "openai_gpt_image_1_5")]
   pub model: String,
   pub prompt: String,
   /// Edit inputs, resolved to CDN URLs — `image_inputs` accepts these directly.

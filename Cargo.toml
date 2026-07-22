@@ -29,7 +29,7 @@ members = [
   # ── deployables ──
   "crates/bin/api-gateway",
   "crates/bin/admin-cli",
-  "crates/bin/gravatar-job",
+  "crates/bin/sweeper",
 ]
 
 [workspace.package]
@@ -61,7 +61,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 base64 = "0.22"
 # errors / logging
 anyhow = "1"
-thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dotenvy = "0.15"

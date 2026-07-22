@@ -76,7 +76,7 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
   // permanent — retrying identical inputs cannot help.
   let route = match rebuild_route(job) {
     Ok(route) => route,
-    Err(reason) => return fail_dispatch_permanently(state, job, "internal", &reason).await,
+    Err(reason) => return fail_dispatch_permanently(state, job, enums::FailureCode::Internal, &reason).await,
   };
   let Some(api_key) = state.openai.clone() else {
     return retry_or_fail(state, job, "provider not configured: no OpenAI credential").await;
@@ -172,7 +172,7 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
           job_slices::CompleteJobSlice {
             id: &slice.id,
             status: JobSliceStatus::Failed,
-            failure_code: Some("provider_error"),
+            failure_code: Some(enums::FailureCode::ProviderError),
             failure_message: Some("dispatch attempts exhausted"),
           },
         )
@@ -186,7 +186,7 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
     jobs::set_job_provider_accepted(&state.pool, &job.id, None).await?;
     Ok(())
   } else {
-    fail_dispatch_permanently(state, job, "provider_error", &start_errors.join("; ")).await
+    fail_dispatch_permanently(state, job, enums::FailureCode::ProviderError, &start_errors.join("; ")).await
   }
 }
 
@@ -228,14 +228,14 @@ async fn retry_or_fail(state: &AppState, job: &jobs::Job, error: &str) -> sqlx::
     tracing::warn!("dispatch of {} failed (attempt {}): {error}", job.id, job.dispatch_attempts);
     jobs::backoff_job_dispatch(&state.pool, &job.id, backoff_seconds(job.dispatch_attempts)).await
   } else {
-    fail_dispatch_permanently(state, job, "provider_error", error).await
+    fail_dispatch_permanently(state, job, enums::FailureCode::ProviderError, error).await
   }
 }
 
 async fn fail_dispatch_permanently(
   state: &AppState,
   job: &jobs::Job,
-  code: &str,
+  code: enums::FailureCode,
   message: &str,
 ) -> sqlx::Result<()> {
   tracing::error!("job {} failed permanently at dispatch: {message}", job.id);
@@ -294,7 +294,7 @@ pub async fn poll_and_finish_unsliced_job(state: &AppState, job: &jobs::Job) -> 
         jobs::CompleteJob {
           id: &job.id,
           status: JobStatus::Failed,
-          failure_code: Some("provider_error"),
+          failure_code: Some(enums::FailureCode::ProviderError),
           failure_message: Some(message),
           canceled_by: None,
         },
@@ -327,7 +327,7 @@ pub async fn poll_and_finish_slice(state: &AppState, slice: &db_queries::JobSlic
         job_slices::CompleteJobSlice {
           id: &slice.id,
           status: JobSliceStatus::Failed,
-          failure_code: Some("provider_error"),
+          failure_code: Some(enums::FailureCode::ProviderError),
           failure_message: Some(message),
         },
       )
@@ -447,7 +447,7 @@ async fn finish_job_if_all_slices_terminal(state: &AppState, job_id: &ids::JobId
   let (status, code, message) = if succeeded > 0 {
     (JobStatus::Succeeded, None, None)
   } else {
-    (JobStatus::Failed, Some("provider_error"), Some("all slices failed"))
+    (JobStatus::Failed, Some(enums::FailureCode::ProviderError), Some("all slices failed"))
   };
   let flipped = jobs::complete_job(
     &state.pool,

@@ -8,7 +8,7 @@ pub struct AccountMemberDetail {
   pub user_id: UserId,
   pub display_name: Option<String>,
   pub email: String,
-  pub role: String,
+  pub role: enums::MemberRole,
   pub created_at: DateTime<Utc>,
 }
 
@@ -19,7 +19,7 @@ pub async fn list_members_of_account<'e, E: PgExecutor<'e>>(
 ) -> sqlx::Result<Vec<AccountMemberDetail>> {
   sqlx::query_as!(
     AccountMemberDetail,
-    r#"SELECT m.user_id AS "user_id: UserId", u.display_name, u.email, m.role, m.created_at
+    r#"SELECT m.user_id AS "user_id: UserId", u.display_name, u.email, m.role AS "role: enums::MemberRole", m.created_at
        FROM account_members m
        JOIN users u ON u.id = m.user_id
        WHERE m.account_id = $1 AND u.deleted_at IS NULL

@@ -36,7 +36,7 @@ pub async fn list_member_audit_logs_handler(
 ) -> ApiResult<Json<UserAuditLogsPage>> {
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
   let target_user_id: UserId = user_id.parse().map_err(|_| ApiError::BadRequest("invalid user id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
   members::find_membership(&state.pool, &account_id, &target_user_id)
     .await?
     .ok_or_else(|| ApiError::NotFound("that user is not a member of this organization".into()))?;

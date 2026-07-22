@@ -39,12 +39,12 @@ pub async fn remove_account_member_handler(
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
   let target_user_id: UserId = user_id.parse().map_err(|_| ApiError::BadRequest("invalid user id".into()))?;
 
-  let my_membership = require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  let my_membership = require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
   let meta = req_meta(&headers);
   service::remove_member(
     &state.pool,
     &auth.user,
-    &my_membership.role,
+    my_membership.role,
     &account_id,
     &target_user_id,
     meta.ip.as_deref(),

@@ -203,7 +203,7 @@ async fn matched_delivery_correlates_to_job_and_request_log() {
     .oneshot(api_req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_id, "prompt": "correlate me" })),
+      Some(json!({ "model": "openai_gpt_image_1", "account_id": account_id, "prompt": "correlate me" })),
       Some(&cookie_jar.0),
     ))
     .await

@@ -10,7 +10,7 @@ pub struct MembershipWithAccount {
   /// Owner/admin-set; null → clients display `placeholder_business_name`.
   pub business_name: Option<String>,
   pub placeholder_business_name: String,
-  pub role: String,
+  pub role: enums::MemberRole,
   pub created_at: DateTime<Utc>,
 }
 
@@ -24,7 +24,7 @@ pub async fn list_memberships_with_accounts<'e, E: PgExecutor<'e>>(
     MembershipWithAccount,
     r#"SELECT m.account_id AS "account_id: AccountId", a.name AS "account_name?: String",
               a.business_name, a.placeholder_business_name,
-              m.role, m.created_at
+              m.role AS "role: enums::MemberRole", m.created_at
        FROM account_members m
        JOIN accounts a ON a.id = m.account_id
        WHERE m.user_id = $1 AND a.deleted_at IS NULL

@@ -97,7 +97,7 @@ async fn get_json(app: &Router, uri: &str, cookie: &str) -> (StatusCode, Value) 
 
 /// Full org fixture: owner signs up, invites `invitee_role`, invitee signs up + accepts.
 /// Returns (owner_cookie, owner_id, member_cookie, member_id, account_id).
-async fn org_with_two(app: &Router, invitee_role: &str) -> (String, String, String, String, String) {
+async fn org_with_two(app: &Router, invitee_role: enums::MemberRole) -> (String, String, String, String, String) {
   let (owner_cookie, owner_id) = signup(app).await;
   let (_, accounts) = get_json(app, "/v1/accounts", &owner_cookie).await;
   let account_id = accounts["accounts"][0]["account_id"].as_str().unwrap().to_string();
@@ -131,7 +131,7 @@ async fn org_with_two(app: &Router, invitee_role: &str) -> (String, String, Stri
 #[tokio::test]
 async fn org_membership_roster_and_removal_flow() {
   let app = app().await;
-  let (owner_cookie, owner_id, member_cookie, member_id, account_id) = org_with_two(&app, "member").await;
+  let (owner_cookie, owner_id, member_cookie, member_id, account_id) = org_with_two(&app, enums::MemberRole::Member).await;
 
   // The joiner's switcher shows BOTH orgs (their own signup account + the joined one).
   let (_, accounts) = get_json(&app, "/v1/accounts", &member_cookie).await;
@@ -196,7 +196,7 @@ async fn org_membership_roster_and_removal_flow() {
 #[tokio::test]
 async fn admins_can_remove_members_but_not_admins() {
   let app = app().await;
-  let (owner_cookie, _owner_id, admin_cookie, admin_id, account_id) = org_with_two(&app, "admin").await;
+  let (owner_cookie, _owner_id, admin_cookie, admin_id, account_id) = org_with_two(&app, enums::MemberRole::Admin).await;
 
   // Bring in a plain member too.
   let resp = app
@@ -277,7 +277,7 @@ async fn own_audit_log_paginates() {
 #[tokio::test]
 async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
   let app = app().await;
-  let (owner_cookie, _owner_id, member_cookie, member_id, account_id) = org_with_two(&app, "member").await;
+  let (owner_cookie, _owner_id, member_cookie, member_id, account_id) = org_with_two(&app, enums::MemberRole::Member).await;
 
   // A plain member cannot read the org audit log.
   let (status, _) = get_json(&app, &format!("/v1/accounts/{account_id}/audit_logs"), &member_cookie).await;

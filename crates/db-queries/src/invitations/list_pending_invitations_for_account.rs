@@ -13,7 +13,7 @@ pub async fn list_pending_invitations_for_account<'e, E: PgExecutor<'e>>(
     r#"SELECT id AS "id: ids::InvitationId", account_id AS "account_id: AccountId",
               invited_by_user_id AS "invited_by_user_id: ids::UserId",
               accepted_by_user_id AS "accepted_by_user_id?: ids::UserId",
-              email, role, code, token_hash,
+              email, role AS "role: enums::MemberRole", code, token_hash,
               created_at, expires_at, accepted_at, revoked_at
        FROM invitations
        WHERE account_id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()

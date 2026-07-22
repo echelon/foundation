@@ -10,6 +10,8 @@ mod text_enum;
 
 mod api_shape;
 mod audit_event;
+mod canceled_by;
+mod member_role;
 mod avatar_file_source;
 mod avatar_source;
 mod email_status;
@@ -26,6 +28,8 @@ mod monogram_gradient;
 
 pub use api_shape::ApiShape;
 pub use audit_event::AuditEvent;
+pub use canceled_by::CanceledBy;
+pub use member_role::MemberRole;
 pub use avatar_file_source::AvatarFileSource;
 pub use avatar_source::AvatarSource;
 pub use email_status::EmailStatus;

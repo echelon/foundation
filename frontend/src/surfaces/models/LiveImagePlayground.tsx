@@ -52,7 +52,7 @@ const FORMATS = [
 
 /** gpt-image-2 has no input_fidelity — the router would prune it (and report it). */
 function supportsInputFidelity(slug: string): boolean {
-  return slug !== "openai_gpt_image_v2";
+  return slug !== "openai_gpt_image_2";
 }
 
 type FormState = {

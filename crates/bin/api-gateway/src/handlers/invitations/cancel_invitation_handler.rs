@@ -40,7 +40,7 @@ pub async fn cancel_invitation_handler(
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
   let invitation_id: InvitationId =
     invitation_id.parse().map_err(|_| ApiError::BadRequest("invalid invitation id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
 
   let meta = req_meta(&headers);
   service::cancel_invitation(&state.pool, &account_id, &auth.user.id, &invitation_id, meta.ip.as_deref()).await?;

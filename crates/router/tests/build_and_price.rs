@@ -35,10 +35,10 @@ fn every_model_routes_and_fans_out_n() {
 #[test]
 fn slugs_route_and_match_the_catalog() {
   for slug in [
-    "openai_gpt_image_v1",
-    "openai_gpt_image_v1_mini",
-    "openai_gpt_image_v1_5",
-    "openai_gpt_image_v2",
+    "openai_gpt_image_1",
+    "openai_gpt_image_1_mini",
+    "openai_gpt_image_1_5",
+    "openai_gpt_image_2",
   ] {
     let model = RouterImageModel::from_slug(slug).unwrap();
     assert_eq!(model.slug(), slug);

@@ -54,7 +54,7 @@ pub async fn list_account_invitations_handler(
   Path(account_id): Path<String>,
 ) -> ApiResult<Json<PendingInvitationsResponse>> {
   let account_id: AccountId = account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
 
   let pending = invitations::list_pending_invitations_for_account(&state.pool, &account_id).await?;
   let invitations = pending
@@ -62,7 +62,7 @@ pub async fn list_account_invitations_handler(
     .map(|i| PendingInvitationItem {
       invitation_id: i.id,
       email: i.email,
-      role: i.role,
+      role: i.role.to_string(),
       code: i.code,
       invited_by_user_id: i.invited_by_user_id,
       created_at: i.created_at,

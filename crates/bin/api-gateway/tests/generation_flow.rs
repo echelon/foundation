@@ -100,7 +100,7 @@ async fn any_plane_enqueues_a_fanned_out_job_with_progress() {
       "POST",
       "/v1/any/image",
       Some(json!({
-        "model": "openai_gpt_image_v1_5",
+        "model": "openai_gpt_image_1_5",
         "account_id": account_id,
         "prompt": "A watercolor lighthouse at dusk",
         "n": 3,
@@ -116,7 +116,7 @@ async fn any_plane_enqueues_a_fanned_out_job_with_progress() {
   let job = body_json(resp).await;
   let job_id = job["id"].as_str().unwrap().to_string();
   assert!(job_id.starts_with("job_"));
-  assert_eq!(job["model"], "openai_gpt_image_v1_5");
+  assert_eq!(job["model"], "openai_gpt_image_1_5");
   assert_eq!(job["status"], "queued");
   // n=3 fans out: slice rows exist and progress reports 0/3 done.
   assert_eq!(job["progress"]["total"], 3);
@@ -176,7 +176,7 @@ async fn unified_plane_single_image_job_has_no_slices() {
     .clone()
     .oneshot(req(
       "POST",
-      "/v1/models/openai_gpt_image_v1_mini/generate",
+      "/v1/models/openai_gpt_image_1_mini/generate",
       Some(json!({ "account_id": account_id, "prompt": "a fox" })),
       Some(&cookie),
     ))
@@ -212,7 +212,7 @@ async fn cost_twins_quote_micros_and_record_adjustments() {
       "POST",
       "/v1/any/image/cost",
       Some(json!({
-        "model": "openai_gpt_image_v2",
+        "model": "openai_gpt_image_2",
         "account_id": account_id,
         "prompt": "neon koi pond",
         "image_inputs": ["https://cdn.example.com/source.png"],
@@ -242,7 +242,7 @@ async fn cost_twins_quote_micros_and_record_adjustments() {
     .clone()
     .oneshot(req(
       "POST",
-      "/v1/models/openai_gpt_image_v2/generate/cost",
+      "/v1/models/openai_gpt_image_2/generate/cost",
       Some(json!({
         "account_id": account_id,
         "prompt": "neon koi pond",
@@ -270,7 +270,7 @@ async fn invalid_requests_are_rejected() {
     .oneshot(req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "nope_v9", "account_id": account_id, "prompt": "x" })),
+      Some(json!({ "model": "nope_9", "account_id": account_id, "prompt": "x" })),
       Some(&cookie),
     ))
     .await
@@ -280,7 +280,7 @@ async fn invalid_requests_are_rejected() {
     .clone()
     .oneshot(req(
       "POST",
-      "/v1/models/nope_v9/generate",
+      "/v1/models/nope_9/generate",
       Some(json!({ "account_id": account_id, "prompt": "x" })),
       Some(&cookie),
     ))
@@ -294,7 +294,7 @@ async fn invalid_requests_are_rejected() {
     .oneshot(req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_id, "prompt": "   " })),
+      Some(json!({ "model": "openai_gpt_image_1", "account_id": account_id, "prompt": "   " })),
       Some(&cookie),
     ))
     .await
@@ -306,7 +306,7 @@ async fn invalid_requests_are_rejected() {
       "POST",
       "/v1/any/image",
       Some(json!({
-        "model": "openai_gpt_image_v1",
+        "model": "openai_gpt_image_1",
         "account_id": account_id,
         "prompt": "x",
         "image_inputs": ["http://plain.example.com/a.png"]
@@ -323,7 +323,7 @@ async fn invalid_requests_are_rejected() {
     .oneshot(req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "openai_gpt_image_v1_mini", "account_id": account_id, "prompt": "x", "n": 200 })),
+      Some(json!({ "model": "openai_gpt_image_1_mini", "account_id": account_id, "prompt": "x", "n": 200 })),
       Some(&cookie),
     ))
     .await
@@ -346,7 +346,7 @@ async fn jobs_are_tenancy_isolated() {
     .oneshot(req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_a, "prompt": "private" })),
+      Some(json!({ "model": "openai_gpt_image_1", "account_id": account_a, "prompt": "private" })),
       Some(&cookie_a),
     ))
     .await
@@ -360,7 +360,7 @@ async fn jobs_are_tenancy_isolated() {
     .oneshot(req(
       "POST",
       "/v1/any/image",
-      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_a, "prompt": "sneaky" })),
+      Some(json!({ "model": "openai_gpt_image_1", "account_id": account_a, "prompt": "sneaky" })),
       Some(&cookie_b),
     ))
     .await
@@ -403,7 +403,7 @@ async fn admin_jobs_list_is_staff_only_and_paginates() {
       .oneshot(req(
         "POST",
         "/v1/any/image",
-        Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_id, "prompt": format!("job {i}") })),
+        Some(json!({ "model": "openai_gpt_image_1", "account_id": account_id, "prompt": format!("job {i}") })),
         Some(&cookie),
       ))
       .await
@@ -419,9 +419,10 @@ async fn admin_jobs_list_is_staff_only_and_paginates() {
   // Newest first, and the admin rows carry the owning account. (The list spans ALL
   // accounts — concurrent test files add rows too — so assert presence, not position.)
   assert!(jobs.iter().any(|j| j["account_id"] == account_id.as_str()));
-  let first_created: &str = jobs[0]["created_at"].as_str().unwrap();
-  let later_created: &str = jobs[1]["created_at"].as_str().unwrap();
-  assert!(first_created >= later_created);
+  // Ordering is sid DESC while created_at is tx-START time — concurrent test commits can
+  // invert adjacent rows by milliseconds, so allow that jitter.
+  let created = |j: &serde_json::Value| chrono::DateTime::parse_from_rfc3339(j["created_at"].as_str().unwrap()).unwrap();
+  assert!(created(&jobs[0]) >= created(&jobs[1]) - chrono::Duration::seconds(2));
 }
 
 #[tokio::test]
@@ -485,10 +486,10 @@ async fn dry_run_on_every_generation_endpoint() {
   let (cookie, _user_id, account_id) = signup_owner(&app, &pool).await;
 
   let model_slugs = [
-    ("openai_gpt_image_v1", "gpt-image-1"),
-    ("openai_gpt_image_v1_mini", "gpt-image-1-mini"),
-    ("openai_gpt_image_v1_5", "gpt-image-1.5"),
-    ("openai_gpt_image_v2", "gpt-image-2"),
+    ("openai_gpt_image_1", "gpt-image-1"),
+    ("openai_gpt_image_1_mini", "gpt-image-1-mini"),
+    ("openai_gpt_image_1_5", "gpt-image-1.5"),
+    ("openai_gpt_image_2", "gpt-image-2"),
   ];
 
   for (slug, provider_model_id) in model_slugs {
@@ -527,7 +528,7 @@ async fn dry_run_on_every_generation_endpoint() {
       "POST",
       "/v1/any/image",
       Some(json!({
-        "model": "openai_gpt_image_v1_mini",
+        "model": "openai_gpt_image_1_mini",
         "account_id": account_id,
         "prompt": "dry run fan-out probe",
         "n": 3,
@@ -569,7 +570,7 @@ async fn cost_twin_accepts_dry_run_flag() {
     .oneshot(req(
       "POST",
       "/v1/any/image/cost",
-      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_id, "prompt": "x", "dry_run": true })),
+      Some(json!({ "model": "openai_gpt_image_1", "account_id": account_id, "prompt": "x", "dry_run": true })),
       Some(&cookie),
     ))
     .await

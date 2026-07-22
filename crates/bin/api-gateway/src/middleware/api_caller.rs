@@ -80,6 +80,18 @@ impl FromRequestParts<AppState> for Caller {
       let key = db_queries::api_keys::find_live_api_key_by_hash(&state.pool, &sha256_hex(&secret))
         .await?
         .ok_or_else(|| ApiError::Unauthorized("invalid API key".into()))?;
+      // Coarse freshness stamp, off the request path: writes at most once per 10 min per
+      // key (the query itself is conditional); the background job keeps it honest.
+      let stale = key.last_used_at.is_none_or(|t| (chrono::Utc::now() - t).num_minutes() >= 10);
+      if stale {
+        let pool = state.pool.clone();
+        let key_id = key.id.clone();
+        tokio::spawn(async move {
+          if let Err(e) = db_queries::api_keys::touch_api_key_last_used(&pool, &key_id).await {
+            tracing::warn!("api key last_used touch failed for {key_id}: {e}");
+          }
+        });
+      }
       return Ok(Caller::ApiKey(key));
     }
     Ok(Caller::Session(AuthContext::from_request_parts(parts, state).await?))

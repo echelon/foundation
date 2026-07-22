@@ -1,4 +1,4 @@
-use enums::JobStatus;
+use enums::{CanceledBy, FailureCode, JobStatus};
 use ids::JobId;
 use sqlx::PgExecutor;
 
@@ -7,10 +7,10 @@ pub struct CompleteJob<'a> {
   pub id: &'a JobId,
   /// A terminal status (succeeded / failed / canceled / expired).
   pub status: JobStatus,
-  pub failure_code: Option<&'a str>,
+  pub failure_code: Option<FailureCode>,
   pub failure_message: Option<&'a str>,
   /// Who canceled, when `status` is `canceled` (jobs.md: a field, not extra statuses).
-  pub canceled_by: Option<&'a str>,
+  pub canceled_by: Option<CanceledBy>,
 }
 
 /// Terminal transition. Only fires from a non-terminal state (idempotent under races).
@@ -21,9 +21,9 @@ pub async fn complete_job<'e, E: PgExecutor<'e>>(exec: E, args: CompleteJob<'_>)
        WHERE id = $1 AND status IN ('queued', 'running')"#,
     args.id.as_str(),
     args.status.as_str(),
-    args.failure_code,
+    args.failure_code.map(|c| c.as_str()),
     args.failure_message,
-    args.canceled_by,
+    args.canceled_by.map(|c| c.as_str()),
   )
   .execute(exec)
   .await?;

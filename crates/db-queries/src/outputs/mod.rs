@@ -6,9 +6,11 @@ use ids::{FileId, JobId, OutputId};
 
 mod create_output;
 mod list_outputs_with_files_for_job;
+mod list_outputs_with_files_for_jobs;
 
 pub use create_output::{create_output, NewOutput};
 pub use list_outputs_with_files_for_job::{list_outputs_with_files_for_job, OutputWithFile};
+pub use list_outputs_with_files_for_jobs::list_outputs_with_files_for_jobs;
 
 #[derive(Debug, Clone)]
 pub struct Output {

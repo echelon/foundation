@@ -80,7 +80,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 50_000_000, // $0.050
     },
     ModelSpec {
-        slug: "google_nano_banana_v2",
+        slug: "google_nano_banana_2",
         display_name: "Nano Banana 2",
         owner: "Google",
         media_type: MediaType::Image,
@@ -92,7 +92,7 @@ pub static MODELS: &[ModelSpec] = &[
     },
     // ── OpenAI · GPT Image (image) ──
     ModelSpec {
-        slug: "openai_gpt_image_v1",
+        slug: "openai_gpt_image_1",
         display_name: "GPT Image 1",
         owner: "OpenAI",
         media_type: MediaType::Image,
@@ -103,7 +103,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 40_000_000, // $0.040
     },
     ModelSpec {
-        slug: "openai_gpt_image_v1_mini",
+        slug: "openai_gpt_image_1_mini",
         display_name: "GPT Image 1 Mini",
         owner: "OpenAI",
         media_type: MediaType::Image,
@@ -114,7 +114,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 11_000_000, // $0.011 (medium, 1024²)
     },
     ModelSpec {
-        slug: "openai_gpt_image_v1_5",
+        slug: "openai_gpt_image_1_5",
         display_name: "GPT Image 1.5",
         owner: "OpenAI",
         media_type: MediaType::Image,
@@ -125,7 +125,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 30_000_000, // $0.030
     },
     ModelSpec {
-        slug: "openai_gpt_image_v2",
+        slug: "openai_gpt_image_2",
         display_name: "GPT Image 2",
         owner: "OpenAI",
         media_type: MediaType::Image,
@@ -137,7 +137,7 @@ pub static MODELS: &[ModelSpec] = &[
     },
     // ── ByteDance · Seedance 2.0 via Kinovi (video) ──
     ModelSpec {
-        slug: "bytedance_seedance_v2",
+        slug: "bytedance_seedance_2",
         display_name: "Seedance 2.0",
         owner: "ByteDance",
         media_type: MediaType::Video,
@@ -148,7 +148,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 120_000_000, // $0.120 / sec
     },
     ModelSpec {
-        slug: "bytedance_seedance_v2_fast",
+        slug: "bytedance_seedance_2_fast",
         display_name: "Seedance 2.0 Fast",
         owner: "ByteDance",
         media_type: MediaType::Video,
@@ -159,7 +159,7 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 60_000_000, // $0.060 / sec
     },
     ModelSpec {
-        slug: "bytedance_seedance_v2_mini",
+        slug: "bytedance_seedance_2_mini",
         display_name: "Seedance 2.0 Mini",
         owner: "ByteDance",
         media_type: MediaType::Video,
@@ -192,6 +192,6 @@ mod tests {
     #[test]
     fn lookup_resolves_provider_id() {
         assert_eq!(by_slug("google_nano_banana").unwrap().provider_model_id, "gemini-2.5-flash-image");
-        assert_eq!(by_slug("bytedance_seedance_v2").unwrap().provider, Provider::Kinovi);
+        assert_eq!(by_slug("bytedance_seedance_2").unwrap().provider, Provider::Kinovi);
     }
 }

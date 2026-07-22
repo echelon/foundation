@@ -50,6 +50,14 @@ Services load convention-named env files at startup (see `crates/core/config`):
 — `development-secrets` is gitignored. `cargo run -p {service}` must work with zero hand-supplied
 env vars. Test credentials live in `external/credentials/*.txt` (gitignored).
 
+## Naming: version numbers in slugs are PLAIN — never "v"-prefixed
+
+Model slugs (and any versioned identifier) write versions as bare numbers:
+`google_nano_banana_2`, `openai_gpt_image_1_5` — **never** `google_nano_banana_v2`,
+`openai_gpt_image_v1_5`. Do not use "v2"-style tokens anywhere. This applies to BOTH
+catalogs (`crates/core/catalog` and `frontend/src/lib/catalog.ts`), the router, sample
+directories under `model_samples/`, and docs.
+
 ## More conventions
 
 - Database/query rules: `crates/db-queries/CLAUDE.md`

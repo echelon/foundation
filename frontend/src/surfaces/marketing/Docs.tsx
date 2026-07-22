@@ -142,7 +142,7 @@ export default function Docs() {
           <pre className="scrollbar-thin mt-3 overflow-x-auto rounded-lg bg-surface2/60 p-4 text-[13px] leading-relaxed">
             <code>{`{
   "request_id": "req_6d2b04",
-  "model": "bytedance_seedance_v2",
+  "model": "bytedance_seedance_2",
   "status": "succeeded",
   "cost": {
     "amount_usd": 0.60,

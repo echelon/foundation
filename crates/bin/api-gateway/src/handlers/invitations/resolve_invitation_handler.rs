@@ -50,7 +50,7 @@ pub async fn resolve_invitation_handler(
     account_id: resolved.invitation.account_id,
     account_name: resolved.account_name,
     email: resolved.invitation.email,
-    role: resolved.invitation.role,
+    role: resolved.invitation.role.to_string(),
     expires_at: resolved.invitation.expires_at,
     invitee_user_exists: resolved.invitee_user_exists,
   }))

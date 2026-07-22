@@ -52,7 +52,7 @@ pub async fn list_my_accounts_handler(
       name: m.account_name,
       business_name: m.business_name,
       placeholder_business_name: m.placeholder_business_name,
-      role: m.role,
+      role: m.role.to_string(),
       joined_at: m.created_at,
     })
     .collect();

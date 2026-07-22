@@ -4,7 +4,7 @@
  * the DB only ever holds runtime state (jobs, balances, keys).
  *
  * Catalog slugs follow the `{provider}_{model}_{version?}` convention used in
- * the design docs, e.g. `google_nano_banana`, `bytedance_seedance_v2`.
+ * the design docs, e.g. `google_nano_banana`, `bytedance_seedance_2`.
  */
 
 export type Modality = "image" | "video" | "3d" | "world" | "chat";
@@ -98,7 +98,7 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_image", usd: 0.02, note: "1024² · standard quality" }],
     controls: [PROMPT, NEG_PROMPT, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, { key: "guidance", label: "Guidance", type: "slider", min: 1, max: 12, step: 0.5, default: 4, hint: "prompt strength" }, SEED],
     changelog: [{ version: "1.0", date: "2025-08-01", note: "Initial GA release." }],
-    related: ["google_nano_banana_pro", "google_nano_banana_2", "openai_gpt_image_v1"],
+    related: ["google_nano_banana_pro", "google_nano_banana_2", "openai_gpt_image_1"],
   },
   {
     slug: "google_nano_banana_pro",
@@ -120,7 +120,7 @@ export const MODELS: Model[] = [
     changelog: [
       { version: "1.0", date: "2025-11-10", note: "Pro tier launch with 2K + text rendering." },
     ],
-    related: ["google_nano_banana", "google_nano_banana_2", "openai_gpt_image_v1_5"],
+    related: ["google_nano_banana", "google_nano_banana_2", "openai_gpt_image_1_5"],
   },
   {
     slug: "google_nano_banana_2",
@@ -137,12 +137,12 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_image", usd: 0.04, note: "up to 2K · standard" }],
     controls: [PROMPT, NEG_PROMPT, ASPECT, { key: "reference_strength", label: "Reference strength", type: "slider", min: 0, max: 1, step: 0.05, default: 0.6, hint: "when a reference image is attached" }, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "2.0", date: "2026-06-20", note: "New architecture, reference conditioning." }],
-    related: ["google_nano_banana_pro", "openai_gpt_image_v2", "bytedance_seedance_v2"],
+    related: ["google_nano_banana_pro", "openai_gpt_image_2", "bytedance_seedance_2"],
   },
 
   /* ── OpenAI · GPT Image family ── */
   {
-    slug: "openai_gpt_image_v1",
+    slug: "openai_gpt_image_1",
     name: "GPT Image 1",
     provider: "OpenAI",
     providerSlug: "openai",
@@ -160,10 +160,10 @@ export const MODELS: Model[] = [
     ],
     controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "medium", options: [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "1.0", date: "2025-04-23", note: "GA release." }],
-    related: ["openai_gpt_image_v1_mini", "openai_gpt_image_v1_5", "openai_gpt_image_v2"],
+    related: ["openai_gpt_image_1_mini", "openai_gpt_image_1_5", "openai_gpt_image_2"],
   },
   {
-    slug: "openai_gpt_image_v1_mini",
+    slug: "openai_gpt_image_1_mini",
     name: "GPT Image 1 Mini",
     provider: "OpenAI",
     providerSlug: "openai",
@@ -181,10 +181,10 @@ export const MODELS: Model[] = [
     ],
     controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "medium", options: [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "1.0", date: "2025-10-06", note: "Mini tier launch." }],
-    related: ["openai_gpt_image_v1", "openai_gpt_image_v1_5", "openai_gpt_image_v2"],
+    related: ["openai_gpt_image_1", "openai_gpt_image_1_5", "openai_gpt_image_2"],
   },
   {
-    slug: "openai_gpt_image_v1_5",
+    slug: "openai_gpt_image_1_5",
     name: "GPT Image 1.5",
     provider: "OpenAI",
     providerSlug: "openai",
@@ -202,10 +202,10 @@ export const MODELS: Model[] = [
     ],
     controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "high", options: [{ value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "1.5", date: "2025-10-02", note: "Anatomy + text quality, cheaper high tier." }],
-    related: ["openai_gpt_image_v1", "openai_gpt_image_v2", "google_nano_banana_pro"],
+    related: ["openai_gpt_image_1", "openai_gpt_image_2", "google_nano_banana_pro"],
   },
   {
-    slug: "openai_gpt_image_v2",
+    slug: "openai_gpt_image_2",
     name: "GPT Image 2",
     provider: "OpenAI",
     providerSlug: "openai",
@@ -223,12 +223,12 @@ export const MODELS: Model[] = [
     ],
     controls: [PROMPT, { key: "resolution", label: "Resolution", type: "select", default: "2k", options: [{ value: "1k", label: "1K" }, { value: "2k", label: "2K" }, { value: "4k", label: "4K" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "2.0", date: "2026-05-14", note: "Multi-reference compositing + 4K." }],
-    related: ["openai_gpt_image_v1_5", "google_nano_banana_2", "bytedance_seedance_v2"],
+    related: ["openai_gpt_image_1_5", "google_nano_banana_2", "bytedance_seedance_2"],
   },
 
   /* ── ByteDance · Seedance video family ── */
   {
-    slug: "bytedance_seedance_v2",
+    slug: "bytedance_seedance_2",
     name: "Seedance 2.0",
     provider: "ByteDance",
     providerSlug: "bytedance",
@@ -249,10 +249,10 @@ export const MODELS: Model[] = [
       SEED,
     ],
     changelog: [{ version: "2.0", date: "2026-03-01", note: "GA — camera control, 1080p." }],
-    related: ["bytedance_seedance_v2_fast", "bytedance_seedance_v2_mini", "google_nano_banana_2"],
+    related: ["bytedance_seedance_2_fast", "bytedance_seedance_2_mini", "google_nano_banana_2"],
   },
   {
-    slug: "bytedance_seedance_v2_fast",
+    slug: "bytedance_seedance_2_fast",
     name: "Seedance 2.0 Fast",
     provider: "ByteDance",
     providerSlug: "bytedance",
@@ -266,10 +266,10 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_video_second", usd: 0.06, note: "1080p · 24fps" }],
     controls: [PROMPT, { key: "duration", label: "Duration (s)", type: "slider", min: 2, max: 10, default: 5 }, { key: "resolution", label: "Resolution", type: "select", default: "720p", options: [{ value: "720p", label: "720p" }, { value: "1080p", label: "1080p" }] }, ASPECT, SEED],
     changelog: [{ version: "2.0", date: "2026-03-01", note: "Fast variant launch." }],
-    related: ["bytedance_seedance_v2", "bytedance_seedance_v2_mini"],
+    related: ["bytedance_seedance_2", "bytedance_seedance_2_mini"],
   },
   {
-    slug: "bytedance_seedance_v2_mini",
+    slug: "bytedance_seedance_2_mini",
     name: "Seedance 2.0 Mini",
     provider: "ByteDance",
     providerSlug: "bytedance",
@@ -283,12 +283,12 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_video_second", usd: 0.03, note: "720p · 24fps" }],
     controls: [PROMPT, { key: "duration", label: "Duration (s)", type: "slider", min: 2, max: 6, default: 4 }, ASPECT, SEED],
     changelog: [{ version: "2.0", date: "2026-04-10", note: "Mini variant launch." }],
-    related: ["bytedance_seedance_v2", "bytedance_seedance_v2_fast"],
+    related: ["bytedance_seedance_2", "bytedance_seedance_2_fast"],
   },
 
   /* ── World Labs · Marble (3D world / gaussian splat) ── */
   {
-    slug: "worldlabs_marble_v1",
+    slug: "worldlabs_marble_1",
     name: "Marble 1.0",
     provider: "World Labs",
     providerSlug: "worldlabs",
@@ -302,10 +302,10 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_splat", usd: 0.9, note: "per generated world" }],
     controls: [PROMPT, { key: "scale", label: "World scale", type: "select", default: "room", options: [{ value: "object", label: "Object" }, { value: "room", label: "Room" }, { value: "landscape", label: "Landscape" }] }, SEED],
     changelog: [{ version: "1.0", date: "2025-12-05", note: "GA release." }],
-    related: ["worldlabs_marble_v1_1", "tencent_hunyuan3d_v2_5"],
+    related: ["worldlabs_marble_1_1", "tencent_hunyuan3d_2_5"],
   },
   {
-    slug: "worldlabs_marble_v1_1",
+    slug: "worldlabs_marble_1_1",
     name: "Marble 1.1",
     provider: "World Labs",
     providerSlug: "worldlabs",
@@ -319,12 +319,12 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_splat", usd: 1.1, note: "per generated world" }],
     controls: [PROMPT, { key: "scale", label: "World scale", type: "select", default: "room", options: [{ value: "object", label: "Object" }, { value: "room", label: "Room" }, { value: "landscape", label: "Landscape" }, { value: "district", label: "District" }] }, { key: "quality", label: "Quality", type: "select", default: "balanced", options: [{ value: "fast", label: "Fast" }, { value: "balanced", label: "Balanced" }, { value: "high", label: "High" }] }, SEED],
     changelog: [{ version: "1.1", date: "2026-06-01", note: "Bigger worlds, cleaner geometry." }],
-    related: ["worldlabs_marble_v1", "tencent_hunyuan3d_v2_5"],
+    related: ["worldlabs_marble_1", "tencent_hunyuan3d_2_5"],
   },
 
   /* ── Tencent · Hunyuan 3D (mesh) ── */
   {
-    slug: "tencent_hunyuan3d_v2",
+    slug: "tencent_hunyuan3d_2",
     name: "Hunyuan 3D 2.0",
     provider: "Tencent",
     providerSlug: "tencent",
@@ -338,10 +338,10 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_mesh", usd: 0.35, note: "textured mesh" }],
     controls: [PROMPT, { key: "topology", label: "Topology", type: "select", default: "triangle", options: [{ value: "triangle", label: "Triangle" }, { value: "quad", label: "Quad" }] }, { key: "texture", label: "Generate PBR texture", type: "toggle", default: true }, SEED],
     changelog: [{ version: "2.0", date: "2025-09-18", note: "GA — PBR textures." }],
-    related: ["tencent_hunyuan3d_v2_5", "worldlabs_marble_v1_1"],
+    related: ["tencent_hunyuan3d_2_5", "worldlabs_marble_1_1"],
   },
   {
-    slug: "tencent_hunyuan3d_v2_5",
+    slug: "tencent_hunyuan3d_2_5",
     name: "Hunyuan 3D 2.5",
     provider: "Tencent",
     providerSlug: "tencent",
@@ -355,7 +355,7 @@ export const MODELS: Model[] = [
     pricing: [{ unit: "per_mesh", usd: 0.5, note: "textured mesh · 2K texture" }],
     controls: [PROMPT, { key: "topology", label: "Topology", type: "select", default: "quad", options: [{ value: "triangle", label: "Triangle" }, { value: "quad", label: "Quad" }] }, { key: "texture_resolution", label: "Texture", type: "select", default: "2k", options: [{ value: "1k", label: "1K" }, { value: "2k", label: "2K" }] }, { key: "texture", label: "Generate PBR texture", type: "toggle", default: true }, SEED],
     changelog: [{ version: "2.5", date: "2026-02-20", note: "Sharper geometry, 2K textures." }],
-    related: ["tencent_hunyuan3d_v2", "worldlabs_marble_v1_1"],
+    related: ["tencent_hunyuan3d_2", "worldlabs_marble_1_1"],
   },
 
   /* ── LLMs (advertised on OpenRouter) ── */

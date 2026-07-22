@@ -81,6 +81,34 @@ pub fn output_url(state: &AppState, o: &OutputWithFile) -> String {
   cdn_url(&state.cdn_base_url, &key)
 }
 
+/// Batch [`job_body`] for a listing page: ONE slices query + ONE outputs query for the
+/// whole page (never 2·N round-trips), grouped in memory by job id.
+pub async fn job_bodies(state: &AppState, jobs: &[Job]) -> sqlx::Result<Vec<JobBody>> {
+  use std::collections::HashMap;
+  let ids: Vec<JobId> = jobs.iter().map(|j| j.id.clone()).collect();
+  let mut slices: HashMap<JobId, Vec<JobSlice>> = HashMap::new();
+  for s in db_queries::job_slices::list_slices_for_jobs(&state.pool, &ids).await? {
+    slices.entry(s.job_id.clone()).or_default().push(s);
+  }
+  let mut outputs: HashMap<JobId, Vec<OutputWithFile>> = HashMap::new();
+  for o in db_queries::outputs::list_outputs_with_files_for_jobs(&state.pool, &ids).await? {
+    outputs.entry(o.job_id.clone()).or_default().push(o);
+  }
+  Ok(
+    jobs
+      .iter()
+      .map(|j| {
+        job_body(
+          state,
+          j,
+          slices.get(&j.id).map_or(&[][..], Vec::as_slice),
+          outputs.get(&j.id).map_or(&[][..], Vec::as_slice),
+        )
+      })
+      .collect(),
+  )
+}
+
 pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[OutputWithFile]) -> JobBody {
   let progress = (!slices.is_empty()).then(|| {
     let terminal = slices.iter().filter(|s| s.status.is_terminal()).count() as u32;

@@ -23,6 +23,6 @@ pub struct AccountMember {
   pub id: AccountMemberId,
   pub account_id: AccountId,
   pub user_id: UserId,
-  pub role: String,
+  pub role: enums::MemberRole,
   pub created_at: DateTime<Utc>,
 }

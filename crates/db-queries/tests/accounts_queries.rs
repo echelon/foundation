@@ -59,15 +59,15 @@ async fn signup_transaction_creates_user_account_and_owner_membership() {
   assert!(account.id.as_str().starts_with("acct_"));
   assert_eq!(account.status, "active");
 
-  let mem = members::create_membership(&mut *tx, &account.id, &user.id, "owner").await.unwrap();
-  assert_eq!(mem.role, "owner");
+  let mem = members::create_membership(&mut *tx, &account.id, &user.id, enums::MemberRole::Owner).await.unwrap();
+  assert_eq!(mem.role, enums::MemberRole::Owner);
 
   let mems = members::list_memberships_for_user(&mut *tx, &user.id).await.unwrap();
   assert_eq!(mems.len(), 1);
   assert_eq!(mems[0].account_id, account.id);
 
   let found = members::find_membership(&mut *tx, &account.id, &user.id).await.unwrap().unwrap();
-  assert_eq!(found.role, "owner");
+  assert_eq!(found.role, enums::MemberRole::Owner);
 }
 
 #[tokio::test]
@@ -79,9 +79,9 @@ async fn second_owner_is_rejected_by_partial_unique_index() {
   let u1 = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
   let u2 = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
 
-  members::create_membership(&mut *tx, &account.id, &u1.id, "owner").await.unwrap();
+  members::create_membership(&mut *tx, &account.id, &u1.id, enums::MemberRole::Owner).await.unwrap();
   // A second owner on the same account must violate the partial unique index.
-  let err = members::create_membership(&mut *tx, &account.id, &u2.id, "owner").await;
+  let err = members::create_membership(&mut *tx, &account.id, &u2.id, enums::MemberRole::Owner).await;
   assert!(err.is_err(), "second owner should be rejected");
 }
 
@@ -91,7 +91,13 @@ async fn invalid_role_is_rejected_by_check_constraint() {
   let mut tx = pool.begin().await.unwrap();
   let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: None, placeholder_business_name: "Placeholder Business" }).await.unwrap();
   let user = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
-  let err = members::create_membership(&mut *tx, &account.id, &user.id, "supervisor").await;
+  // The typed API can no longer express a bad role — raw SQL exercises the DB backstop.
+  let err = sqlx::query("INSERT INTO account_members (id, account_id, user_id, role) VALUES ($1, $2, $3, 'supervisor')")
+    .bind(ids::AccountMemberId::generate().as_str())
+    .bind(account.id.as_str())
+    .bind(user.id.as_str())
+    .execute(&mut *tx)
+    .await;
   assert!(err.is_err(), "role 'supervisor' should violate the CHECK constraint");
 }
 
@@ -173,7 +179,7 @@ async fn invitation_create_resolve_and_accept() {
 
   let inviter = users::create_user(&mut *tx, new_user(&unique_email(), Some("h"))).await.unwrap();
   let account = accounts::create_account(&mut *tx, accounts::NewAccount { name: Some("Team"), placeholder_business_name: "Placeholder Business" }).await.unwrap();
-  members::create_membership(&mut *tx, &account.id, &inviter.id, "owner").await.unwrap();
+  members::create_membership(&mut *tx, &account.id, &inviter.id, enums::MemberRole::Owner).await.unwrap();
 
   let code = "7F3K-QT9M";
   let inv = invitations::create_invitation(
@@ -182,7 +188,7 @@ async fn invitation_create_resolve_and_accept() {
       account_id: &account.id,
       invited_by_user_id: &inviter.id,
       email: "invitee@example.com",
-      role: "member",
+      role: enums::MemberRole::Member,
       code,
       token_hash: "deadbeef",
       expires_at: chrono::Utc::now() + chrono::Duration::days(7),
@@ -201,7 +207,7 @@ async fn invitation_create_resolve_and_accept() {
   let joiner = users::create_user(&mut *tx, new_user("invitee@example.com", Some("h"))).await.unwrap();
   let accepted = invitations::mark_invitation_accepted(&mut *tx, &inv.id, &joiner.id).await.unwrap();
   assert_eq!(accepted, 1);
-  members::create_membership(&mut *tx, &account.id, &joiner.id, &by_code.role).await.unwrap();
+  members::create_membership(&mut *tx, &account.id, &joiner.id, by_code.role).await.unwrap();
 
   // Second accept is a no-op.
   let again = invitations::mark_invitation_accepted(&mut *tx, &inv.id, &joiner.id).await.unwrap();
@@ -209,7 +215,7 @@ async fn invitation_create_resolve_and_accept() {
 
   let mems = members::list_memberships_for_user(&mut *tx, &joiner.id).await.unwrap();
   assert_eq!(mems.len(), 1);
-  assert_eq!(mems[0].role, "member");
+  assert_eq!(mems[0].role, enums::MemberRole::Member);
 }
 
 #[tokio::test]
@@ -270,7 +276,7 @@ async fn memberships_with_accounts_carry_business_names() {
   )
   .await
   .unwrap();
-  members::create_membership(&mut *tx, &account.id, &user.id, "owner").await.unwrap();
+  members::create_membership(&mut *tx, &account.id, &user.id, enums::MemberRole::Owner).await.unwrap();
 
   let rows = members::list_memberships_with_accounts(&mut *tx, &user.id).await.unwrap();
   assert_eq!(rows.len(), 1);

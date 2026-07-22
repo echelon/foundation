@@ -119,6 +119,7 @@ CREATE TABLE sessions (
     expires_at           timestamptz not null,
     revoked_at           timestamptz
 );
+CREATE INDEX sessions_user_idx ON sessions (user_id);
 
 CREATE TABLE api_keys (
     sid                bigint generated always as identity,
@@ -134,6 +135,9 @@ CREATE TABLE api_keys (
     expires_at         timestamptz,
     revoked_at         timestamptz
 );
+-- The Bearer front door resolves presented secrets by hash — the hottest auth lookup.
+CREATE UNIQUE INDEX api_keys_key_hash_idx ON api_keys (key_hash);
+CREATE INDEX api_keys_account_idx ON api_keys (account_id);
 
 CREATE TABLE email_verifications (
     sid          bigint generated always as identity,
@@ -316,6 +320,10 @@ CREATE INDEX jobs_account_status_idx  ON jobs (account_id, status);
 CREATE INDEX jobs_provider_jobid_idx  ON jobs (provider, provider_job_id);
 CREATE INDEX jobs_status_expires_idx  ON jobs (status, expires_at);
 CREATE INDEX jobs_account_enduser_idx ON jobs (account_id, end_user_id, created_at) WHERE end_user_id IS NOT NULL;
+-- Worker-loop partial indexes: the dispatcher's claim (queued, due) and the poll pass
+-- (running) stay O(active work) regardless of total job history.
+CREATE INDEX jobs_dispatch_due_idx ON jobs (sid) WHERE status = 'queued';
+CREATE INDEX jobs_pollable_idx     ON jobs (sid) WHERE status = 'running';
 
 CREATE TABLE job_events (
     sid        bigint generated always as identity,
@@ -349,6 +357,7 @@ CREATE TABLE job_slices (
 );
 CREATE INDEX job_slices_job_idx             ON job_slices (job_id);
 CREATE INDEX job_slices_provider_jobid_idx  ON job_slices (provider_job_id);
+CREATE INDEX job_slices_pollable_idx        ON job_slices (sid) WHERE status = 'running';
 
 -- ─────────────────────────── Files & outputs (files.md §2) ───────────────────────────
 

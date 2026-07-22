@@ -150,7 +150,7 @@ pub async fn enqueue_image_job(
         job_slices::CompleteJobSlice {
           id: &slice.id,
           status: JobSliceStatus::Canceled,
-          failure_code: Some("dry_run"),
+          failure_code: Some(enums::FailureCode::DryRun),
           failure_message: Some("dry run — request was not sent to the provider"),
         },
       )
@@ -161,9 +161,9 @@ pub async fn enqueue_image_job(
       jobs::CompleteJob {
         id: &job.id,
         status: JobStatus::Canceled,
-        failure_code: Some("dry_run"),
+        failure_code: Some(enums::FailureCode::DryRun),
         failure_message: Some("dry run — request was not sent to the provider"),
-        canceled_by: Some("user"),
+        canceled_by: Some(enums::CanceledBy::User),
       },
     )
     .await?;

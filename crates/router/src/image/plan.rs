@@ -17,20 +17,20 @@ impl RouterImageModel {
   /// Route from the canonical catalog slug.
   pub fn from_slug(slug: &str) -> Option<Self> {
     match slug {
-      "openai_gpt_image_v1" => Some(Self::OpenaiGptImageV1),
-      "openai_gpt_image_v1_mini" => Some(Self::OpenaiGptImageV1Mini),
-      "openai_gpt_image_v1_5" => Some(Self::OpenaiGptImageV1_5),
-      "openai_gpt_image_v2" => Some(Self::OpenaiGptImageV2),
+      "openai_gpt_image_1" => Some(Self::OpenaiGptImageV1),
+      "openai_gpt_image_1_mini" => Some(Self::OpenaiGptImageV1Mini),
+      "openai_gpt_image_1_5" => Some(Self::OpenaiGptImageV1_5),
+      "openai_gpt_image_2" => Some(Self::OpenaiGptImageV2),
       _ => None,
     }
   }
 
   pub fn slug(&self) -> &'static str {
     match self {
-      Self::OpenaiGptImageV1 => "openai_gpt_image_v1",
-      Self::OpenaiGptImageV1Mini => "openai_gpt_image_v1_mini",
-      Self::OpenaiGptImageV1_5 => "openai_gpt_image_v1_5",
-      Self::OpenaiGptImageV2 => "openai_gpt_image_v2",
+      Self::OpenaiGptImageV1 => "openai_gpt_image_1",
+      Self::OpenaiGptImageV1Mini => "openai_gpt_image_1_mini",
+      Self::OpenaiGptImageV1_5 => "openai_gpt_image_1_5",
+      Self::OpenaiGptImageV2 => "openai_gpt_image_2",
     }
   }
 

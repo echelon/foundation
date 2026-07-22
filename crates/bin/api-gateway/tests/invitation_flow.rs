@@ -84,7 +84,7 @@ async fn body_json(resp: axum::response::Response) -> Value {
 
 /// Sign up a fresh owner and invite `invitee_email`; returns (app, pool, owner account id,
 /// invite response body).
-async fn owner_with_invite(invitee_email: &str, role: &str) -> (Router, db::PgPool, ids::AccountId, Value) {
+async fn owner_with_invite(invitee_email: &str, role: enums::MemberRole) -> (Router, db::PgPool, ids::AccountId, Value) {
   let (app, pool) = app_and_pool().await;
   let owner_email = unique_email();
   let signup = app
@@ -116,7 +116,7 @@ async fn owner_with_invite(invitee_email: &str, role: &str) -> (Router, db::PgPo
 #[tokio::test]
 async fn resolve_reports_join_page_context() {
   let invitee_email = unique_email();
-  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, enums::MemberRole::Member).await;
   let code = inv["code"].as_str().unwrap();
 
   // The invite email was recorded (email.md §3 — template `invite`, bound to the address,
@@ -149,7 +149,7 @@ async fn resolve_reports_join_page_context() {
 #[tokio::test]
 async fn invited_signup_joins_the_inviting_org_without_a_personal_one() {
   let invitee_email = unique_email();
-  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "admin").await;
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, enums::MemberRole::Admin).await;
   let code = inv["code"].as_str().unwrap();
 
   // Email is locked to the invite's.
@@ -183,7 +183,7 @@ async fn invited_signup_joins_the_inviting_org_without_a_personal_one() {
   let memberships = db_queries::members::list_memberships_for_user(&pool, &joiner_id).await.unwrap();
   assert_eq!(memberships.len(), 1);
   assert_eq!(memberships[0].account_id, account_id);
-  assert_eq!(memberships[0].role, "admin");
+  assert_eq!(memberships[0].role, enums::MemberRole::Admin);
 
   // The session is live and the invitation is spent.
   let me = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
@@ -250,13 +250,13 @@ async fn existing_user_redeems_invite_via_signup_as_login() {
   // Now a member of BOTH orgs — their own plus the inviting one.
   let memberships = db_queries::members::list_memberships_for_user(&pool, &joiner_id).await.unwrap();
   assert_eq!(memberships.len(), 2);
-  assert!(memberships.iter().any(|m| m.account_id == account_id && m.role == "member"));
+  assert!(memberships.iter().any(|m| m.account_id == account_id && m.role == enums::MemberRole::Member));
 }
 
 #[tokio::test]
 async fn no_double_invites() {
   let invitee_email = unique_email();
-  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, "member").await;
+  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, enums::MemberRole::Member).await;
   let first_code = first_inv["code"].as_str().unwrap().to_string();
 
   // Re-inviting the same email revokes the outstanding invitation and issues a fresh one.
@@ -264,7 +264,7 @@ async fn no_double_invites() {
     .await
     .unwrap()
     .into_iter()
-    .find(|m| m.role == "owner")
+    .find(|m| m.role == enums::MemberRole::Owner)
     .unwrap();
   let owner_login = app
     .clone()
@@ -345,7 +345,7 @@ async fn database_rejects_concurrent_duplicate_live_invitations() {
     account_id: &account.id,
     invited_by_user_id: &user.id,
     email: &invitee_email,
-    role: "member",
+    role: enums::MemberRole::Member,
     code,
     token_hash: "test-hash",
     expires_at: chrono::Utc::now() + chrono::Duration::days(7),
@@ -397,7 +397,7 @@ async fn sessions_record_ip_and_creation_type() {
 
   // Invited signup → created_via=invited_signup.
   let invitee_email = unique_email();
-  let (app2, pool2, _account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let (app2, pool2, _account_id, inv) = owner_with_invite(&invitee_email, enums::MemberRole::Member).await;
   let code = inv["code"].as_str().unwrap();
   let joined = app2
     .clone()
@@ -430,12 +430,12 @@ async fn sessions_record_ip_and_creation_type() {
 #[tokio::test]
 async fn pending_invitations_list_cancel_and_audit() {
   let invitee_email = unique_email();
-  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, "member").await;
+  let (app, pool, account_id, inv) = owner_with_invite(&invitee_email, enums::MemberRole::Member).await;
   let owner = db_queries::members::list_members_of_account(&pool, &account_id)
     .await
     .unwrap()
     .into_iter()
-    .find(|m| m.role == "owner")
+    .find(|m| m.role == enums::MemberRole::Owner)
     .unwrap();
   let owner_login = app
     .clone()
@@ -547,12 +547,12 @@ async fn pending_invitations_list_cancel_and_audit() {
 #[tokio::test]
 async fn reinviting_audits_the_superseded_revoke() {
   let invitee_email = unique_email();
-  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, "member").await;
+  let (app, pool, account_id, first_inv) = owner_with_invite(&invitee_email, enums::MemberRole::Member).await;
   let owner = db_queries::members::list_members_of_account(&pool, &account_id)
     .await
     .unwrap()
     .into_iter()
-    .find(|m| m.role == "owner")
+    .find(|m| m.role == enums::MemberRole::Owner)
     .unwrap();
   let owner_login = app
     .clone()

@@ -14,7 +14,7 @@ const MODALITIES: { modality: Modality; icon: typeof ImageIcon; blurb: string }[
   { modality: "chat", icon: MessageSquare, blurb: "Frontier LLMs, one endpoint." },
 ];
 
-const featured = ["google_nano_banana_2", "openai_gpt_image_v2", "bytedance_seedance_v2", "worldlabs_marble_v1_1", "tencent_hunyuan3d_v2_5", "anthropic_claude_opus_4_8"]
+const featured = ["google_nano_banana_2", "openai_gpt_image_2", "bytedance_seedance_2", "worldlabs_marble_1_1", "tencent_hunyuan3d_2_5", "anthropic_claude_opus_4_8"]
   .map((s) => MODELS.find((m) => m.slug === s)!)
   .filter(Boolean);
 

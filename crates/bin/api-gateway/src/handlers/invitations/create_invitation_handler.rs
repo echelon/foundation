@@ -58,9 +58,13 @@ pub async fn create_invitation_handler(
   let account_id: AccountId = account_id
     .parse()
     .map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
-  require_account_role(&state.pool, &auth.user.id, &account_id, &["owner", "admin"]).await?;
+  require_account_role(&state.pool, &auth.user.id, &account_id, enums::MemberRole::ADMINS).await?;
 
-  let created = service::create_invitation(&state.pool, &account_id, &auth.user.id, &body.email, &body.role).await?;
+  let role: enums::MemberRole = body
+    .role
+    .parse()
+    .map_err(|_| ApiError::BadRequest("invite role must be 'admin' or 'member'".into()))?;
+  let created = service::create_invitation(&state.pool, &account_id, &auth.user.id, &body.email, role).await?;
 
   // The invite email (magic link + code) — best-effort: a mail failure never fails the
   // request; the console still shows the code/link, and `email_sends` records the outcome.
@@ -73,7 +77,7 @@ pub async fn create_invitation_handler(
       to_email: &created.invitation.email,
       inviter: auth.user.display_name.as_deref().unwrap_or(&auth.user.email),
       account_name: account_name.as_deref(),
-      role: &created.invitation.role,
+      role: created.invitation.role.as_str(),
       token: &created.token,
       code: &created.code,
     },
@@ -85,7 +89,7 @@ pub async fn create_invitation_handler(
     code: created.code,
     join_url: format!("/join?token={}", created.token),
     email: created.invitation.email,
-    role: created.invitation.role,
+    role: created.invitation.role.to_string(),
     expires_at: created.invitation.expires_at,
   }))
 }
