@@ -1,6 +1,9 @@
-import { Link, NavLink, Outlet } from "react-router-dom";
-import { Github, Twitter } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Github, LayoutDashboard, LogOut, Settings, Twitter } from "lucide-react";
 import { Button, Container, Logo, ThemeToggle } from "@/components/ui";
+import { UserAvatar } from "@/components/UserAvatar";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 
 const NAV = [
@@ -36,14 +39,7 @@ export default function MarketingLayout() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link to="/login" className="hidden sm:block">
-              <Button variant="ghost" size="sm">
-                Sign in
-              </Button>
-            </Link>
-            <Link to="/dashboard">
-              <Button size="sm">Dashboard</Button>
-            </Link>
+            <HeaderAuth />
           </div>
         </Container>
       </header>
@@ -77,6 +73,108 @@ export default function MarketingLayout() {
           <span>Mock preview · frontend only</span>
         </Container>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * The header's auth corner. Guests get Sign in + Dashboard; a signed-in user gets their
+ * avatar with a context menu (info, Dashboard, User Settings, Sign out). Renders nothing
+ * during the initial /me probe so "Sign in" never flashes for someone who has a session.
+ */
+function HeaderAuth() {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="h-8 w-8" aria-hidden />;
+  if (!user) {
+    return (
+      <>
+        <Link to="/login" className="hidden sm:block">
+          <Button variant="ghost" size="sm">
+            Sign in
+          </Button>
+        </Link>
+        <Link to="/dashboard">
+          <Button size="sm">Dashboard</Button>
+        </Link>
+      </>
+    );
+  }
+  return <UserMenu />;
+}
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const [open, setOpen] = useState(false);
+  const navigate = useNavigate();
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  if (!user) return null;
+
+  const handleLogout = async () => {
+    setOpen(false);
+    await logout();
+    navigate("/", { replace: true });
+  };
+
+  const itemClass =
+    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-muted transition hover:bg-surface2 hover:text-fg";
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="rounded-full transition hover:opacity-85 focus:outline-none focus:ring-2 focus:ring-brand/50"
+      >
+        <UserAvatar user={user} className="h-9 w-9 text-sm" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-border bg-surface p-1.5 shadow-xl"
+        >
+          <div className="px-3 py-2">
+            <div className="truncate text-sm font-medium text-fg">{user.display_name ?? "—"}</div>
+            <div className="truncate text-xs text-muted">{user.email}</div>
+          </div>
+          <div className="my-1 border-t border-border/60" />
+          <Link to="/dashboard" role="menuitem" className={itemClass} onClick={() => setOpen(false)}>
+            <LayoutDashboard className="h-4 w-4" />
+            Dashboard
+          </Link>
+          <Link
+            to="/dashboard/user/settings"
+            role="menuitem"
+            className={itemClass}
+            onClick={() => setOpen(false)}
+          >
+            <Settings className="h-4 w-4" />
+            User Settings
+          </Link>
+          <div className="my-1 border-t border-border/60" />
+          <button role="menuitem" onClick={handleLogout} className={itemClass}>
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
+        </div>
+      )}
     </div>
   );
 }

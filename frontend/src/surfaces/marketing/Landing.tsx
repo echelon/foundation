@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BarChart3, Boxes, Check, Globe, Image as ImageIcon, MessageSquare, Sparkles, Video, Zap } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
+import { useAuth } from "@/lib/auth";
 import { MODELS, MODALITY_LABEL, type Modality } from "@/lib/catalog";
 import { MEDIA, compact, leaderboard, type MediaKey } from "@/lib/rankings";
 
@@ -18,6 +19,7 @@ const featured = ["google_nano_banana_2", "openai_gpt_image_v2", "bytedance_seed
   .filter(Boolean);
 
 export default function Landing() {
+  const { user } = useAuth();
   return (
     <>
       {/* ── Hero ── */}
@@ -172,9 +174,9 @@ export default function Landing() {
           <p className="relative mx-auto mt-3 max-w-xl text-muted">
             Spin up a key, try any model in the playground, and go to production on the same API.
           </p>
-          <Link to="/signup" className="relative mt-7 inline-flex">
+          <Link to={user ? "/dashboard" : "/signup"} className="relative mt-7 inline-flex">
             <Button size="lg">
-              Create an account <ArrowRight className="h-4 w-4" />
+              {user ? "Open your dashboard" : "Create an account"} <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
         </Card>
