@@ -131,7 +131,7 @@ export default function Admin() {
                                 ))}
                                 {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                               </div>
-                              <BatchBadge count={j.progress?.total ?? j.outputs.length} />
+                              <BatchBadge count={j.progress?.total ?? j.outputs.length} className="relative z-10 -ml-3.5 ring-2 ring-bg" />
                             </div>
                           </td>
                           <td className="px-3 py-3">
