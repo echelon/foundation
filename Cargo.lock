@@ -80,11 +80,13 @@ dependencies = [
  "db_queries",
  "email_client",
  "enums",
+ "foundation_router",
  "hex",
  "id_core",
  "ids",
  "image",
  "jsonwebtoken",
+ "openai_client",
  "rand 0.8.7",
  "reqwest",
  "serde",
@@ -736,6 +738,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "foundation_router"
+version = "0.1.0"
+dependencies = [
+ "catalog",
+ "client_core",
+ "openai_client",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

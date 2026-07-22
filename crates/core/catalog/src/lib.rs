@@ -1,7 +1,7 @@
 //! THE model registry (catalog-as-code, architecture.md §2). Models, their media type,
 //! the dispatch provider, and the provider-specific model id we actually call.
 //!
-//! Launch set (this iteration): Nano Banana ×3 (Google), GPT Image ×3 (OpenAI),
+//! Launch set (this iteration): Nano Banana ×3 (Google), GPT Image ×4 (OpenAI),
 //! Seedance 2.0 ×3 (Kinovi). Slugs are the canonical `models.md` slugs.
 
 use serde::Serialize;
@@ -103,6 +103,17 @@ pub static MODELS: &[ModelSpec] = &[
         price_nanos: 40_000_000, // $0.040
     },
     ModelSpec {
+        slug: "openai_gpt_image_v1_mini",
+        display_name: "GPT Image 1 Mini",
+        owner: "OpenAI",
+        media_type: MediaType::Image,
+        provider: Provider::Openai,
+        provider_model_id: "gpt-image-1-mini",
+        modalities: &["text_to_image", "image_edit"],
+        price_unit: PriceUnit::PerImage,
+        price_nanos: 11_000_000, // $0.011 (medium, 1024²)
+    },
+    ModelSpec {
         slug: "openai_gpt_image_v1_5",
         display_name: "GPT Image 1.5",
         owner: "OpenAI",
@@ -175,7 +186,7 @@ mod tests {
         for m in MODELS {
             assert!(seen.insert(m.slug), "duplicate slug: {}", m.slug);
         }
-        assert_eq!(MODELS.len(), 9);
+        assert_eq!(MODELS.len(), 10);
     }
 
     #[test]

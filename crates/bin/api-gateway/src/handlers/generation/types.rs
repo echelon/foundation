@@ -1,0 +1,212 @@
+//! Shared request/response types for the generation endpoints. The wire vocabulary uses
+//! familiar provider-style values ("1024x1024", "png") and maps onto the router's enums.
+
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+use enums::{ApiShape, JobSource};
+use foundation_router::image::plan::{
+  RouterImageQuality, RouterImageSize, RouterInputFidelity, RouterOutputFormat,
+};
+
+use crate::error::{ApiError, ApiResult};
+use crate::generation::service::{resolve_image_refs, EnqueueContext};
+use crate::generation::stored_params::StoredImageParams;
+use crate::middleware::AuthContext;
+use crate::state::AppState;
+use ids::AccountId;
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
+pub enum ApiImageSize {
+  #[serde(rename = "1024x1024")]
+  #[schema(rename = "1024x1024")]
+  Square,
+  #[serde(rename = "1536x1024")]
+  #[schema(rename = "1536x1024")]
+  Landscape,
+  #[serde(rename = "1024x1536")]
+  #[schema(rename = "1024x1536")]
+  Portrait,
+  #[serde(rename = "auto")]
+  #[schema(rename = "auto")]
+  Auto,
+}
+
+impl From<ApiImageSize> for RouterImageSize {
+  fn from(s: ApiImageSize) -> Self {
+    match s {
+      ApiImageSize::Square => Self::Square1024,
+      ApiImageSize::Landscape => Self::Landscape1536x1024,
+      ApiImageSize::Portrait => Self::Portrait1024x1536,
+      ApiImageSize::Auto => Self::Auto,
+    }
+  }
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiImageQuality {
+  Low,
+  Medium,
+  High,
+  Auto,
+}
+
+impl From<ApiImageQuality> for RouterImageQuality {
+  fn from(q: ApiImageQuality) -> Self {
+    match q {
+      ApiImageQuality::Low => Self::Low,
+      ApiImageQuality::Medium => Self::Medium,
+      ApiImageQuality::High => Self::High,
+      ApiImageQuality::Auto => Self::Auto,
+    }
+  }
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiOutputFormat {
+  Png,
+  Jpeg,
+  Webp,
+}
+
+impl From<ApiOutputFormat> for RouterOutputFormat {
+  fn from(f: ApiOutputFormat) -> Self {
+    match f {
+      ApiOutputFormat::Png => Self::Png,
+      ApiOutputFormat::Jpeg => Self::Jpeg,
+      ApiOutputFormat::Webp => Self::Webp,
+    }
+  }
+}
+
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiInputFidelity {
+  Low,
+  High,
+}
+
+impl From<ApiInputFidelity> for RouterInputFidelity {
+  fn from(f: ApiInputFidelity) -> Self {
+    match f {
+      ApiInputFidelity::Low => Self::Low,
+      ApiInputFidelity::High => Self::High,
+    }
+  }
+}
+
+fn default_n() -> u8 {
+  1
+}
+
+/// The image generation/edit params common to the Any and model-specific planes.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ImageParamsBody {
+  /// The account this job bills to (session callers may belong to several).
+  #[schema(value_type = String, example = "acct_01k0…")]
+  pub account_id: AccountId,
+  #[schema(example = "A watercolor lighthouse at dusk")]
+  pub prompt: String,
+  /// Edit inputs: `file_…` ids (from `POST /v1/files`) or public https URLs.
+  #[serde(default)]
+  pub image_inputs: Vec<String>,
+  /// Inpainting mask (transparent regions get regenerated) — `file_…` id or https URL.
+  #[serde(default)]
+  pub mask: Option<String>,
+  /// How many images (1–10). Each is generated independently; results arrive as each
+  /// finishes (partial completion).
+  #[serde(default = "default_n")]
+  #[schema(minimum = 1, maximum = 10, default = 1)]
+  pub n: u8,
+  pub size: Option<ApiImageSize>,
+  pub quality: Option<ApiImageQuality>,
+  pub output_format: Option<ApiOutputFormat>,
+  /// Edit-input faithfulness — pruned (and reported) on models without it.
+  pub input_fidelity: Option<ApiInputFidelity>,
+}
+
+impl ImageParamsBody {
+  /// Resolve refs + map enums into the persisted router param shape.
+  pub async fn into_stored(self, state: &AppState, model: &str) -> ApiResult<StoredImageParams> {
+    let image_urls = resolve_image_refs(state, &self.account_id, &self.image_inputs).await?;
+    let mask_url = match &self.mask {
+      Some(m) => Some(crate::generation::service::resolve_one(state, &self.account_id, m).await?),
+      None => None,
+    };
+    Ok(StoredImageParams {
+      model: model.to_string(),
+      prompt: self.prompt,
+      image_urls,
+      mask_url,
+      n: self.n,
+      size: self.size.map(Into::into),
+      quality: self.quality.map(Into::into),
+      output_format: self.output_format.map(Into::into),
+      input_fidelity: self.input_fidelity.map(Into::into),
+    })
+  }
+}
+
+/// Membership gate + enqueue context for a session caller.
+pub async fn session_enqueue_context<'a>(
+  state: &AppState,
+  auth: &'a AuthContext,
+  account_id: &'a AccountId,
+  api_shape: ApiShape,
+) -> ApiResult<EnqueueContext<'a>> {
+  db_queries::members::find_membership(&state.pool, account_id, &auth.user.id)
+    .await?
+    .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
+  Ok(EnqueueContext { account_id, user_id: Some(&auth.user.id), source: JobSource::Dashboard, api_shape })
+}
+
+/// A price quote (cost twins + echoed on enqueue). All amounts are USD micros.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CostResponse {
+  /// `exact`, `estimated` (good-faith; provider usage is authoritative), or `post_billed`.
+  pub certainty: String,
+  pub amount_micros: i64,
+  /// Upper bound when the price is a range.
+  pub max_micros: Option<i64>,
+  /// Human-readable dollars, e.g. `"$0.1200"`.
+  pub display: String,
+  pub line_items: Vec<CostLineItem>,
+  /// Params the router pruned/coerced to fit the model.
+  pub param_adjustments: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CostLineItem {
+  pub label: String,
+  pub amount_micros: i64,
+}
+
+/// Price a stored-param set without persisting anything (the cost twins).
+pub fn cost_response(params: &StoredImageParams) -> ApiResult<CostResponse> {
+  let plan = params
+    .to_plan()
+    .ok_or_else(|| ApiError::BadRequest(format!("unknown or unrouted model: {}", params.model)))?;
+  let built =
+    foundation_router::image::build::build_image_route(plan).map_err(|e| ApiError::BadRequest(e.to_string()))?;
+  let quote = built.route.price();
+  Ok(CostResponse {
+    certainty: match quote.certainty {
+      foundation_router::pricing::PriceCertainty::Exact => "exact",
+      foundation_router::pricing::PriceCertainty::Estimated => "estimated",
+      foundation_router::pricing::PriceCertainty::PostBilled => "post_billed",
+    }
+    .to_string(),
+    amount_micros: quote.amount_micros,
+    max_micros: quote.max_micros,
+    display: quote.amount_display(),
+    line_items: quote
+      .line_items
+      .iter()
+      .map(|li| CostLineItem { label: li.label.clone(), amount_micros: li.amount_micros })
+      .collect(),
+    param_adjustments: serde_json::to_value(&built.adjustments)
+      .map_err(|e| ApiError::Internal(e.to_string()))?,
+  })
+}

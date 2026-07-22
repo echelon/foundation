@@ -9,6 +9,8 @@ members = [
   "crates/core/catalog",
   # ── testing ──
   "crates/testing/test_data",
+  # ── routing ──
+  "crates/router",
   # ── data layer ──
   "crates/db",
   # ── provider clients (pure HTTP) ──
@@ -82,6 +84,7 @@ enums = { path = "crates/core/enums" }
 db = { path = "crates/db" }
 client_core = { path = "crates/clients/client-core" }
 test_data = { path = "crates/testing/test_data" }
+foundation_router = { path = "crates/router" }
 kinovi_client = { path = "crates/clients/kinovi_client" }
 openai_client = { path = "crates/clients/openai_client" }
 google_client = { path = "crates/clients/google_client" }

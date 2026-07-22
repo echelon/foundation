@@ -49,6 +49,8 @@ export type Model = {
   changelog: ChangelogEntry[];
   /** Slugs of related models for the "Related" section. */
   related: string[];
+  /** True when the model is actually routable through the live gateway (real playground). */
+  live?: boolean;
 };
 
 export const MODALITY_LABEL: Record<Modality, string> = {
@@ -151,13 +153,35 @@ export const MODELS: Model[] = [
     tags: ["text-to-image", "editing", "inpainting", "instruction"],
     released: "2025-04-23",
     status: "ga",
+    live: true,
     pricing: [
-      { unit: "per_image", usd: 0.04, note: "1024² · medium quality" },
-      { unit: "per_image", usd: 0.08, note: "1024² · high quality" },
+      { unit: "per_image", usd: 0.04, note: "1024² · medium quality · estimated" },
+      { unit: "per_image", usd: 0.167, note: "1024² · high quality · estimated" },
     ],
     controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "medium", options: [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "1.0", date: "2025-04-23", note: "GA release." }],
-    related: ["openai_gpt_image_v1_5", "openai_gpt_image_v2", "google_nano_banana"],
+    related: ["openai_gpt_image_v1_mini", "openai_gpt_image_v1_5", "openai_gpt_image_v2"],
+  },
+  {
+    slug: "openai_gpt_image_v1_mini",
+    name: "GPT Image 1 Mini",
+    provider: "OpenAI",
+    providerSlug: "openai",
+    modality: "image",
+    tagline: "The economical GPT Image tier for high-volume generation.",
+    description:
+      "GPT Image 1 Mini keeps the instruction-following behavior of the family at the lowest per-image price. Great for drafts, thumbnails, and high-volume automated pipelines.",
+    tags: ["text-to-image", "editing", "cheap", "high-volume"],
+    released: "2025-10-06",
+    status: "ga",
+    live: true,
+    pricing: [
+      { unit: "per_image", usd: 0.011, note: "1024² · medium quality · estimated" },
+      { unit: "per_image", usd: 0.036, note: "1024² · high quality · estimated" },
+    ],
+    controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "medium", options: [{ value: "low", label: "Low" }, { value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
+    changelog: [{ version: "1.0", date: "2025-10-06", note: "Mini tier launch." }],
+    related: ["openai_gpt_image_v1", "openai_gpt_image_v1_5", "openai_gpt_image_v2"],
   },
   {
     slug: "openai_gpt_image_v1_5",
@@ -171,9 +195,10 @@ export const MODELS: Model[] = [
     tags: ["text-to-image", "editing", "typography"],
     released: "2025-10-02",
     status: "ga",
+    live: true,
     pricing: [
-      { unit: "per_image", usd: 0.03, note: "1024² · medium quality" },
-      { unit: "per_image", usd: 0.06, note: "1024² · high quality" },
+      { unit: "per_image", usd: 0.034, note: "1024² · medium quality · estimated" },
+      { unit: "per_image", usd: 0.133, note: "1024² · high quality · estimated" },
     ],
     controls: [PROMPT, { key: "quality", label: "Quality", type: "select", default: "high", options: [{ value: "medium", label: "Medium" }, { value: "high", label: "High" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "1.5", date: "2025-10-02", note: "Anatomy + text quality, cheaper high tier." }],
@@ -191,9 +216,10 @@ export const MODELS: Model[] = [
     tags: ["text-to-image", "characters", "4k", "reference", "new"],
     released: "2026-05-14",
     status: "new",
+    live: true,
     pricing: [
-      { unit: "per_image", usd: 0.06, note: "up to 2K" },
-      { unit: "per_image", usd: 0.12, note: "4K" },
+      { unit: "per_image", usd: 0.06, note: "1024² · medium quality · estimated" },
+      { unit: "per_image", usd: 0.211, note: "1024² · high quality · estimated" },
     ],
     controls: [PROMPT, { key: "resolution", label: "Resolution", type: "select", default: "2k", options: [{ value: "1k", label: "1K" }, { value: "2k", label: "2K" }, { value: "4k", label: "4K" }] }, ASPECT, { key: "num_images", label: "Images", type: "slider", min: 1, max: 4, default: 1 }, SEED],
     changelog: [{ version: "2.0", date: "2026-05-14", note: "Multi-reference compositing + 4K." }],

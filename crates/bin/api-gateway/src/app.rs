@@ -10,7 +10,10 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::auth::token::JwtKeys;
-use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, login_methods, org, root, sessions};
+use crate::handlers::{
+  account, api_keys, audit_logs, auth, avatar, catalog, files, generation, invitations, login_methods, org, root,
+  sessions,
+};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
@@ -54,6 +57,11 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       .github_oauth
       .clone()
       .map(|g| Arc::new(crate::auth::github::GithubAuth::new(g.client_id, g.client_secret))),
+    openai: cfg
+      .providers
+      .openai
+      .clone()
+      .map(|k| Arc::new(openai_client::creds::openai_api_key::OpenAiApiKey::new(k))),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -80,6 +88,13 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
        api-gateway.development-secrets.env"
     );
   }
+
+  if state.openai.is_none() {
+    tracing::warn!("OPENAI_API_KEY not set — OpenAI generation dispatch disabled");
+  }
+  // The in-process dispatcher loop (dispatch.md's worker, embedded for now — extractable
+  // to its own bin when scale demands).
+  crate::generation::dispatcher::spawn(state.clone());
 
   let app = build_router(state);
   let addr = format!("0.0.0.0:{}", cfg.api_gateway_port);
@@ -182,8 +197,20 @@ pub fn build_router(state: AppState) -> Router {
     )
     .route("/v1/invitations/:code_or_token", get(invitations::resolve_invitation_handler))
     .route("/v1/invitations/:id/accept", post(invitations::accept_invitation_handler))
-    // Avatar uploads carry whole photos; the axum default (2 MB) is too small.
-    .layer(axum::extract::DefaultBodyLimit::max(10 * 1024 * 1024))
+    // generation: the Any plane, the unified model plane, their cost twins, job polling
+    .route("/v1/any/image", post(generation::generate_any_image_handler))
+    .route("/v1/any/image/cost", post(generation::cost_any_image_handler))
+    .route("/v1/models/:slug/generate", post(generation::generate_with_model_handler))
+    .route("/v1/models/:slug/generate/cost", post(generation::cost_with_model_handler))
+    .route("/v1/jobs", get(generation::list_jobs_handler))
+    .route("/v1/jobs/:id", get(generation::get_job_handler))
+    .route("/v1/jobs/:id/status", get(generation::get_job_status_handler))
+    .route("/v1/admin/jobs", get(generation::admin_list_jobs_handler))
+    // input uploads (image editing sources)
+    .route("/v1/files", post(files::upload_file_handler))
+    // Avatar photos and generation input images are whole files; the axum default (2 MB)
+    // is far too small.
+    .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
     .layer(cors)
     .layer(TraceLayer::new_for_http())
     .with_state(state)

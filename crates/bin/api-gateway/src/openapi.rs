@@ -5,7 +5,10 @@
 use utoipa::openapi::security::{ApiKey, ApiKeyValue, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 
-use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invitations, login_methods, org, root, sessions};
+use crate::handlers::{
+  account, api_keys, audit_logs, auth, avatar, catalog, files, generation, invitations, login_methods, org, root,
+  sessions,
+};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -63,6 +66,15 @@ use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invi
     invitations::cancel_invitation_handler,
     invitations::resolve_invitation_handler,
     invitations::accept_invitation_handler,
+    generation::generate_any_image_handler,
+    generation::cost_any_image_handler,
+    generation::generate_with_model_handler,
+    generation::cost_with_model_handler,
+    generation::list_jobs_handler,
+    generation::get_job_handler,
+    generation::get_job_status_handler,
+    generation::admin_list_jobs_handler,
+    files::upload_file_handler,
   ),
   modifiers(&SessionCookieSecurity),
   tags(
@@ -76,6 +88,9 @@ use crate::handlers::{account, api_keys, audit_logs, auth, avatar, catalog, invi
     (name = "api-keys", description = "API keys: list, mint (secret shown once), revoke"),
     (name = "invitations", description = "Inviting people into an organization"),
     (name = "audit-logs", description = "Keyset-paginated audit trails"),
+    (name = "generation", description = "Image generation: enqueue (Any + model-specific planes), cost quotes, job polling"),
+    (name = "files", description = "Input uploads: `file_…` ids + CDN URLs for generation inputs"),
+    (name = "admin", description = "Staff-only record browsing"),
   )
 )]
 pub struct ApiDoc;
@@ -108,7 +123,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 45 operations over 41 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
-    assert_eq!(documented.len(), 41, "unexpected number of documented paths: {documented:#?}");
+    // 54 operations over 50 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
+    assert_eq!(documented.len(), 50, "unexpected number of documented paths: {documented:#?}");
   }
 }

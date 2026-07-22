@@ -29,6 +29,7 @@ define_id!(pub struct EndUserId => "enduser");
 // ── Jobs, files, assets, queue ──
 define_id!(pub struct JobId => "job");
 define_id!(pub struct JobEventId => "jevt");
+define_id!(pub struct JobSliceId => "slice");
 define_id!(pub struct FileId => "file");
 define_id!(pub struct OutputId => "out");
 define_id!(pub struct AssetIngestId => "ingest");

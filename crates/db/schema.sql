@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict H0S3k8Suh0cn46saAfRVdDKQUfPQ1A5lFrc0BIofjq12NAN5NsOKgfJDob85dpz
+\restrict 1ehLxzoiZjkiKbYf1z7R9aKfnZWdT7j045kayTLrTWVlpGFlQijTtcXQt9ZezxU
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -692,6 +692,40 @@ CREATE TABLE public.job_events (
 
 ALTER TABLE public.job_events ALTER COLUMN sid ADD GENERATED ALWAYS AS IDENTITY (
     SEQUENCE NAME public.job_events_sid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: job_slices; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.job_slices (
+    sid bigint NOT NULL,
+    id text NOT NULL,
+    job_id text NOT NULL,
+    slice_index integer NOT NULL,
+    status text NOT NULL,
+    provider_job_id text,
+    failure_code text,
+    failure_message text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    dispatched_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    CONSTRAINT job_slices_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'running'::text, 'succeeded'::text, 'failed'::text, 'canceled'::text])))
+);
+
+
+--
+-- Name: job_slices_sid_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.job_slices ALTER COLUMN sid ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.job_slices_sid_seq
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -1992,6 +2026,22 @@ ALTER TABLE ONLY public.job_events
 
 
 --
+-- Name: job_slices job_slices_job_id_slice_index_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_slices
+    ADD CONSTRAINT job_slices_job_id_slice_index_key UNIQUE (job_id, slice_index);
+
+
+--
+-- Name: job_slices job_slices_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_slices
+    ADD CONSTRAINT job_slices_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: jobs jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2392,6 +2442,20 @@ CREATE INDEX invoices_account_period ON public.invoices USING btree (account_id,
 
 
 --
+-- Name: job_slices_job_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX job_slices_job_idx ON public.job_slices USING btree (job_id);
+
+
+--
+-- Name: job_slices_provider_jobid_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX job_slices_provider_jobid_idx ON public.job_slices USING btree (provider_job_id);
+
+
+--
 -- Name: jobs_account_created_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2598,5 +2662,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict H0S3k8Suh0cn46saAfRVdDKQUfPQ1A5lFrc0BIofjq12NAN5NsOKgfJDob85dpz
+\unrestrict 1ehLxzoiZjkiKbYf1z7R9aKfnZWdT7j045kayTLrTWVlpGFlQijTtcXQt9ZezxU
 

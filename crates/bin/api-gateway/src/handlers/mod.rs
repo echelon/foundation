@@ -10,6 +10,8 @@ pub mod audit_logs;
 pub mod auth;
 pub mod avatar;
 pub mod catalog;
+pub mod files;
+pub mod generation;
 pub mod invitations;
 pub mod login_methods;
 pub mod org;

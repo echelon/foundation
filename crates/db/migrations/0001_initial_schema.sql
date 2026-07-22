@@ -325,6 +325,30 @@ CREATE TABLE job_events (
     created_at timestamptz not null default now()
 );
 
+-- job_slices (NEW 2026-07-22, jobs.md addendum): fan-out units for jobs whose ONE API
+-- request maps to MULTIPLE provider calls (e.g. GPT Image n>1 → n background responses,
+-- since OpenAI's Responses image tool has no `n`). Rows exist ONLY for fanned-out jobs —
+-- single-call jobs keep provider state on the jobs row itself. `slice_index` maps 1:1 to
+-- `outputs.output_index`, which is how partial completion surfaces: outputs appear as each
+-- slice lands. The job goes `succeeded` when ≥1 slice succeeds (partial results beat none);
+-- `failed` only when every slice failed.
+CREATE TABLE job_slices (
+    sid             bigint generated always as identity,
+    id              text primary key,                              -- slice_{ulid}
+    job_id          text not null,
+    slice_index     int not null,
+    status          text not null CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
+    provider_job_id text,                                          -- e.g. OpenAI resp_…
+    failure_code    text,
+    failure_message text,
+    created_at      timestamptz not null default now(),
+    dispatched_at   timestamptz,
+    completed_at    timestamptz,
+    UNIQUE (job_id, slice_index)
+);
+CREATE INDEX job_slices_job_idx             ON job_slices (job_id);
+CREATE INDEX job_slices_provider_jobid_idx  ON job_slices (provider_job_id);
+
 -- ─────────────────────────── Files & outputs (files.md §2) ───────────────────────────
 
 CREATE TABLE files (

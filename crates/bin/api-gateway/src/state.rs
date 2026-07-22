@@ -40,4 +40,7 @@ pub struct AppState {
   pub google: Option<Arc<crate::auth::google::GoogleAuth>>,
   /// GitHub code exchanger. `None` when GITHUB_CLIENT_ID/SECRET are unset — same graceful-off.
   pub github: Option<Arc<crate::auth::github::GithubAuth>>,
+  /// OpenAI provider credential for generation dispatch. `None` = OpenAI models undispatchable
+  /// (enqueue still works; jobs fail at dispatch with provider_error).
+  pub openai: Option<Arc<openai_client::creds::openai_api_key::OpenAiApiKey>>,
 }

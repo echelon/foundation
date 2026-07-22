@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { mockGenerate, playgroundHistory, type GenerateResult, type PlayRun } from "@/lib/mock-api";
 import { MODALITY_LABEL, priceLabel, type Control, type Model } from "@/lib/catalog";
 import { cn } from "@/lib/cn";
+import { LiveImagePlayground } from "./LiveImagePlayground";
 
 type Values = Record<string, unknown>;
 
@@ -24,6 +25,13 @@ function defaults(model: Model, initial?: Values): Values {
 }
 
 export function Playground({ model, initialValues }: { model: Model; initialValues?: Values }) {
+  // Routable models get the REAL playground (live API + uploads + polling); the rest keep
+  // the mock preview until their providers are wired up.
+  if (model.live) return <LiveImagePlayground model={model} />;
+  return <MockPlayground model={model} initialValues={initialValues} />;
+}
+
+function MockPlayground({ model, initialValues }: { model: Model; initialValues?: Values }) {
   const { user } = useAuth();
   const [values, setValues] = useState<Values>(() => defaults(model, initialValues));
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");

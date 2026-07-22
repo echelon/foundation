@@ -29,6 +29,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     status_message: None,
     google: None,
     github: None,
+    openai: None,
   };
   (api_gateway::build_router(state), pool)
 }

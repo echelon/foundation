@@ -30,6 +30,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     status_message: None,
     google: None,
     github: None,
+    openai: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -182,6 +183,7 @@ async fn app_with_google() -> (Router, db::PgPool) {
       GOOGLE_TEST_JWKS,
     ))),
     github: None,
+    openai: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -383,6 +385,7 @@ async fn api_status_reports_reachability_and_operator_message() {
     status_message: Some("Scheduled maintenance at 03:00 UTC.".into()),
     google: None,
     github: None,
+    openai: None,
   };
   let app = api_gateway::build_router(state);
   let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();
@@ -554,6 +557,7 @@ async fn app_with_github(mock_base: &str) -> (Router, db::PgPool) {
       format!("{mock_base}/login/oauth/access_token"),
       mock_base.to_string(),
     ))),
+    openai: None,
   };
   (api_gateway::build_router(state), pool)
 }

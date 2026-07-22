@@ -1,134 +1,171 @@
-import { useMemo, useState } from "react";
-import { Info, Search } from "lucide-react";
-import { Badge, Card, Input } from "@/components/ui";
-import { RequestRow } from "./RequestBits";
-import { REQUESTS, END_USERS, type JobStatus } from "@/lib/mock-api";
-import { cn } from "@/lib/cn";
+/**
+ * Dashboard → Requests: the organization's REAL generation history (`GET /v1/jobs`),
+ * newest first with keyset "load more". Each row is a job: outputs (CDN thumbnails),
+ * status + fan-out progress, model, and the price estimate.
+ */
 
-type Scope = "mine" | "account";
+import { useEffect, useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { Badge, Button, Card, Select } from "@/components/ui";
+import { useOrg } from "@/lib/org";
+import { api, type ApiJob } from "@/lib/api";
+import { MODELS } from "@/lib/catalog";
+
+const LIVE_MODELS = MODELS.filter((m) => m.live);
 
 export default function Requests() {
-  const [scope, setScope] = useState<Scope>("account");
-  const [endUser, setEndUser] = useState<string>("all");
-  const [status, setStatus] = useState<JobStatus | "all">("all");
-  const [query, setQuery] = useState("");
+  const { current, loading: orgLoading } = useOrg();
+  const [model, setModel] = useState<string>("all");
+  const [jobs, setJobs] = useState<ApiJob[]>([]);
+  const [nextAfter, setNextAfter] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [nonce, setNonce] = useState(0);
 
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return REQUESTS.filter((r) => {
-      if (scope === "mine" && !r.mine) return false;
-      if (endUser !== "all" && r.endUser !== endUser) return false;
-      if (status !== "all" && r.status !== status) return false;
-      if (q && !(`${r.id} ${r.modelSlug} ${r.summary} ${r.endUser ?? ""}`.toLowerCase().includes(q))) return false;
-      return true;
-    });
-  }, [scope, endUser, status, query]);
+  useEffect(() => {
+    if (!current) return;
+    let dead = false;
+    setLoading(true);
+    api
+      .listJobs(current.account_id, model === "all" ? undefined : { model })
+      .then((page) => {
+        if (dead) return;
+        setJobs(page.jobs);
+        setNextAfter(page.next_after);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+    return () => {
+      dead = true;
+    };
+  }, [current, model, nonce]);
 
-  const totalCost = rows.reduce((s, r) => s + r.costUsd, 0);
+  const loadMore = async () => {
+    if (!current || !nextAfter) return;
+    setLoading(true);
+    try {
+      const page = await api.listJobs(current.account_id, {
+        after: nextAfter,
+        ...(model === "all" ? {} : { model }),
+      });
+      setJobs((j) => [...j, ...page.jobs]);
+      setNextAfter(page.next_after);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalEstimate = jobs.reduce((s, j) => s + j.estimated_micros, 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-3xl font-bold tracking-tight">Requests</h1>
-        <p className="mt-1 text-muted">Inspect every generation on the account — yours and your customers' end-users.</p>
+        <p className="mt-1 text-muted">Every generation job on the organization — playground, dashboard, and API.</p>
       </div>
 
-      {/* ── Scope explainer ── */}
-      <Card className="flex items-start gap-3 border-brand/30 bg-brand/[0.05] p-4">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
-        <p className="text-sm text-muted">
-          <strong className="text-fg">Account scope</strong> shows everything that transited your account,
-          including traffic your customers' end-users generated through your integration (tagged with{" "}
-          <code className="rounded bg-surface2 px-1.5 py-0.5">end_user</code>). Switch to{" "}
-          <strong className="text-fg">My requests</strong> to see only what you ran in the dashboard.
-        </p>
-      </Card>
-
-      {/* ── Controls ── */}
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-          {(["account", "mine"] as Scope[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setScope(s)}
-              className={cn(
-                "rounded-md px-4 py-1.5 text-sm font-medium transition",
-                scope === s ? "brand-gradient text-white shadow-glow" : "text-muted hover:text-fg",
-              )}
-            >
-              {s === "account" ? "All account traffic" : "My requests"}
-            </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <Select value={model} onChange={(e) => setModel(e.target.value)}>
+          <option value="all">All models</option>
+          {LIVE_MODELS.map((m) => (
+            <option key={m.slug} value={m.slug}>
+              {m.name}
+            </option>
           ))}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input placeholder="Search requests…" value={query} onChange={(e) => setQuery(e.target.value)} className="w-48 pl-9" />
-          </div>
-          <select
-            value={endUser}
-            onChange={(e) => setEndUser(e.target.value)}
-            disabled={scope === "mine"}
-            className="h-10 rounded-lg border border-border bg-bg px-3 text-sm text-fg outline-none focus:border-brand focus:ring-2 focus:ring-brand/25 disabled:opacity-50"
-          >
-            <option value="all">All end-users</option>
-            {END_USERS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as JobStatus | "all")}
-            className="h-10 rounded-lg border border-border bg-bg px-3 text-sm text-fg outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
-          >
-            <option value="all">Any status</option>
-            <option value="succeeded">Succeeded</option>
-            <option value="running">Running</option>
-            <option value="failed">Failed</option>
-          </select>
-        </div>
+        </Select>
+        <Button variant="outline" size="sm" onClick={() => setNonce((n) => n + 1)} disabled={loading}>
+          <RefreshCw className="h-4 w-4" /> Refresh
+        </Button>
+        {jobs.length > 0 && (
+          <span className="ml-auto text-sm text-muted">
+            {jobs.length} job{jobs.length === 1 ? "" : "s"} · est. ${(totalEstimate / 1_000_000).toFixed(4)}
+          </span>
+        )}
       </div>
 
-      {/* ── Summary ── */}
-      <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
-        <Badge>{rows.length} requests</Badge>
-        <span>·</span>
-        <span>
-          Total cost <strong className="text-fg">${totalCost.toFixed(2)}</strong>
-        </span>
-      </div>
-
-      {/* ── Table ── */}
       <Card className="overflow-hidden">
-        <div className="scrollbar-thin overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border text-left text-muted">
-              <tr>
-                <th className="px-5 py-3 font-medium">Request</th>
-                <th className="px-5 py-3 font-medium">Model</th>
-                <th className="px-5 py-3 font-medium">Source</th>
-                <th className="px-5 py-3 font-medium">End-user</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-                <th className="px-5 py-3 text-right font-medium">Cost</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length ? (
-                rows.map((r) => <RequestRow key={r.id} r={r} />)
-              ) : (
-                <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center text-muted">
-                    No requests match these filters.
-                  </td>
+        {orgLoading || (loading && jobs.length === 0) ? (
+          <p className="px-5 py-8 text-sm text-muted">Loading…</p>
+        ) : jobs.length === 0 ? (
+          <p className="px-5 py-8 text-sm text-muted">
+            No jobs yet. Run something in a model playground or hit the API — it lands here.
+          </p>
+        ) : (
+          <div className="scrollbar-thin overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-left text-xs text-muted">
+                  <th className="py-2 pl-5 pr-3 font-medium">Output</th>
+                  <th className="px-3 py-2 font-medium">Job</th>
+                  <th className="px-3 py-2 font-medium">Model</th>
+                  <th className="px-3 py-2 font-medium">Status</th>
+                  <th className="hidden px-3 py-2 font-medium sm:table-cell">Kind</th>
+                  <th className="py-2 pl-3 pr-5 text-right font-medium">Est. cost</th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {jobs.map((j) => (
+                  <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
+                    <td className="py-3 pl-5 pr-3">
+                      <div className="flex -space-x-2">
+                        {j.outputs.slice(0, 3).map((o) => (
+                          <a key={o.index} href={o.url} target="_blank" rel="noreferrer">
+                            <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
+                          </a>
+                        ))}
+                        {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="font-mono text-[13px] text-fg">{j.id}</div>
+                      <div className="text-xs text-muted">{new Date(j.created_at).toLocaleString()}</div>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs text-muted">{j.model}</td>
+                    <td className="px-3 py-3">
+                      <JobStatusBadge job={j} />
+                    </td>
+                    <td className="hidden px-3 py-3 text-xs text-muted sm:table-cell">{j.modality.replace(/_/g, " ")}</td>
+                    <td className="py-3 pl-3 pr-5 text-right font-medium text-fg">
+                      ${(j.estimated_micros / 1_000_000).toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {nextAfter && (
+          <div className="border-t border-border px-5 py-3">
+            <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={loading}>
+              {loading ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        )}
       </Card>
     </div>
+  );
+}
+
+export function JobStatusBadge({ job }: { job: ApiJob }) {
+  const badge =
+    job.status === "succeeded" ? (
+      <Badge tone="green">succeeded</Badge>
+    ) : job.status === "failed" ? (
+      <Badge tone="red">failed</Badge>
+    ) : job.status === "running" ? (
+      <Badge tone="amber">running</Badge>
+    ) : job.status === "queued" ? (
+      <Badge tone="brand">queued</Badge>
+    ) : (
+      <Badge>{job.status}</Badge>
+    );
+  return (
+    <span className="inline-flex items-center gap-2">
+      {badge}
+      {job.progress && (
+        <span className="text-xs text-muted">
+          {job.progress.succeeded}/{job.progress.total}
+        </span>
+      )}
+    </span>
   );
 }

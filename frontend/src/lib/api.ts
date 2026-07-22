@@ -247,6 +247,70 @@ export type AuditItem = {
 /** A keyset-paginated page: pass `next_before` back as `before` for the next page. */
 export type AuditPage = { items: AuditItem[]; next_before: string | null };
 
+/* ── Generation (jobs) ── */
+
+export type ApiImageSize = "1024x1024" | "1536x1024" | "1024x1536" | "auto";
+export type ApiImageQuality = "low" | "medium" | "high" | "auto";
+export type ApiOutputFormat = "png" | "jpeg" | "webp";
+export type ApiInputFidelity = "low" | "high";
+
+/** The params shared by `POST /v1/any/image` and `POST /v1/models/{slug}/generate`. */
+export type ImageGenerationParams = {
+  account_id: string;
+  prompt: string;
+  /** `file_…` ids (from uploadFile) or public https URLs. */
+  image_inputs?: string[];
+  mask?: string | null;
+  /** 1–10; each image is generated independently (partial completion). */
+  n?: number;
+  size?: ApiImageSize;
+  quality?: ApiImageQuality;
+  output_format?: ApiOutputFormat;
+  input_fidelity?: ApiInputFidelity;
+};
+
+export type ApiJobOutput = { index: number; kind: string; url: string; mime: string; bytes: number };
+
+/** Present only for fanned-out (n>1) jobs. */
+export type ApiJobProgress = { completed: number; total: number; succeeded: number; failed: number };
+
+export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "expired";
+
+export type ApiJob = {
+  id: string;
+  model: string;
+  modality: string;
+  status: ApiJobStatus;
+  progress?: ApiJobProgress | null;
+  outputs: ApiJobOutput[];
+  failure_code: string | null;
+  failure_message: string | null;
+  estimated_micros: number;
+  param_adjustments: { param: string; action: "pruned" | "coerced"; detail: string }[];
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type AdminJob = ApiJob & { account_id: string };
+
+export type ApiCostQuote = {
+  certainty: "exact" | "estimated" | "post_billed";
+  amount_micros: number;
+  max_micros: number | null;
+  display: string;
+  line_items: { label: string; amount_micros: number }[];
+  param_adjustments: { param: string; action: "pruned" | "coerced"; detail: string }[];
+};
+
+export type UploadedFile = {
+  file_id: string;
+  cdn_url: string;
+  mime: string;
+  bytes: number;
+  width: number;
+  height: number;
+};
+
 function pageQuery(before?: string, limit = 25): string {
   const params = new URLSearchParams({ limit: String(limit) });
   if (before) params.set("before", before);
@@ -455,6 +519,47 @@ export const api = {
   /** A member's trail as the org sees it — org-visible rows only (owner/admin only). */
   memberAuditLogs: (accountId: string, userId: string, before?: string, limit?: number) =>
     request<AuditPage>("GET", `/v1/accounts/${accountId}/members/${userId}/audit_logs${pageQuery(before, limit)}`),
+
+  /* ── Generation ── */
+
+  /** Enqueue on the Any plane (model as a param). Returns the queued job — poll getJob. */
+  generateAnyImage: (body: ImageGenerationParams & { model: string }) =>
+    request<ApiJob>("POST", "/v1/any/image", body),
+
+  /** Price an Any-plane request without running it. */
+  costAnyImage: (body: ImageGenerationParams & { model: string }) =>
+    request<ApiCostQuote>("POST", "/v1/any/image/cost", body),
+
+  /** Enqueue on the model-specific (unified) plane — the model is the path resource. */
+  generateWithModel: (slug: string, body: ImageGenerationParams) =>
+    request<ApiJob>("POST", `/v1/models/${slug}/generate`, body),
+
+  /** Price a model-specific request without running it. */
+  costWithModel: (slug: string, body: ImageGenerationParams) =>
+    request<ApiCostQuote>("POST", `/v1/models/${slug}/generate/cost`, body),
+
+  /** Full job: status, outputs-so-far (CDN URLs), fan-out progress, failure, price. */
+  getJob: (jobId: string, accountId: string) =>
+    request<ApiJob>("GET", `/v1/jobs/${jobId}?account_id=${encodeURIComponent(accountId)}`),
+
+  /** The account's job history, newest first (keyset: pass `after` from the prior page). */
+  listJobs: (accountId: string, opts?: { model?: string; after?: string }) => {
+    const q = new URLSearchParams({ account_id: accountId });
+    if (opts?.model) q.set("model", opts.model);
+    if (opts?.after) q.set("after", opts.after);
+    return request<{ jobs: ApiJob[]; next_after: string | null }>("GET", `/v1/jobs?${q}`);
+  },
+
+  /** Staff only: recent jobs across every account. */
+  adminListJobs: (after?: string) =>
+    request<{ jobs: AdminJob[]; next_after: string | null }>(
+      "GET",
+      `/v1/admin/jobs${after ? `?after=${encodeURIComponent(after)}` : ""}`,
+    ),
+
+  /** Upload a generation input image; returns the `file_…` id + CDN URL. */
+  uploadFile: (accountId: string, file: Blob) =>
+    send<UploadedFile>("POST", `/v1/files?account_id=${encodeURIComponent(accountId)}`, { body: file }),
 
   /* ── Sessions ── */
 
