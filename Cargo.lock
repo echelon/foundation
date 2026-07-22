@@ -851,6 +851,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "gemini_api_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "client_core",
+ "money",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,22 +923,6 @@ checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
 dependencies = [
  "color_quant",
  "weezl",
-]
-
-[[package]]
-name = "google_aistudio_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
