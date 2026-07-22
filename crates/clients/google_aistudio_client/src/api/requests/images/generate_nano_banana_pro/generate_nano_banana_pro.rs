@@ -1,4 +1,7 @@
 //! `POST /models/gemini-3-pro-image:generateContent` — **Nano Banana Pro** (`gemini-3-pro-image`).
+//! The premium tier for the most complex visual tasks: highest world
+//! knowledge, advanced localization, brand consistency, and precision
+//! creative control.
 //! One binding covers BOTH modalities: pure text-to-image (leave `images`
 //! empty) and image editing / reference generation (attach [`ImageInput`]s).
 //! Synchronous by provider design — run it from a worker.

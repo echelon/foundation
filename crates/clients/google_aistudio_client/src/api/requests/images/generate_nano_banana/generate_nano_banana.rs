@@ -1,4 +1,7 @@
 //! `POST /models/gemini-2.5-flash-image:generateContent` — **Nano Banana** (`gemini-2.5-flash-image`).
+//! LEGACY: the pioneer of the Nano Banana series — still reliable, but Google
+//! recommends transitioning to Nano Banana 2 Lite for better quality, speed,
+//! and price.
 //! One binding covers BOTH modalities: pure text-to-image (leave `images`
 //! empty) and image editing / reference generation (attach [`ImageInput`]s).
 //! Synchronous by provider design — run it from a worker.

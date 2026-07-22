@@ -1,4 +1,7 @@
 //! `POST /models/gemini-3.1-flash-image:generateContent` — **Nano Banana 2** (`gemini-3.1-flash-image`).
+//! The generalist workhorse: balances speed with state-of-the-art 4K output,
+//! world knowledge, reliable text rendering, and strong multi-reference
+//! consistency.
 //! One binding covers BOTH modalities: pure text-to-image (leave `images`
 //! empty) and image editing / reference generation (attach [`ImageInput`]s).
 //! Synchronous by provider design — run it from a worker.

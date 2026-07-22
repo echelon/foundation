@@ -1,5 +1,6 @@
-//! Google AI Studio (Gemini API) client — the **Nano Banana** image family and
-//! the **Veo 3.1** video family, sourced DIRECTLY from Google
+//! Google AI Studio (Gemini API) client — the **Nano Banana** image family,
+//! the **Veo 3.1** video family, **Lyria 3** music, and **Gemini Omni Flash**
+//! multimodal video, sourced DIRECTLY from Google
 //! (`generativelanguage.googleapis.com`, `x-goog-api-key` auth).
 //!
 //! Shape (mirrors `openai_client` / `kinovi_client`):
@@ -13,10 +14,11 @@
 //!   - `#[ignore]`d live tests read `external/credentials/google_aistudio_api_key.txt`.
 //!
 //! Async posture: **Veo is natively async** (`predictLongRunning` → poll →
-//! download; results persist ~2 days). **Image generation is synchronous by
-//! provider design** — no poll/webhook variant exists for interactive use (the
-//! Batch API is 24-hour-turnaround bulk only), so run image calls from a
-//! worker, never a held-open handler.
+//! download; results persist ~2 days). **Image, music (Lyria), and Omni calls
+//! are synchronous by provider design** — run them from a worker, never a
+//! held-open handler. Omni softens this with `delivery: uri` (this crate's
+//! default): the response is a Files handle to poll + download rather than a
+//! giant inline body.
 //!
 //! Input images: the Gemini API does NOT fetch public HTTP URLs. Prefer the
 //! free Files API (`api::requests::files::upload_image_file`, ~48 h retention)

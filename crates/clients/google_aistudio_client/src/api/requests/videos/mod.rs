@@ -1,5 +1,6 @@
 pub(crate) mod common;
 pub mod download_video;
+pub mod generate_gemini_omni_flash;
 pub mod generate_veo_3_1;
 pub mod generate_veo_3_1_fast;
 pub mod generate_veo_3_1_lite;

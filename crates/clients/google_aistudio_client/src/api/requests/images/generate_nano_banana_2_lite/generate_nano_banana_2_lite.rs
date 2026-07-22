@@ -1,4 +1,6 @@
 //! `POST /models/gemini-3.1-flash-lite-image:generateContent` — **Nano Banana 2 Lite** (`gemini-3.1-flash-lite-image`).
+//! The fastest, cheapest tier — engineered for velocity and scale. NOT
+//! optimized for multiple reference inputs or multi-turn sequential editing.
 //! One binding covers BOTH modalities: pure text-to-image (leave `images`
 //! empty) and image editing / reference generation (attach [`ImageInput`]s).
 //! Synchronous by provider design — run it from a worker.
