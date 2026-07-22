@@ -97,7 +97,8 @@ use crate::handlers::{
 )]
 pub struct ApiDoc;
 
-/// Registers the `session_cookie` scheme referenced by `security(("session_cookie" = []))`.
+/// Registers the `session_cookie` scheme referenced by `security(("session_cookie" = []))`
+/// and the `api_key` scheme (`Authorization: Bearer foundation_api_…`, api_overview.md §auth).
 struct SessionCookieSecurity;
 
 impl Modify for SessionCookieSecurity {
@@ -109,6 +110,19 @@ impl Modify for SessionCookieSecurity {
         crate::auth::cookie::COOKIE_NAME,
         "HttpOnly session cookie set by signup/login",
       ))),
+    );
+    components.add_security_scheme(
+      "api_key",
+      SecurityScheme::Http(
+        utoipa::openapi::security::HttpBuilder::new()
+          .scheme(utoipa::openapi::security::HttpAuthScheme::Bearer)
+          .description(Some(
+            "Account-scoped API key (`foundation_api_…`) — canonical form `Authorization: Bearer`; \
+             `X-API-Key`, `Authorization: Key`, bare `Authorization`, and Basic (key as username) \
+             are also accepted.",
+          ))
+          .build(),
+      ),
     );
   }
 }

@@ -97,6 +97,7 @@ export default function Requests() {
                   <th className="py-2 pl-5 pr-3 font-medium">Output</th>
                   <th className="px-3 py-2 font-medium">Job</th>
                   <th className="px-3 py-2 font-medium">Model</th>
+                  <th className="px-3 py-2 font-medium">Source</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="hidden px-3 py-2 font-medium sm:table-cell">Kind</th>
                   <th className="py-2 pl-3 pr-5 text-right font-medium">Est. cost</th>
@@ -120,6 +121,16 @@ export default function Requests() {
                       <div className="text-xs text-muted">{new Date(j.created_at).toLocaleString()}</div>
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-muted">{j.model}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-col gap-1">
+                        <Badge tone={j.source === "api_key" ? "brand" : "muted"}>
+                          {j.source === "api_key" ? "API key" : j.source}
+                        </Badge>
+                        <span className="font-mono text-[11px] text-muted">
+                          {j.api_shape === "any" ? "/v1/any/image" : "/v1/models/{slug}"}
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-3 py-3">
                       <JobStatusBadge job={j} />
                     </td>

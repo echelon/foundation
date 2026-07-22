@@ -5,9 +5,9 @@ use axum::extract::State;
 use axum::Json;
 
 use super::generate_any_image_handler::AnyImageBody;
-use super::types::{cost_response, CostResponse};
+use super::types::{cost_response, resolve_caller_account, CostResponse};
 use crate::error::ApiResult;
-use crate::middleware::AuthContext;
+use crate::middleware::Caller;
 use crate::state::AppState;
 
 /// Quote the price (USD micros) of the EXACT request you would send to `POST /v1/any/image`,
@@ -15,7 +15,7 @@ use crate::state::AppState;
 #[utoipa::path(
   post, path = "/v1/any/image/cost",
   tag = "generation",
-  security(("session_cookie" = [])),
+  security(("session_cookie" = []), ("api_key" = [])),
   request_body = AnyImageBody,
   responses(
     (status = 200, description = "The quote", body = CostResponse),
@@ -24,10 +24,10 @@ use crate::state::AppState;
 )]
 pub async fn cost_any_image_handler(
   State(state): State<AppState>,
-  auth: AuthContext,
+  caller: Caller,
   Json(body): Json<AnyImageBody>,
 ) -> ApiResult<Json<CostResponse>> {
-  let _ = &auth; // any signed-in user may price a request
-  let stored = body.params.into_stored(&state, &body.model).await?;
+  let account_id = resolve_caller_account(&state, &caller, body.params.account_id.as_ref()).await?;
+  let stored = body.params.into_stored(&state, &account_id, &body.model).await?;
   Ok(Json(cost_response(&stored)?))
 }

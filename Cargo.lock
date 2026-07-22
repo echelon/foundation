@@ -70,6 +70,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "axum",
+ "base64",
  "bucket_client",
  "bucket_paths",
  "catalog",

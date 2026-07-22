@@ -8,11 +8,11 @@ use axum::Json;
 
 use enums::ApiShape;
 
-use super::types::{session_enqueue_context, ImageParamsBody};
+use super::types::{enqueue_context, resolve_caller_account, ImageParamsBody};
 use crate::error::{ApiError, ApiResult};
 use crate::generation::job_response::JobBody;
 use crate::generation::service::enqueue_image_job;
-use crate::middleware::AuthContext;
+use crate::middleware::Caller;
 use crate::state::AppState;
 
 /// Enqueues an image job on this specific model — poll `GET /v1/jobs/{id}`. Same async
@@ -21,7 +21,7 @@ use crate::state::AppState;
 #[utoipa::path(
   post, path = "/v1/models/{slug}/generate",
   tag = "generation",
-  security(("session_cookie" = [])),
+  security(("session_cookie" = []), ("api_key" = [])),
   params(("slug" = String, Path, description = "Catalog model slug, e.g. `openai_gpt_image_v2`")),
   request_body = ImageParamsBody,
   responses(
@@ -32,16 +32,16 @@ use crate::state::AppState;
 )]
 pub async fn generate_with_model_handler(
   State(state): State<AppState>,
-  auth: AuthContext,
+  caller: Caller,
   Path(slug): Path<String>,
   Json(body): Json<ImageParamsBody>,
 ) -> ApiResult<(StatusCode, Json<JobBody>)> {
   if catalog::by_slug(&slug).is_none() {
     return Err(ApiError::NotFound(format!("unknown model: {slug}")));
   }
-  let account_id = body.account_id.clone();
-  let ctx = session_enqueue_context(&state, &auth, &account_id, ApiShape::Unified, body.dry_run).await?;
-  let stored = body.into_stored(&state, &slug).await?;
+  let account_id = resolve_caller_account(&state, &caller, body.account_id.as_ref()).await?;
+  let ctx = enqueue_context(&caller, &account_id, ApiShape::Unified, body.dry_run);
+  let stored = body.into_stored(&state, &account_id, &slug).await?;
   let job = enqueue_image_job(&state, ctx, stored).await?;
   Ok((StatusCode::CREATED, Json(job)))
 }

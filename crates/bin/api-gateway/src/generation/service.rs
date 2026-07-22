@@ -65,6 +65,8 @@ pub async fn resolve_one(state: &AppState, account_id: &AccountId, raw: &str) ->
 pub struct EnqueueContext<'a> {
   pub account_id: &'a AccountId,
   pub user_id: Option<&'a UserId>,
+  /// Set when the API-key door created the job (`source = api_key`) — billing provenance.
+  pub api_key_id: Option<&'a ids::ApiKeyId>,
   pub source: JobSource,
   pub api_shape: ApiShape,
   /// Dry run: admit, price, and log the exact outbound payload(s) — but never send. The
@@ -99,7 +101,7 @@ pub async fn enqueue_image_job(
     &mut *tx,
     jobs::NewJob {
       account_id: ctx.account_id,
-      api_key_id: None,
+      api_key_id: ctx.api_key_id,
       user_id: ctx.user_id,
       source: ctx.source,
       media_type: "image",

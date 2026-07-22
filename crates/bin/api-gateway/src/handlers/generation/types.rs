@@ -12,7 +12,7 @@ use foundation_router::image::plan::{
 use crate::error::{ApiError, ApiResult};
 use crate::generation::service::{resolve_image_refs, EnqueueContext};
 use crate::generation::stored_params::StoredImageParams;
-use crate::middleware::AuthContext;
+use crate::middleware::Caller;
 use crate::state::AppState;
 use ids::AccountId;
 
@@ -104,9 +104,11 @@ fn default_n() -> u8 {
 /// The image generation/edit params common to the Any and model-specific planes.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ImageParamsBody {
-  /// The account this job bills to (session callers may belong to several).
-  #[schema(value_type = String, example = "acct_01k0…")]
-  pub account_id: AccountId,
+  /// The account this job bills to. Required for session callers (who may belong to
+  /// several accounts); optional for API-key callers — the key already names the account
+  /// (and a mismatched value is rejected).
+  #[schema(value_type = Option<String>, example = "acct_01k0…")]
+  pub account_id: Option<AccountId>,
   #[schema(example = "A watercolor lighthouse at dusk")]
   pub prompt: String,
   /// Edit inputs: `file_…` ids (from `POST /v1/files`) or public https URLs.
@@ -132,11 +134,17 @@ pub struct ImageParamsBody {
 }
 
 impl ImageParamsBody {
-  /// Resolve refs + map enums into the persisted router param shape.
-  pub async fn into_stored(self, state: &AppState, model: &str) -> ApiResult<StoredImageParams> {
-    let image_urls = resolve_image_refs(state, &self.account_id, &self.image_inputs).await?;
+  /// Resolve refs + map enums into the persisted router param shape. `account_id` is the
+  /// caller-resolved scope (see [`resolve_caller_account`]) — file refs resolve within it.
+  pub async fn into_stored(
+    self,
+    state: &AppState,
+    account_id: &AccountId,
+    model: &str,
+  ) -> ApiResult<StoredImageParams> {
+    let image_urls = resolve_image_refs(state, account_id, &self.image_inputs).await?;
     let mask_url = match &self.mask {
-      Some(m) => Some(crate::generation::service::resolve_one(state, &self.account_id, m).await?),
+      Some(m) => Some(crate::generation::service::resolve_one(state, account_id, m).await?),
       None => None,
     };
     Ok(StoredImageParams {
@@ -153,18 +161,60 @@ impl ImageParamsBody {
   }
 }
 
-/// Membership gate + enqueue context for a session caller.
-pub async fn session_enqueue_context<'a>(
+/// Resolve which account the call is scoped to, and gate the caller onto it. Session
+/// callers must NAME an account (they may belong to several) and be a member of it;
+/// API-key callers ARE the account — naming a different one is rejected the same way an
+/// unknown account is (404, no existence oracle).
+pub async fn resolve_caller_account(
   state: &AppState,
-  auth: &'a AuthContext,
+  caller: &Caller,
+  requested: Option<&AccountId>,
+) -> ApiResult<AccountId> {
+  match caller {
+    Caller::Session(auth) => {
+      let account_id =
+        requested.ok_or_else(|| ApiError::BadRequest("account_id is required".into()))?;
+      db_queries::members::find_membership(&state.pool, account_id, &auth.user.id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
+      Ok(account_id.clone())
+    }
+    Caller::ApiKey(key) => {
+      if requested.is_some_and(|a| *a != key.account_id) {
+        return Err(ApiError::NotFound("account not found".into()));
+      }
+      Ok(key.account_id.clone())
+    }
+  }
+}
+
+/// The enqueue context for an already-gated caller: the door decides `source` and
+/// attribution (`user_id` for sessions, `api_key_id` for keys) — jobs.md's provenance
+/// columns.
+pub fn enqueue_context<'a>(
+  caller: &'a Caller,
   account_id: &'a AccountId,
   api_shape: ApiShape,
   dry_run: bool,
-) -> ApiResult<EnqueueContext<'a>> {
-  db_queries::members::find_membership(&state.pool, account_id, &auth.user.id)
-    .await?
-    .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
-  Ok(EnqueueContext { account_id, user_id: Some(&auth.user.id), source: JobSource::Dashboard, api_shape, dry_run })
+) -> EnqueueContext<'a> {
+  match caller {
+    Caller::Session(auth) => EnqueueContext {
+      account_id,
+      user_id: Some(&auth.user.id),
+      api_key_id: None,
+      source: JobSource::Dashboard,
+      api_shape,
+      dry_run,
+    },
+    Caller::ApiKey(key) => EnqueueContext {
+      account_id,
+      user_id: None,
+      api_key_id: Some(&key.id),
+      source: JobSource::ApiKey,
+      api_shape,
+      dry_run,
+    },
+  }
 }
 
 /// A price quote (cost twins + echoed on enqueue). All amounts are USD micros.

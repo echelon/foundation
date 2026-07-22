@@ -4,9 +4,9 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use super::types::{cost_response, CostResponse, ImageParamsBody};
+use super::types::{cost_response, resolve_caller_account, CostResponse, ImageParamsBody};
 use crate::error::{ApiError, ApiResult};
-use crate::middleware::AuthContext;
+use crate::middleware::Caller;
 use crate::state::AppState;
 
 /// Quote the price (USD micros) of the EXACT request you would send to
@@ -14,7 +14,7 @@ use crate::state::AppState;
 #[utoipa::path(
   post, path = "/v1/models/{slug}/generate/cost",
   tag = "generation",
-  security(("session_cookie" = [])),
+  security(("session_cookie" = []), ("api_key" = [])),
   params(("slug" = String, Path, description = "Catalog model slug")),
   request_body = ImageParamsBody,
   responses(
@@ -25,14 +25,14 @@ use crate::state::AppState;
 )]
 pub async fn cost_with_model_handler(
   State(state): State<AppState>,
-  auth: AuthContext,
+  caller: Caller,
   Path(slug): Path<String>,
   Json(body): Json<ImageParamsBody>,
 ) -> ApiResult<Json<CostResponse>> {
-  let _ = &auth;
   if catalog::by_slug(&slug).is_none() {
     return Err(ApiError::NotFound(format!("unknown model: {slug}")));
   }
-  let stored = body.into_stored(&state, &slug).await?;
+  let account_id = resolve_caller_account(&state, &caller, body.account_id.as_ref()).await?;
+  let stored = body.into_stored(&state, &account_id, &slug).await?;
   Ok(Json(cost_response(&stored)?))
 }

@@ -7,7 +7,8 @@ use axum::http::{HeaderValue, Method};
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::auth::token::JwtKeys;
 use crate::handlers::{
@@ -112,7 +113,8 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
   let addr = format!("0.0.0.0:{}", cfg.api_gateway_port);
   let listener = tokio::net::TcpListener::bind(&addr).await?;
   tracing::info!("api-gateway listening on http://{addr}");
-  axum::serve(listener, app).await?;
+  // with_connect_info: gives the trace span a peer address even when no proxy header is set.
+  axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
   Ok(())
 }
 
@@ -135,6 +137,28 @@ pub fn build_router(state: AppState) -> Router {
     .allow_credentials(true)
     .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
     .allow_headers([CONTENT_TYPE]);
+
+  // Every request log line carries method, path, and remote ip. The ip prefers
+  // `x-forwarded-for` (Tailscale funnel / any fronting proxy) and falls back to the raw
+  // peer address; responses log at INFO so the context is visible with default filters.
+  let trace = TraceLayer::new_for_http()
+    .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+      let ip = request
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+          request
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|ci| ci.0.ip().to_string())
+        })
+        .unwrap_or_else(|| "-".to_string());
+      tracing::info_span!("http", method = %request.method(), path = %request.uri().path(), ip = %ip)
+    })
+    .on_response(DefaultOnResponse::new().level(Level::INFO));
 
   Router::new()
     // hello, human (embedded landing page)
@@ -226,6 +250,6 @@ pub fn build_router(state: AppState) -> Router {
     // is far too small.
     .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
     .layer(cors)
-    .layer(TraceLayer::new_for_http())
+    .layer(trace)
     .with_state(state)
 }

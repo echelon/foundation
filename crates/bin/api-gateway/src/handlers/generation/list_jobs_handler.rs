@@ -8,15 +8,17 @@ use utoipa::{IntoParams, ToSchema};
 
 use ids::{AccountId, JobId};
 
+use super::types::resolve_caller_account;
 use crate::error::{ApiError, ApiResult};
 use crate::generation::job_response::{job_body, JobBody};
-use crate::middleware::AuthContext;
+use crate::middleware::Caller;
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ListJobsParams {
-  /// The account whose jobs to list.
-  pub account_id: String,
+  /// The account whose jobs to list. Required for session callers; API-key callers may
+  /// omit it (the key names the account).
+  pub account_id: Option<String>,
   /// Filter to one catalog model slug.
   pub model: Option<String>,
   /// Keyset cursor: return jobs older than this job id (from the previous page's last row).
@@ -38,7 +40,7 @@ const PAGE_SIZE: i64 = 25;
 #[utoipa::path(
   get, path = "/v1/jobs",
   tag = "generation",
-  security(("session_cookie" = [])),
+  security(("session_cookie" = []), ("api_key" = [])),
   params(ListJobsParams),
   responses(
     (status = 200, description = "One page of jobs", body = ListJobsResponse),
@@ -48,14 +50,16 @@ const PAGE_SIZE: i64 = 25;
 )]
 pub async fn list_jobs_handler(
   State(state): State<AppState>,
-  auth: AuthContext,
+  caller: Caller,
   Query(params): Query<ListJobsParams>,
 ) -> ApiResult<Json<ListJobsResponse>> {
-  let account_id: AccountId =
-    params.account_id.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?;
-  db_queries::members::find_membership(&state.pool, &account_id, &auth.user.id)
-    .await?
-    .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
+  let requested: Option<AccountId> = match &params.account_id {
+    Some(raw) => {
+      Some(raw.parse().map_err(|_| ApiError::BadRequest("invalid account id".into()))?)
+    }
+    None => None,
+  };
+  let account_id = resolve_caller_account(&state, &caller, requested.as_ref()).await?;
   let after: Option<JobId> = match &params.after {
     Some(raw) => Some(raw.parse().map_err(|_| ApiError::BadRequest("invalid `after` cursor".into()))?),
     None => None,

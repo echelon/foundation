@@ -6,10 +6,12 @@ use chrono::{DateTime, Utc};
 use ids::{AccountId, ApiKeyId, UserId};
 
 mod create_api_key;
+mod find_live_api_key_by_hash;
 mod list_live_api_keys_for_account;
 mod revoke_api_key;
 
 pub use create_api_key::{create_api_key, NewApiKey};
+pub use find_live_api_key_by_hash::find_live_api_key_by_hash;
 pub use list_live_api_keys_for_account::list_live_api_keys_for_account;
 pub use revoke_api_key::revoke_api_key;
 

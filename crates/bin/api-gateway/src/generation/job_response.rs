@@ -37,6 +37,12 @@ pub struct JobBody {
   pub id: JobId,
   pub model: String,
   pub modality: String,
+  /// Which door created the job: `dashboard` (playground/session) or `api_key`.
+  #[schema(value_type = String, example = "dashboard")]
+  pub source: enums::JobSource,
+  /// Which API plane the request came through: `any` or `unified` (model-specific).
+  #[schema(value_type = String, example = "unified")]
+  pub api_shape: enums::ApiShape,
   #[schema(value_type = String, example = "running")]
   pub status: enums::JobStatus,
   /// True for dry-run jobs: nothing was sent to the provider; the job is terminal
@@ -90,6 +96,8 @@ pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[Out
     id: job.id.clone(),
     model: job.model.clone(),
     modality: job.modality.clone(),
+    source: job.source.clone(),
+    api_shape: job.api_shape.clone(),
     status: job.status.clone(),
     dry_run: job.is_dry_run,
     progress,

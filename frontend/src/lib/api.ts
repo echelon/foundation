@@ -279,10 +279,18 @@ export type ApiJobProgress = { completed: number; total: number; succeeded: numb
 
 export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled" | "expired";
 
+/** Which door created the job. */
+export type ApiJobSource = "api_key" | "dashboard" | "mcp";
+
+/** Which API plane the request came through (`unified` = model-specific endpoint). */
+export type ApiJobShape = "granular" | "unified" | "any" | "chat";
+
 export type ApiJob = {
   id: string;
   model: string;
   modality: string;
+  source: ApiJobSource;
+  api_shape: ApiJobShape;
   status: ApiJobStatus;
   /** True for dry-run jobs — nothing was sent to the provider. */
   dry_run: boolean;
