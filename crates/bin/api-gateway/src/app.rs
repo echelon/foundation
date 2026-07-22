@@ -12,7 +12,7 @@ use tower_http::trace::TraceLayer;
 use crate::auth::token::JwtKeys;
 use crate::handlers::{
   account, api_keys, audit_logs, auth, avatar, catalog, files, generation, invitations, login_methods, org, root,
-  sessions,
+  sessions, webhooks,
 };
 use crate::state::AppState;
 
@@ -62,6 +62,15 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       .openai
       .clone()
       .map(|k| Arc::new(openai_client::creds::openai_api_key::OpenAiApiKey::new(k))),
+    openai_webhook_secret: cfg.providers.openai_webhook_secret.clone().and_then(|s| {
+      match openai_client::creds::openai_webhook_secret::OpenAiWebhookSecret::new(s) {
+        Ok(secret) => Some(Arc::new(secret)),
+        Err(e) => {
+          tracing::error!("OPENAI_WEBHOOK_SECRET is malformed ({e}) — webhook receiving disabled");
+          None
+        }
+      }
+    }),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -91,6 +100,9 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
 
   if state.openai.is_none() {
     tracing::warn!("OPENAI_API_KEY not set — OpenAI generation dispatch disabled");
+  }
+  if state.openai_webhook_secret.is_none() {
+    tracing::warn!("OPENAI_WEBHOOK_SECRET not set — inbound OpenAI webhooks disabled (polling still completes jobs)");
   }
   // The in-process dispatcher loop (dispatch.md's worker, embedded for now — extractable
   // to its own bin when scale demands).
@@ -208,6 +220,8 @@ pub fn build_router(state: AppState) -> Router {
     .route("/v1/admin/jobs", get(generation::admin_list_jobs_handler))
     // input uploads (image editing sources)
     .route("/v1/files", post(files::upload_file_handler))
+    // inbound provider webhooks (signature-authed, not session-authed)
+    .route("/v1/webhooks/openai", post(webhooks::openai_webhook_handler))
     // Avatar photos and generation input images are whole files; the axum default (2 MB)
     // is far too small.
     .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))

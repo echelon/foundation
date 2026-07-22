@@ -49,6 +49,7 @@ define_id!(pub struct InvoiceId => "invoice");
 define_id!(pub struct RequestLogId => "rlog");
 define_id!(pub struct ProviderCallId => "pcall");
 define_id!(pub struct WebhookDeliveryId => "whd");
+define_id!(pub struct InboundWebhookId => "iwh");
 define_id!(pub struct EmailSendId => "mail");
 
 // ── Security ──

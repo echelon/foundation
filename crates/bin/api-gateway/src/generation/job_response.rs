@@ -39,6 +39,9 @@ pub struct JobBody {
   pub modality: String,
   #[schema(value_type = String, example = "running")]
   pub status: enums::JobStatus,
+  /// True for dry-run jobs: nothing was sent to the provider; the job is terminal
+  /// (`canceled`, failure_code `dry_run`) and the would-be payloads live in the request log.
+  pub dry_run: bool,
   /// Present only for fanned-out (n>1) jobs — partial completion surface.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub progress: Option<JobProgressBody>,
@@ -88,6 +91,7 @@ pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[Out
     model: job.model.clone(),
     modality: job.modality.clone(),
     status: job.status.clone(),
+    dry_run: job.is_dry_run,
     progress,
     outputs: outputs
       .iter()

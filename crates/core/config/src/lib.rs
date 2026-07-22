@@ -128,6 +128,10 @@ pub struct EmailConfig {
 pub struct ProviderKeys {
     pub kinovi: Option<String>,
     pub openai: Option<String>,
+    /// Standard-Webhooks signing secret (`whsec_…`) for OpenAI's project webhooks — verifies
+    /// inbound `/v1/webhooks/openai` deliveries. None = webhook receiving disabled (polling
+    /// still completes jobs).
+    pub openai_webhook_secret: Option<String>,
     pub gemini: Option<String>,
 }
 
@@ -243,6 +247,7 @@ impl Config {
             providers: ProviderKeys {
                 kinovi: opt("KINOVI_API_KEY"),
                 openai: opt("OPENAI_API_KEY"),
+                openai_webhook_secret: opt("OPENAI_WEBHOOK_SECRET"),
                 gemini: opt("GEMINI_API_KEY"),
             },
         })

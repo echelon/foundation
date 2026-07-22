@@ -27,7 +27,7 @@ pub async fn list_jobs_for_account<'e, E: PgExecutor<'e>>(
                  status AS "status: enums::JobStatus", queue_stage AS "queue_stage?: enums::QueueStage",
                  dispatch_attempts, failure_code, failure_message, provider, provider_job_id,
                  unit_amount_nanos, quantity::float8 AS "quantity?: f64", estimated_max_micros,
-                 created_at, completed_at, expires_at
+                 is_dry_run, created_at, completed_at, expires_at
        FROM jobs
        WHERE account_id = $1
          AND ($2::text IS NULL OR model = $2)

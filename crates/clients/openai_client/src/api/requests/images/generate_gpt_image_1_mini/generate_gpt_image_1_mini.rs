@@ -4,7 +4,7 @@
 //! Input images are PUBLIC URLS (preferred — ours, CDN-managed) or uploaded file ids
 //! (`upload_image_file`); never inline base64.
 
-use crate::api::requests::images::common::{start_image, ImageStart};
+use crate::api::requests::images::common::{image_wire_json, start_image, ImageStart};
 use crate::api::requests::responses::create_response::StartedResponse;
 use crate::api::types::chat_types::chat_model::ChatModel;
 use crate::api::types::image_types::image_model::ImageModel;
@@ -76,6 +76,13 @@ pub(crate) fn to_start(request: &GptImage1MiniRequest) -> ImageStart<'_> {
 /// response id — nothing is held open. Poll with `get_response`, or `await_response`.
 pub async fn generate_gpt_image_1_mini(args: GenerateGptImage1MiniArgs<'_>) -> Result<StartedResponse, OpenAiError> {
   start_image(args.api_key, &to_start(&args.request)).await
+}
+
+
+/// The exact `/v1/responses` JSON body this request would send — for the outbound
+/// provider-call log (and dry runs, which log without sending).
+pub fn generate_gpt_image_1_mini_wire_json(request: &GptImage1MiniRequest) -> Result<serde_json::Value, OpenAiError> {
+  image_wire_json(&to_start(request))
 }
 
 #[cfg(test)]

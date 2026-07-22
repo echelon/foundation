@@ -125,6 +125,10 @@ pub struct ImageParamsBody {
   pub output_format: Option<ApiOutputFormat>,
   /// Edit-input faithfulness — pruned (and reported) on models without it.
   pub input_fidelity: Option<ApiInputFidelity>,
+  /// Dry run: validate, price, and log the EXACT provider payload(s) — but never send.
+  /// The job is created terminal (`canceled`, failure_code `dry_run`) and costs nothing.
+  #[serde(default)]
+  pub dry_run: bool,
 }
 
 impl ImageParamsBody {
@@ -155,11 +159,12 @@ pub async fn session_enqueue_context<'a>(
   auth: &'a AuthContext,
   account_id: &'a AccountId,
   api_shape: ApiShape,
+  dry_run: bool,
 ) -> ApiResult<EnqueueContext<'a>> {
   db_queries::members::find_membership(&state.pool, account_id, &auth.user.id)
     .await?
     .ok_or_else(|| ApiError::NotFound("account not found".into()))?;
-  Ok(EnqueueContext { account_id, user_id: Some(&auth.user.id), source: JobSource::Dashboard, api_shape })
+  Ok(EnqueueContext { account_id, user_id: Some(&auth.user.id), source: JobSource::Dashboard, api_shape, dry_run })
 }
 
 /// A price quote (cost twins + echoed on enqueue). All amounts are USD micros.

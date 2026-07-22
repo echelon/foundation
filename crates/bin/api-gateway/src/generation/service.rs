@@ -2,7 +2,7 @@
 //! fanned out) and returns — the dispatcher takes it from there. No provider I/O here.
 
 use chrono::{Duration, Utc};
-use enums::{ApiShape, JobEventType, JobSource};
+use enums::{ApiShape, JobEventType, JobSliceStatus, JobSource, JobStatus};
 use foundation_router::image::build::build_image_route;
 use foundation_router::image::plan::RouterImageModel;
 use ids::{AccountId, FileId, UserId};
@@ -67,6 +67,9 @@ pub struct EnqueueContext<'a> {
   pub user_id: Option<&'a UserId>,
   pub source: JobSource,
   pub api_shape: ApiShape,
+  /// Dry run: admit, price, and log the exact outbound payload(s) — but never send. The
+  /// job is born terminal (`canceled` / failure_code `dry_run`).
+  pub dry_run: bool,
 }
 
 /// Validate, route, price, persist — returns the initial Job resource (201 body).
@@ -110,6 +113,7 @@ pub async fn enqueue_image_job(
       unit_amount_nanos: spec.price_nanos,
       quantity: fan_out as f64,
       estimated_max_micros: quote.max_micros.or(Some(quote.amount_micros)),
+      is_dry_run: ctx.dry_run,
       expires_at: Utc::now() + Duration::hours(JOB_TTL_HOURS),
     },
   )
@@ -121,6 +125,52 @@ pub async fn enqueue_image_job(
     Vec::new()
   };
   job_events::create_job_event(&mut *tx, &job.id, JobEventType::Created, None).await?;
+
+  if ctx.dry_run {
+    // Log the EXACT outbound payload(s) the dispatcher would have sent — one provider_calls
+    // row per would-be call — then land the job terminal without ever touching the provider.
+    for index in 0..built.route.fan_out() {
+      crate::generation::provider_log::log_outbound_image_request(
+        &mut *tx,
+        crate::generation::provider_log::LogOutboundImageRequestArgs {
+          job_id: &job.id,
+          slice: slices.get(index),
+          route: &built.route,
+          index,
+          is_dry_run: true,
+        },
+      )
+      .await?;
+    }
+    for slice in &slices {
+      job_slices::complete_job_slice(
+        &mut *tx,
+        job_slices::CompleteJobSlice {
+          id: &slice.id,
+          status: JobSliceStatus::Canceled,
+          failure_code: Some("dry_run"),
+          failure_message: Some("dry run — request was not sent to the provider"),
+        },
+      )
+      .await?;
+    }
+    jobs::complete_job(
+      &mut *tx,
+      jobs::CompleteJob {
+        id: &job.id,
+        status: JobStatus::Canceled,
+        failure_code: Some("dry_run"),
+        failure_message: Some("dry run — request was not sent to the provider"),
+        canceled_by: Some("user"),
+      },
+    )
+    .await?;
+    job_events::create_job_event(&mut *tx, &job.id, JobEventType::Canceled, Some(serde_json::json!({ "dry_run": true })))
+      .await?;
+    tx.commit().await?;
+    return load_job_body(state, ctx.account_id, &job.id).await;
+  }
+
   tx.commit().await?;
 
   Ok(job_body(state, &job, &slices, &[]))

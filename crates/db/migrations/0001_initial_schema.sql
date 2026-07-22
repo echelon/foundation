@@ -283,6 +283,7 @@ CREATE TABLE jobs (
     api_version          date not null,
     request_params       jsonb not null,
     param_adjustments    jsonb not null,
+    is_dry_run           bool not null default false,               -- dry_run request: validated/priced/logged, never sent to the provider (born terminal)
     retry_policy         jsonb,
     status               text not null CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled', 'expired')),
     queue_stage          text CHECK (queue_stage IN ('at_our_gateway', 'at_provider')),
@@ -591,12 +592,20 @@ CREATE TABLE request_logs_default PARTITION OF request_logs DEFAULT;
 CREATE INDEX request_logs_account_created_idx ON request_logs (account_id, created_at);
 CREATE INDEX request_logs_job_idx ON request_logs (job_id);
 
+-- provider_calls: the outbound third-party request log (logging.md §3). `id` IS the
+-- request_id — minted BEFORE the send (so failures still capture the payload) and used as
+-- the correlation key for debug aggregation. Addendum 2026-07-22: job_slice_id (fan-out),
+-- provider_job_id (the provider's handle, e.g. OpenAI resp_… — how inbound webhooks find
+-- their originating request), is_dry_run (payload serialized + logged, never sent).
 CREATE TABLE provider_calls (
     sid                   bigint generated always as identity,
     id                    text not null,                           -- pcall_{ulid}
     job_id                text not null,
+    job_slice_id          text,                                    -- set when the call belongs to one fan-out slice
     provider              text not null,
     direction             text not null CHECK (direction IN ('request', 'response', 'poll_request', 'poll_response', 'callback_in')),
+    is_dry_run            bool not null default false,
+    provider_job_id       text,                                    -- provider handle from the response (e.g. resp_…)
     url                   text,
     request_headers       jsonb,
     request_body          jsonb,
@@ -612,6 +621,7 @@ CREATE TABLE provider_calls (
 ) PARTITION BY RANGE (created_at);
 CREATE TABLE provider_calls_default PARTITION OF provider_calls DEFAULT;
 CREATE INDEX provider_calls_job_idx ON provider_calls (job_id);
+CREATE INDEX provider_calls_provider_jobid_idx ON provider_calls (provider_job_id) WHERE provider_job_id IS NOT NULL;
 
 CREATE TABLE webhook_deliveries (
     sid             bigint generated always as identity,
@@ -635,6 +645,31 @@ CREATE TABLE webhook_deliveries (
 CREATE TABLE webhook_deliveries_default PARTITION OF webhook_deliveries DEFAULT;
 CREATE INDEX webhook_deliveries_account_created_idx ON webhook_deliveries (account_id, created_at);
 CREATE INDEX webhook_deliveries_job_idx ON webhook_deliveries (job_id);
+
+-- inbound_webhooks (NEW 2026-07-22, logging.md addendum): one row per provider→us webhook
+-- delivery — EVERY delivery, verified or not (rejected signatures are security signal).
+-- Correlation back to the originating outbound request goes through
+-- provider_calls.provider_job_id (`object_id` here is the same provider handle, e.g.
+-- OpenAI resp_…); provider_call_id is that request's id (the request_id).
+CREATE TABLE inbound_webhooks (
+    sid                bigint generated always as identity,
+    id                 text not null,                              -- iwh_{ulid}
+    provider           text not null,
+    event_id           text,                                       -- provider's event id (evt_…); dedup key
+    event_type         text,                                       -- e.g. response.completed
+    object_id          text,                                       -- subject id (e.g. resp_…)
+    is_signature_valid bool not null,
+    provider_call_id   text,                                       -- correlated outbound request (request_id), when found
+    job_id             text,
+    job_slice_id       text,
+    outcome            text not null CHECK (outcome IN ('processed', 'unmatched', 'duplicate', 'ignored', 'signature_failed', 'not_configured', 'error')),
+    payload            jsonb,
+    created_at         timestamptz not null default now(),
+    primary key (id, created_at)
+) PARTITION BY RANGE (created_at);
+CREATE TABLE inbound_webhooks_default PARTITION OF inbound_webhooks DEFAULT;
+CREATE INDEX inbound_webhooks_object_idx ON inbound_webhooks (object_id);
+CREATE INDEX inbound_webhooks_event_idx  ON inbound_webhooks (provider, event_id);
 
 -- email_sends (email.md §4)
 CREATE TABLE email_sends (

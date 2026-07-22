@@ -4,6 +4,8 @@ pub mod generate_gpt_image_1_5;
 pub mod generate_gpt_image_1_mini;
 pub mod generate_gpt_image_2;
 
+pub use common::RESPONSES_ENDPOINT_URL;
+
 /// Per-image OUTPUT rate in micro-USD by (model, quality) at 1024×1024 — the published
 /// July-2026 image rates (`Auto` bills as medium; `Custom` assumes the GPT Image 2 tier).
 /// ESTIMATE ONLY: GPT Image is token-metered, so larger sizes and edit input images bill

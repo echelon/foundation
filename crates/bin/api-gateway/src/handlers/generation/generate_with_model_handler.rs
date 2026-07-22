@@ -16,7 +16,8 @@ use crate::middleware::AuthContext;
 use crate::state::AppState;
 
 /// Enqueues an image job on this specific model — poll `GET /v1/jobs/{id}`. Same async
-/// contract as the Any plane; the body omits `model` (it's the path).
+/// contract as the Any plane; the body omits `model` (it's the path). Supports `dry_run`
+/// (validate + price + log the exact payload, never send).
 #[utoipa::path(
   post, path = "/v1/models/{slug}/generate",
   tag = "generation",
@@ -39,7 +40,7 @@ pub async fn generate_with_model_handler(
     return Err(ApiError::NotFound(format!("unknown model: {slug}")));
   }
   let account_id = body.account_id.clone();
-  let ctx = session_enqueue_context(&state, &auth, &account_id, ApiShape::Unified).await?;
+  let ctx = session_enqueue_context(&state, &auth, &account_id, ApiShape::Unified, body.dry_run).await?;
   let stored = body.into_stored(&state, &slug).await?;
   let job = enqueue_image_job(&state, ctx, stored).await?;
   Ok((StatusCode::CREATED, Json(job)))

@@ -4,5 +4,6 @@
 
 pub mod dispatcher;
 pub mod job_response;
+pub mod provider_log;
 pub mod service;
 pub mod stored_params;

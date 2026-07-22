@@ -20,6 +20,7 @@ use foundation_router::image::poll::{poll_openai_image, PollImageArgs, RoutedIma
 use foundation_router::image::route::ImageRoute;
 use serde_json::json;
 
+use crate::generation::provider_log::{log_outbound_image_request, LogOutboundImageRequestArgs};
 use crate::generation::stored_params::StoredImageParams;
 use crate::state::AppState;
 
@@ -82,9 +83,17 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
   };
 
   if route.fan_out() == 1 {
-    // Single-call job: the jobs row itself carries the provider handle.
+    // Single-call job: the jobs row itself carries the provider handle. The provider_calls
+    // row goes in BEFORE the send (its id is the request_id).
+    let call = log_outbound_image_request(
+      &state.pool,
+      LogOutboundImageRequestArgs { job_id: &job.id, slice: None, route: &route, index: 0, is_dry_run: false },
+    )
+    .await?;
+    let sent_at = std::time::Instant::now();
     match route.start_slice(&api_key, 0).await {
       Ok(handle) => {
+        record_call_result(state, call.as_ref(), Ok(&handle.provider_job_id), sent_at).await?;
         jobs::set_job_provider_accepted(&state.pool, &job.id, Some(&handle.provider_job_id)).await?;
         job_events::create_job_event(
           &state.pool,
@@ -94,7 +103,10 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
         )
         .await?;
       }
-      Err(e) => return retry_or_fail(state, job, &e.to_string()).await,
+      Err(e) => {
+        record_call_result(state, call.as_ref(), Err(&e.to_string()), sent_at).await?;
+        return retry_or_fail(state, job, &e.to_string()).await;
+      }
     }
     return Ok(());
   }
@@ -107,11 +119,27 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
     if slice.status != JobSliceStatus::Queued || slice.provider_job_id.is_some() {
       continue;
     }
+    let call = log_outbound_image_request(
+      &state.pool,
+      LogOutboundImageRequestArgs {
+        job_id: &job.id,
+        slice: Some(slice),
+        route: &route,
+        index: slice.slice_index as usize,
+        is_dry_run: false,
+      },
+    )
+    .await?;
+    let sent_at = std::time::Instant::now();
     match route.start_slice(&api_key, slice.slice_index as usize).await {
       Ok(handle) => {
+        record_call_result(state, call.as_ref(), Ok(&handle.provider_job_id), sent_at).await?;
         job_slices::set_slice_provider_accepted(&state.pool, &slice.id, &handle.provider_job_id).await?;
       }
-      Err(e) => start_errors.push(format!("slice {}: {e}", slice.slice_index)),
+      Err(e) => {
+        record_call_result(state, call.as_ref(), Err(&e.to_string()), sent_at).await?;
+        start_errors.push(format!("slice {}: {e}", slice.slice_index));
+      }
     }
   }
 
@@ -162,6 +190,31 @@ async fn dispatch_one(state: &AppState, job: &jobs::Job) -> sqlx::Result<()> {
   }
 }
 
+/// Finish the pre-send provider_calls row with what came back (the provider handle) or
+/// the send error. Logging must never fail the dispatch itself.
+async fn record_call_result(
+  state: &AppState,
+  call: Option<&db_queries::ProviderCall>,
+  outcome: Result<&str, &str>,
+  sent_at: std::time::Instant,
+) -> sqlx::Result<()> {
+  let Some(call) = call else { return Ok(()) };
+  let (provider_job_id, response_body) = match outcome {
+    Ok(handle) => (Some(handle), json!({ "id": handle, "status": "queued" })),
+    Err(e) => (None, json!({ "error": e })),
+  };
+  db_queries::provider_calls::set_provider_call_result(
+    &state.pool,
+    db_queries::provider_calls::ProviderCallResult {
+      id: &call.id,
+      provider_job_id,
+      response_body: Some(&response_body),
+      latency_ms: Some(sent_at.elapsed().as_millis().min(i32::MAX as u128) as i32),
+    },
+  )
+  .await
+}
+
 fn rebuild_route(job: &jobs::Job) -> Result<ImageRoute, String> {
   let params: StoredImageParams =
     serde_json::from_value(job.request_params.clone()).map_err(|e| format!("stored params unreadable: {e}"))?;
@@ -188,7 +241,13 @@ async fn fail_dispatch_permanently(
   tracing::error!("job {} failed permanently at dispatch: {message}", job.id);
   jobs::complete_job(
     &state.pool,
-    jobs::CompleteJob { id: &job.id, status: JobStatus::Failed, failure_code: Some(code), failure_message: Some(message) },
+    jobs::CompleteJob {
+      id: &job.id,
+      status: JobStatus::Failed,
+      failure_code: Some(code),
+      failure_message: Some(message),
+      canceled_by: None,
+    },
   )
   .await?;
   job_events::create_job_event(&state.pool, &job.id, JobEventType::Failed, Some(json!({ "message": message })))
@@ -198,73 +257,85 @@ async fn fail_dispatch_permanently(
 // ── Poll pass: at the provider → outputs ingested → terminal ──
 
 async fn poll_pass(state: &AppState) -> sqlx::Result<()> {
-  let Some(api_key) = state.openai.clone() else { return Ok(()) };
-
-  for job in jobs::list_pollable_unsliced_jobs(&state.pool, POLL_BATCH).await? {
-    let handle = job.provider_job_id.clone().expect("query guarantees provider_job_id");
-    match poll_openai_image(PollImageArgs { api_key: &api_key, provider_job_id: &handle }).await {
-      Ok(poll) => match poll.status {
-        RoutedSliceStatus::Pending => {}
-        RoutedSliceStatus::Succeeded => {
-          if let Err(e) = ingest_and_complete_job(state, &job, &poll.images).await {
-            // Ingest is retryable — the job stays running and the next tick tries again.
-            tracing::error!("output ingest for {} failed (will retry): {e}", job.id);
-          }
-        }
-        RoutedSliceStatus::Failed => {
-          let message = poll.failure_message.as_deref().unwrap_or("provider reported failure");
-          jobs::complete_job(
-            &state.pool,
-            jobs::CompleteJob {
-              id: &job.id,
-              status: JobStatus::Failed,
-              failure_code: Some("provider_error"),
-              failure_message: Some(message),
-            },
-          )
-          .await?;
-          job_events::create_job_event(
-            &state.pool,
-            &job.id,
-            JobEventType::Failed,
-            Some(json!({ "message": message })),
-          )
-          .await?;
-        }
-      },
-      Err(e) => tracing::warn!("poll of {} failed (will retry): {e}", job.id),
-    }
+  if state.openai.is_none() {
+    return Ok(());
   }
 
+  for job in jobs::list_pollable_unsliced_jobs(&state.pool, POLL_BATCH).await? {
+    if let Err(e) = poll_and_finish_unsliced_job(state, &job).await {
+      tracing::warn!("poll of {} failed (will retry): {e}", job.id);
+    }
+  }
   for slice in job_slices::list_pollable_slices(&state.pool, POLL_BATCH).await? {
-    let handle = slice.provider_job_id.clone().expect("query guarantees provider_job_id");
-    match poll_openai_image(PollImageArgs { api_key: &api_key, provider_job_id: &handle }).await {
-      Ok(poll) => match poll.status {
-        RoutedSliceStatus::Pending => {}
-        RoutedSliceStatus::Succeeded => {
-          if let Err(e) = ingest_and_complete_slice(state, &slice, &poll.images).await {
-            tracing::error!("output ingest for slice {} failed (will retry): {e}", slice.id);
-          }
-        }
-        RoutedSliceStatus::Failed => {
-          let message = poll.failure_message.as_deref().unwrap_or("provider reported failure");
-          job_slices::complete_job_slice(
-            &state.pool,
-            job_slices::CompleteJobSlice {
-              id: &slice.id,
-              status: JobSliceStatus::Failed,
-              failure_code: Some("provider_error"),
-              failure_message: Some(message),
-            },
-          )
-          .await?;
-          finish_job_if_all_slices_terminal(state, &slice.job_id).await?;
-        }
-      },
-      Err(e) => tracing::warn!("poll of slice {} failed (will retry): {e}", slice.id),
+    if let Err(e) = poll_and_finish_slice(state, &slice).await {
+      tracing::warn!("poll of slice {} failed (will retry): {e}", slice.id);
     }
   }
   Ok(())
+}
+
+/// Fetch an UNSLICED job's provider state and advance it: ingest outputs on success, mark
+/// failed on provider failure, no-op while pending. Called from the poll loop AND the
+/// inbound-webhook handler (a webhook is just an early poll trigger — same code path).
+/// Errors are retryable: the job stays `running` and the next tick tries again.
+pub async fn poll_and_finish_unsliced_job(state: &AppState, job: &jobs::Job) -> Result<(), String> {
+  let api_key = state.openai.clone().ok_or("no OpenAI credential configured")?;
+  let handle = job.provider_job_id.clone().ok_or("job has no provider handle")?;
+  let poll = poll_openai_image(PollImageArgs { api_key: &api_key, provider_job_id: &handle })
+    .await
+    .map_err(|e| e.to_string())?;
+  match poll.status {
+    RoutedSliceStatus::Pending => Ok(()),
+    RoutedSliceStatus::Succeeded => ingest_and_complete_job(state, job, &poll.images).await,
+    RoutedSliceStatus::Failed => {
+      let message = poll.failure_message.as_deref().unwrap_or("provider reported failure");
+      jobs::complete_job(
+        &state.pool,
+        jobs::CompleteJob {
+          id: &job.id,
+          status: JobStatus::Failed,
+          failure_code: Some("provider_error"),
+          failure_message: Some(message),
+          canceled_by: None,
+        },
+      )
+      .await
+      .map_err(|e| e.to_string())?;
+      job_events::create_job_event(&state.pool, &job.id, JobEventType::Failed, Some(json!({ "message": message })))
+        .await
+        .map_err(|e| e.to_string())
+    }
+  }
+}
+
+/// Slice twin of [`poll_and_finish_unsliced_job`] — advances one fan-out unit and, when it
+/// was the last one out, lands the job (partial-completion rule lives in
+/// [`finish_job_if_all_slices_terminal`]).
+pub async fn poll_and_finish_slice(state: &AppState, slice: &db_queries::JobSlice) -> Result<(), String> {
+  let api_key = state.openai.clone().ok_or("no OpenAI credential configured")?;
+  let handle = slice.provider_job_id.clone().ok_or("slice has no provider handle")?;
+  let poll = poll_openai_image(PollImageArgs { api_key: &api_key, provider_job_id: &handle })
+    .await
+    .map_err(|e| e.to_string())?;
+  match poll.status {
+    RoutedSliceStatus::Pending => Ok(()),
+    RoutedSliceStatus::Succeeded => ingest_and_complete_slice(state, slice, &poll.images).await,
+    RoutedSliceStatus::Failed => {
+      let message = poll.failure_message.as_deref().unwrap_or("provider reported failure");
+      job_slices::complete_job_slice(
+        &state.pool,
+        job_slices::CompleteJobSlice {
+          id: &slice.id,
+          status: JobSliceStatus::Failed,
+          failure_code: Some("provider_error"),
+          failure_message: Some(message),
+        },
+      )
+      .await
+      .map_err(|e| e.to_string())?;
+      finish_job_if_all_slices_terminal(state, &slice.job_id).await.map_err(|e| e.to_string())
+    }
+  }
 }
 
 /// Upload one routed image to R2 and record its `files` row. Upload happens OUTSIDE any tx
@@ -318,7 +389,7 @@ async fn ingest_and_complete_job(state: &AppState, job: &jobs::Job, images: &[Ro
   }
   jobs::complete_job(
     &state.pool,
-    jobs::CompleteJob { id: &job.id, status: JobStatus::Succeeded, failure_code: None, failure_message: None },
+    jobs::CompleteJob { id: &job.id, status: JobStatus::Succeeded, failure_code: None, failure_message: None, canceled_by: None },
   )
   .await
   .map_err(|e| e.to_string())?;
@@ -380,7 +451,7 @@ async fn finish_job_if_all_slices_terminal(state: &AppState, job_id: &ids::JobId
   };
   let flipped = jobs::complete_job(
     &state.pool,
-    jobs::CompleteJob { id: job_id, status, failure_code: code, failure_message: message },
+    jobs::CompleteJob { id: job_id, status, failure_code: code, failure_message: message, canceled_by: None },
   )
   .await?;
   if flipped {

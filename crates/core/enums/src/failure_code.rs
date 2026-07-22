@@ -17,6 +17,7 @@ text_enum! {
     Canceled => "canceled",
     Expired => "expired",
     OutputIngestFailed => "output_ingest_failed",
+    DryRun => "dry_run",
     Internal => "internal",
   }
 }
@@ -27,7 +28,7 @@ mod tests {
 
   #[test]
   fn golden_wire_strings() {
-    let expect = ["content_policy_input", "content_policy_output", "face_or_person_blocked", "copyright_blocked", "invalid_input", "input_fetch_failed", "input_unsupported", "provider_error", "provider_timeout", "provider_capacity", "provider_deprecated", "canceled", "expired", "output_ingest_failed", "internal"];
+    let expect = ["content_policy_input", "content_policy_output", "face_or_person_blocked", "copyright_blocked", "invalid_input", "input_fetch_failed", "input_unsupported", "provider_error", "provider_timeout", "provider_capacity", "provider_deprecated", "canceled", "expired", "output_ingest_failed", "dry_run", "internal"];
     assert_eq!(FailureCode::ALL.len(), expect.len());
     for (v, s) in FailureCode::ALL.iter().zip(expect) {
       assert_eq!(v.as_str(), s);

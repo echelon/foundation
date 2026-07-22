@@ -267,6 +267,9 @@ export type ImageGenerationParams = {
   quality?: ApiImageQuality;
   output_format?: ApiOutputFormat;
   input_fidelity?: ApiInputFidelity;
+  /** Validate, price, and log the exact provider payload — but never send. The job lands
+   * terminal (`canceled` / failure_code `dry_run`) and costs nothing. */
+  dry_run?: boolean;
 };
 
 export type ApiJobOutput = { index: number; kind: string; url: string; mime: string; bytes: number };
@@ -281,6 +284,8 @@ export type ApiJob = {
   model: string;
   modality: string;
   status: ApiJobStatus;
+  /** True for dry-run jobs — nothing was sent to the provider. */
+  dry_run: boolean;
   progress?: ApiJobProgress | null;
   outputs: ApiJobOutput[];
   failure_code: string | null;

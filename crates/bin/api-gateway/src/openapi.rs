@@ -7,7 +7,7 @@ use utoipa::{Modify, OpenApi};
 
 use crate::handlers::{
   account, api_keys, audit_logs, auth, avatar, catalog, files, generation, invitations, login_methods, org, root,
-  sessions,
+  sessions, webhooks,
 };
 
 #[derive(OpenApi)]
@@ -75,6 +75,7 @@ use crate::handlers::{
     generation::get_job_status_handler,
     generation::admin_list_jobs_handler,
     files::upload_file_handler,
+    webhooks::openai_webhook_handler,
   ),
   modifiers(&SessionCookieSecurity),
   tags(
@@ -91,6 +92,7 @@ use crate::handlers::{
     (name = "generation", description = "Image generation: enqueue (Any + model-specific planes), cost quotes, job polling"),
     (name = "files", description = "Input uploads: `file_…` ids + CDN URLs for generation inputs"),
     (name = "admin", description = "Staff-only record browsing"),
+    (name = "webhooks", description = "Inbound provider webhooks (signature-verified, logged, idempotent)"),
   )
 )]
 pub struct ApiDoc;
@@ -123,7 +125,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 54 operations over 50 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
-    assert_eq!(documented.len(), 50, "unexpected number of documented paths: {documented:#?}");
+    // 55 operations over 51 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
+    assert_eq!(documented.len(), 51, "unexpected number of documented paths: {documented:#?}");
   }
 }

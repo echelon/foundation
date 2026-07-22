@@ -33,6 +33,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     google: None,
     github: None,
     openai: None,
+    openai_webhook_secret: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -415,8 +416,9 @@ async fn admin_jobs_list_is_staff_only_and_paginates() {
   let page = body_json(resp).await;
   let jobs = page["jobs"].as_array().unwrap();
   assert!(jobs.len() >= 3);
-  // Newest first, and the admin rows carry the owning account.
-  assert_eq!(jobs[0]["account_id"], account_id.as_str());
+  // Newest first, and the admin rows carry the owning account. (The list spans ALL
+  // accounts — concurrent test files add rows too — so assert presence, not position.)
+  assert!(jobs.iter().any(|j| j["account_id"] == account_id.as_str()));
   let first_created: &str = jobs[0]["created_at"].as_str().unwrap();
   let later_created: &str = jobs[1]["created_at"].as_str().unwrap();
   assert!(first_created >= later_created);
@@ -472,4 +474,106 @@ async fn upload_requires_membership_and_valid_image() {
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// dry_run on EVERY generation endpoint — the 4 model-specific planes + the Any plane.
+/// Nothing reaches OpenAI: the job is born terminal (`canceled` / `dry_run`) and the
+/// exact would-be payload(s) land in the outbound request log (`provider_calls`).
+#[tokio::test]
+async fn dry_run_on_every_generation_endpoint() {
+  let (app, pool) = app_and_pool().await;
+  let (cookie, _user_id, account_id) = signup_owner(&app, &pool).await;
+
+  let model_slugs = [
+    ("openai_gpt_image_v1", "gpt-image-1"),
+    ("openai_gpt_image_v1_mini", "gpt-image-1-mini"),
+    ("openai_gpt_image_v1_5", "gpt-image-1.5"),
+    ("openai_gpt_image_v2", "gpt-image-2"),
+  ];
+
+  for (slug, provider_model_id) in model_slugs {
+    let resp = app
+      .clone()
+      .oneshot(req(
+        "POST",
+        &format!("/v1/models/{slug}/generate"),
+        Some(json!({ "account_id": account_id, "prompt": "dry run probe", "dry_run": true })),
+        Some(&cookie),
+      ))
+      .await
+      .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED, "{slug}");
+    let job = body_json(resp).await;
+    assert_eq!(job["status"], "canceled", "{slug}");
+    assert_eq!(job["dry_run"], true, "{slug}");
+    assert_eq!(job["failure_code"], "dry_run", "{slug}");
+    assert!(job["completed_at"].is_string(), "{slug}: dry-run jobs are terminal immediately");
+
+    // The outbound request log holds the EXACT provider payload, flagged dry-run.
+    let job_id: ids::JobId = job["id"].as_str().unwrap().parse().unwrap();
+    let calls = db_queries::provider_calls::list_provider_calls_for_job(&pool, &job_id).await.unwrap();
+    assert_eq!(calls.len(), 1, "{slug}");
+    assert!(calls[0].is_dry_run, "{slug}");
+    assert!(calls[0].provider_job_id.is_none(), "{slug}: never sent, no provider handle");
+    let body = calls[0].request_body.as_ref().unwrap();
+    assert_eq!(body["tools"][0]["model"], provider_model_id, "{slug}");
+    assert_eq!(body["background"], true, "{slug}");
+  }
+
+  // The Any plane, fanned out: n=3 → 3 canceled slices + 3 dry-run payloads logged.
+  let resp = app
+    .clone()
+    .oneshot(req(
+      "POST",
+      "/v1/any/image",
+      Some(json!({
+        "model": "openai_gpt_image_v1_mini",
+        "account_id": account_id,
+        "prompt": "dry run fan-out probe",
+        "n": 3,
+        "dry_run": true
+      })),
+      Some(&cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::CREATED);
+  let job = body_json(resp).await;
+  assert_eq!(job["status"], "canceled");
+  assert_eq!(job["dry_run"], true);
+  assert_eq!(job["progress"]["total"], 3);
+  assert_eq!(job["progress"]["completed"], 3, "dry-run slices are terminal immediately");
+  assert_eq!(job["progress"]["succeeded"], 0);
+
+  let job_id: ids::JobId = job["id"].as_str().unwrap().parse().unwrap();
+  let slices = db_queries::job_slices::list_slices_for_job(&pool, &job_id).await.unwrap();
+  assert_eq!(slices.len(), 3);
+  assert!(slices.iter().all(|s| s.status == enums::JobSliceStatus::Canceled));
+  let calls = db_queries::provider_calls::list_provider_calls_for_job(&pool, &job_id).await.unwrap();
+  assert_eq!(calls.len(), 3);
+  assert!(calls.iter().all(|c| c.is_dry_run && c.job_slice_id.is_some()));
+
+  // And a dry-run job never gets picked up by the dispatcher's claim query.
+  let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, 1.0, 100).await.unwrap();
+  assert!(claimed.iter().all(|j| !j.is_dry_run), "terminal dry-run jobs must not be claimable");
+}
+
+/// The cost twins accept dry_run too (it's simply irrelevant there — nothing is committed
+/// either way), so form-built request bodies work on both endpoints unchanged.
+#[tokio::test]
+async fn cost_twin_accepts_dry_run_flag() {
+  let (app, pool) = app_and_pool().await;
+  let (cookie, _user_id, account_id) = signup_owner(&app, &pool).await;
+  let resp = app
+    .clone()
+    .oneshot(req(
+      "POST",
+      "/v1/any/image/cost",
+      Some(json!({ "model": "openai_gpt_image_v1", "account_id": account_id, "prompt": "x", "dry_run": true })),
+      Some(&cookie),
+    ))
+    .await
+    .unwrap();
+  assert_eq!(resp.status(), StatusCode::OK);
+  assert!(body_json(resp).await["amount_micros"].as_i64().unwrap() > 0);
 }

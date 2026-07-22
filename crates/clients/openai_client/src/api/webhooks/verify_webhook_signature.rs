@@ -51,6 +51,26 @@ pub fn parse_verified_webhook(args: &VerifyWebhookArgs<'_>) -> Result<WebhookEve
   })
 }
 
+/// The inputs a sender signs (named fields — same transposition-hazard rationale as
+/// [`VerifyWebhookArgs`]).
+#[derive(Debug)]
+pub struct SignWebhookArgs<'a> {
+  pub secret: &'a OpenAiWebhookSecret,
+  pub webhook_id: &'a str,
+  /// Unix seconds, as it will appear in the `webhook-timestamp` header.
+  pub webhook_timestamp: &'a str,
+  pub body: &'a str,
+}
+
+/// Produce the `webhook-signature` header value (`v1,<base64(...)>`) for a payload — what
+/// OpenAI's sender computes. Exists so tests (ours and consumers') can forge valid
+/// deliveries against a known secret.
+pub fn sign_webhook_payload(args: &SignWebhookArgs<'_>) -> String {
+  let signed_content = format!("{}.{}.{}", args.webhook_id, args.webhook_timestamp, args.body);
+  let mac = hmac_sha256(&args.secret.key, signed_content.as_bytes());
+  format!("v1,{}", base64::engine::general_purpose::STANDARD.encode(mac))
+}
+
 /// HMAC-SHA256 (RFC 2104) built on the sha2 we already ship — no extra dependency.
 pub(crate) fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
   const BLOCK: usize = 64;

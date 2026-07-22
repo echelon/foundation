@@ -27,6 +27,8 @@ pub struct AnyImageBody {
 
 /// Enqueues an image job (never held open) — poll `GET /v1/jobs/{id}`. With `n > 1` the
 /// job fans out; outputs stream in per image and `progress` reports partial completion.
+/// With `dry_run: true` nothing is sent to the provider: the job lands terminal
+/// (`canceled` / `dry_run`) with the exact would-be payloads captured in the request log.
 #[utoipa::path(
   post, path = "/v1/any/image",
   tag = "generation",
@@ -44,7 +46,7 @@ pub async fn generate_any_image_handler(
   Json(body): Json<AnyImageBody>,
 ) -> ApiResult<(StatusCode, Json<JobBody>)> {
   let account_id = body.params.account_id.clone();
-  let ctx = session_enqueue_context(&state, &auth, &account_id, ApiShape::Any).await?;
+  let ctx = session_enqueue_context(&state, &auth, &account_id, ApiShape::Any, body.params.dry_run).await?;
   let stored = body.params.into_stored(&state, &body.model).await?;
   let job = enqueue_image_job(&state, ctx, stored).await?;
   Ok((StatusCode::CREATED, Json(job)))

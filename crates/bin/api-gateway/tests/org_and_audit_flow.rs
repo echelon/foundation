@@ -29,6 +29,7 @@ async fn app() -> Router {
     google: None,
     github: None,
     openai: None,
+    openai_webhook_secret: None,
   };
   api_gateway::build_router(state)
 }

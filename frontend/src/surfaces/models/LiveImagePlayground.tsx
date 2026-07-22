@@ -53,6 +53,7 @@ function supportsInputFidelity(slug: string): boolean {
 
 type FormState = {
   prompt: string;
+  dryRun: boolean;
   n: number;
   size: string;
   quality: string;
@@ -64,6 +65,7 @@ type FormState = {
 
 const INITIAL_FORM: FormState = {
   prompt: "",
+  dryRun: false,
   n: 1,
   size: "auto",
   quality: "auto",
@@ -81,6 +83,7 @@ function buildParams(form: FormState, accountId: string): ImageGenerationParams 
   if (form.quality !== "auto") p.quality = form.quality as ImageGenerationParams["quality"];
   if (form.outputFormat !== "png") p.output_format = form.outputFormat as ImageGenerationParams["output_format"];
   if (form.inputFidelity && form.inputs.length) p.input_fidelity = form.inputFidelity as ImageGenerationParams["input_fidelity"];
+  if (form.dryRun) p.dry_run = true;
   return p;
 }
 
@@ -343,10 +346,26 @@ export function LiveImagePlayground({ model }: { model: Model }) {
             </div>
           </div>
 
-          <div className="mt-6 flex items-center gap-2">
+          <label className="mt-4 flex items-center justify-between rounded-lg border border-border bg-surface2/40 px-3 py-2.5">
+            <span>
+              <span className="block text-sm font-medium text-fg">Dry run</span>
+              <span className="block text-xs text-muted">
+                Validate, price, and log the exact provider payload — nothing is sent, nothing is billed.
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => set("dryRun", !form.dryRun)}
+              className={cn("relative h-6 w-11 shrink-0 rounded-full transition", form.dryRun ? "brand-gradient" : "bg-surface2")}
+            >
+              <span className={cn("absolute top-0.5 h-5 w-5 rounded-full bg-white transition", form.dryRun ? "left-[1.375rem]" : "left-0.5")} />
+            </button>
+          </label>
+
+          <div className="mt-4 flex items-center gap-2">
             <Button onClick={run} disabled={running || !form.prompt.trim()} className="flex-1">
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              {running ? "Generating…" : `Run (${form.n})`}
+              {running ? "Generating…" : form.dryRun ? `Dry run (${form.n})` : `Run (${form.n})`}
             </Button>
             <Button variant="outline" onClick={reset} disabled={running}>
               <RotateCcw className="h-4 w-4" />
@@ -414,6 +433,12 @@ export function LiveImagePlayground({ model }: { model: Model }) {
                       </div>
                     ))}
                 </div>
+                {job.dry_run && (
+                  <p className="rounded-lg bg-brand/10 px-3 py-2 text-sm text-fg">
+                    Dry run complete — nothing was sent to the provider. The exact request payload
+                    {(job.progress?.total ?? 1) > 1 ? "s were" : " was"} recorded in the outbound request log.
+                  </p>
+                )}
                 {job.status === "failed" && (
                   <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-500">
                     {job.failure_message ?? "Generation failed."}
@@ -706,6 +731,7 @@ export function StatusBadge({ status }: { status: ApiJob["status"] }) {
   if (status === "failed") return <Badge tone="red">failed</Badge>;
   if (status === "running") return <Badge tone="amber">running</Badge>;
   if (status === "queued") return <Badge tone="brand">queued</Badge>;
+  if (status === "canceled") return <Badge>canceled</Badge>;
   return <Badge>{status}</Badge>;
 }
 

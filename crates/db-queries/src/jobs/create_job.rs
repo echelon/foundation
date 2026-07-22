@@ -24,6 +24,8 @@ pub struct NewJob<'a> {
   /// e.g. image count `n`.
   pub quantity: f64,
   pub estimated_max_micros: Option<i64>,
+  /// Dry-run request: admitted/priced/logged but never dispatched (born terminal).
+  pub is_dry_run: bool,
   pub expires_at: DateTime<Utc>,
 }
 
@@ -37,9 +39,9 @@ pub async fn create_job<'e, E: PgExecutor<'e>>(exec: E, new: NewJob<'_>) -> sqlx
          (id, account_id, api_key_id, user_id, source, media_type, model, modality, api_shape,
           api_version, request_params, param_adjustments, status, queue_stage, dispatch_attempts,
           provider, billing_mode, billing_state, price_unit, unit_amount_nanos, quantity,
-          estimated_max_micros, refunded_micros, next_dispatch_at, expires_at)
+          estimated_max_micros, is_dry_run, refunded_micros, next_dispatch_at, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'queued', 'at_our_gateway', 0,
-               $13, 'fixed', 'not_charged', 'per_image', $14, $15::float8::numeric, $16, 0, now(), $17)
+               $13, 'fixed', 'not_charged', 'per_image', $14, $15::float8::numeric, $16, $17, 0, now(), $18)
        RETURNING id AS "id: ids::JobId", account_id AS "account_id: ids::AccountId",
                  api_key_id AS "api_key_id?: ids::ApiKeyId", user_id AS "user_id?: ids::UserId",
                  source AS "source: enums::JobSource", media_type, model, modality,
@@ -47,7 +49,7 @@ pub async fn create_job<'e, E: PgExecutor<'e>>(exec: E, new: NewJob<'_>) -> sqlx
                  status AS "status: enums::JobStatus", queue_stage AS "queue_stage?: enums::QueueStage",
                  dispatch_attempts, failure_code, failure_message, provider, provider_job_id,
                  unit_amount_nanos, quantity::float8 AS "quantity?: f64", estimated_max_micros,
-                 created_at, completed_at, expires_at"#,
+                 is_dry_run, created_at, completed_at, expires_at"#,
     id.as_str(),
     new.account_id.as_str(),
     new.api_key_id.map(|k| k.as_str()),
@@ -64,6 +66,7 @@ pub async fn create_job<'e, E: PgExecutor<'e>>(exec: E, new: NewJob<'_>) -> sqlx
     new.unit_amount_nanos,
     new.quantity,
     new.estimated_max_micros,
+    new.is_dry_run,
     new.expires_at,
   )
   .fetch_one(exec)

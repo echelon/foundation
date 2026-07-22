@@ -31,6 +31,7 @@ async fn app_and_pool() -> (Router, db::PgPool) {
     google: None,
     github: None,
     openai: None,
+    openai_webhook_secret: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -184,6 +185,7 @@ async fn app_with_google() -> (Router, db::PgPool) {
     ))),
     github: None,
     openai: None,
+    openai_webhook_secret: None,
   };
   (api_gateway::build_router(state), pool)
 }
@@ -386,6 +388,7 @@ async fn api_status_reports_reachability_and_operator_message() {
     google: None,
     github: None,
     openai: None,
+    openai_webhook_secret: None,
   };
   let app = api_gateway::build_router(state);
   let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();
@@ -558,6 +561,7 @@ async fn app_with_github(mock_base: &str) -> (Router, db::PgPool) {
       mock_base.to_string(),
     ))),
     openai: None,
+    openai_webhook_secret: None,
   };
   (api_gateway::build_router(state), pool)
 }

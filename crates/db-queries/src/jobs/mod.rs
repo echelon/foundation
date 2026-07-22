@@ -9,6 +9,7 @@ mod claim_due_dispatch_jobs;
 mod complete_job;
 mod create_job;
 mod find_job;
+mod find_job_by_provider_job_id;
 mod find_job_for_account;
 mod list_jobs_for_account;
 mod list_pollable_unsliced_jobs;
@@ -20,6 +21,7 @@ pub use claim_due_dispatch_jobs::claim_due_dispatch_jobs;
 pub use complete_job::{complete_job, CompleteJob};
 pub use create_job::{create_job, NewJob};
 pub use find_job::find_job;
+pub use find_job_by_provider_job_id::find_job_by_provider_job_id;
 pub use find_job_for_account::find_job_for_account;
 pub use list_jobs_for_account::{list_jobs_for_account, JobListFilter};
 pub use list_pollable_unsliced_jobs::list_pollable_unsliced_jobs;
@@ -52,6 +54,7 @@ pub struct Job {
   pub unit_amount_nanos: i64,
   pub quantity: Option<f64>,
   pub estimated_max_micros: Option<i64>,
+  pub is_dry_run: bool,
   pub created_at: DateTime<Utc>,
   pub completed_at: Option<DateTime<Utc>>,
   pub expires_at: DateTime<Utc>,

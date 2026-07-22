@@ -18,7 +18,7 @@ pub async fn find_job_for_account<'e, E: PgExecutor<'e>>(
                  status AS "status: enums::JobStatus", queue_stage AS "queue_stage?: enums::QueueStage",
                  dispatch_attempts, failure_code, failure_message, provider, provider_job_id,
                  unit_amount_nanos, quantity::float8 AS "quantity?: f64", estimated_max_micros,
-                 created_at, completed_at, expires_at
+                 is_dry_run, created_at, completed_at, expires_at
        FROM jobs WHERE id = $1 AND account_id = $2"#,
     id.as_str(),
     account_id.as_str(),

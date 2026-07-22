@@ -7,7 +7,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 1ehLxzoiZjkiKbYf1z7R9aKfnZWdT7j045kayTLrTWVlpGFlQijTtcXQt9ZezxU
+\restrict pfXBcNqBNf9csC7YJzMQ8axHWwohbxUfqqjGxqqAnV6ZMkffTWtI7xMcBMFnQss
 
 -- Dumped from database version 16.14 (Homebrew)
 -- Dumped by pg_dump version 16.14 (Homebrew)
@@ -572,6 +572,65 @@ ALTER TABLE public.impersonation_audit_logs ALTER COLUMN sid ADD GENERATED ALWAY
 
 
 --
+-- Name: inbound_webhooks; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inbound_webhooks (
+    sid bigint NOT NULL,
+    id text NOT NULL,
+    provider text NOT NULL,
+    event_id text,
+    event_type text,
+    object_id text,
+    is_signature_valid boolean NOT NULL,
+    provider_call_id text,
+    job_id text,
+    job_slice_id text,
+    outcome text NOT NULL,
+    payload jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT inbound_webhooks_outcome_check CHECK ((outcome = ANY (ARRAY['processed'::text, 'unmatched'::text, 'duplicate'::text, 'ignored'::text, 'signature_failed'::text, 'not_configured'::text, 'error'::text])))
+)
+PARTITION BY RANGE (created_at);
+
+
+--
+-- Name: inbound_webhooks_default; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.inbound_webhooks_default (
+    sid bigint NOT NULL,
+    id text NOT NULL,
+    provider text NOT NULL,
+    event_id text,
+    event_type text,
+    object_id text,
+    is_signature_valid boolean NOT NULL,
+    provider_call_id text,
+    job_id text,
+    job_slice_id text,
+    outcome text NOT NULL,
+    payload jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT inbound_webhooks_outcome_check CHECK ((outcome = ANY (ARRAY['processed'::text, 'unmatched'::text, 'duplicate'::text, 'ignored'::text, 'signature_failed'::text, 'not_configured'::text, 'error'::text])))
+);
+
+
+--
+-- Name: inbound_webhooks_sid_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.inbound_webhooks ALTER COLUMN sid ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.inbound_webhooks_sid_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: invitations; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -753,6 +812,7 @@ CREATE TABLE public.jobs (
     api_version date NOT NULL,
     request_params jsonb NOT NULL,
     param_adjustments jsonb NOT NULL,
+    is_dry_run boolean DEFAULT false NOT NULL,
     retry_policy jsonb,
     status text NOT NULL,
     queue_stage text,
@@ -1014,8 +1074,11 @@ CREATE TABLE public.provider_calls (
     sid bigint NOT NULL,
     id text NOT NULL,
     job_id text NOT NULL,
+    job_slice_id text,
     provider text NOT NULL,
     direction text NOT NULL,
+    is_dry_run boolean DEFAULT false NOT NULL,
+    provider_job_id text,
     url text,
     request_headers jsonb,
     request_body jsonb,
@@ -1040,8 +1103,11 @@ CREATE TABLE public.provider_calls_default (
     sid bigint NOT NULL,
     id text NOT NULL,
     job_id text NOT NULL,
+    job_slice_id text,
     provider text NOT NULL,
     direction text NOT NULL,
+    is_dry_run boolean DEFAULT false NOT NULL,
+    provider_job_id text,
     url text,
     request_headers jsonb,
     request_body jsonb,
@@ -1781,6 +1847,13 @@ ALTER TABLE public.webhook_secrets ALTER COLUMN sid ADD GENERATED ALWAYS AS IDEN
 
 
 --
+-- Name: inbound_webhooks_default; Type: TABLE ATTACH; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_webhooks ATTACH PARTITION public.inbound_webhooks_default DEFAULT;
+
+
+--
 -- Name: provider_calls_default; Type: TABLE ATTACH; Schema: public; Owner: -
 --
 
@@ -1967,6 +2040,22 @@ ALTER TABLE ONLY public.idempotency_keys
 
 ALTER TABLE ONLY public.impersonation_audit_logs
     ADD CONSTRAINT impersonation_audit_logs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: inbound_webhooks inbound_webhooks_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_webhooks
+    ADD CONSTRAINT inbound_webhooks_pkey PRIMARY KEY (id, created_at);
+
+
+--
+-- Name: inbound_webhooks_default inbound_webhooks_default_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.inbound_webhooks_default
+    ADD CONSTRAINT inbound_webhooks_default_pkey PRIMARY KEY (id, created_at);
 
 
 --
@@ -2428,6 +2517,34 @@ CREATE INDEX billing_events_job ON public.billing_events USING btree (job_id);
 
 
 --
+-- Name: inbound_webhooks_object_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inbound_webhooks_object_idx ON ONLY public.inbound_webhooks USING btree (object_id);
+
+
+--
+-- Name: inbound_webhooks_default_object_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inbound_webhooks_default_object_id_idx ON public.inbound_webhooks_default USING btree (object_id);
+
+
+--
+-- Name: inbound_webhooks_event_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inbound_webhooks_event_idx ON ONLY public.inbound_webhooks USING btree (provider, event_id);
+
+
+--
+-- Name: inbound_webhooks_default_provider_event_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX inbound_webhooks_default_provider_event_id_idx ON public.inbound_webhooks_default USING btree (provider, event_id);
+
+
+--
 -- Name: invitations_one_live_per_account_email; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2526,6 +2643,20 @@ CREATE INDEX provider_calls_default_job_id_idx ON public.provider_calls_default 
 
 
 --
+-- Name: provider_calls_provider_jobid_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX provider_calls_provider_jobid_idx ON ONLY public.provider_calls USING btree (provider_job_id) WHERE (provider_job_id IS NOT NULL);
+
+
+--
+-- Name: provider_calls_default_provider_job_id_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX provider_calls_default_provider_job_id_idx ON public.provider_calls_default USING btree (provider_job_id) WHERE (provider_job_id IS NOT NULL);
+
+
+--
 -- Name: queue_tasks_worker_loop_idx; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2603,6 +2734,27 @@ CREATE INDEX webhook_deliveries_default_job_id_idx ON public.webhook_deliveries_
 
 
 --
+-- Name: inbound_webhooks_default_object_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.inbound_webhooks_object_idx ATTACH PARTITION public.inbound_webhooks_default_object_id_idx;
+
+
+--
+-- Name: inbound_webhooks_default_pkey; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.inbound_webhooks_pkey ATTACH PARTITION public.inbound_webhooks_default_pkey;
+
+
+--
+-- Name: inbound_webhooks_default_provider_event_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.inbound_webhooks_event_idx ATTACH PARTITION public.inbound_webhooks_default_provider_event_id_idx;
+
+
+--
 -- Name: provider_calls_default_job_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
 --
 
@@ -2614,6 +2766,13 @@ ALTER INDEX public.provider_calls_job_idx ATTACH PARTITION public.provider_calls
 --
 
 ALTER INDEX public.provider_calls_pkey ATTACH PARTITION public.provider_calls_default_pkey;
+
+
+--
+-- Name: provider_calls_default_provider_job_id_idx; Type: INDEX ATTACH; Schema: public; Owner: -
+--
+
+ALTER INDEX public.provider_calls_provider_jobid_idx ATTACH PARTITION public.provider_calls_default_provider_job_id_idx;
 
 
 --
@@ -2662,5 +2821,5 @@ ALTER INDEX public.webhook_deliveries_pkey ATTACH PARTITION public.webhook_deliv
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1ehLxzoiZjkiKbYf1z7R9aKfnZWdT7j045kayTLrTWVlpGFlQijTtcXQt9ZezxU
+\unrestrict pfXBcNqBNf9csC7YJzMQ8axHWwohbxUfqqjGxqqAnV6ZMkffTWtI7xMcBMFnQss
 

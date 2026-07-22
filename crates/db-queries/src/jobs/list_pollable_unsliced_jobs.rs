@@ -14,7 +14,7 @@ pub async fn list_pollable_unsliced_jobs<'e, E: PgExecutor<'e>>(exec: E, limit: 
                  status AS "status: enums::JobStatus", queue_stage AS "queue_stage?: enums::QueueStage",
                  dispatch_attempts, failure_code, failure_message, provider, provider_job_id,
                  unit_amount_nanos, quantity::float8 AS "quantity?: f64", estimated_max_micros,
-                 created_at, completed_at, expires_at
+                 is_dry_run, created_at, completed_at, expires_at
        FROM jobs
        WHERE status = 'running' AND provider_job_id IS NOT NULL
        ORDER BY sid

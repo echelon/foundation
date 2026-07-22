@@ -79,6 +79,17 @@ pub(crate) fn build_image_body(start: &ImageStart<'_>) -> Result<CreateResponseB
   })
 }
 
+/// The absolute URL every image start posts to — for outbound request logging.
+pub const RESPONSES_ENDPOINT_URL: &str = "https://api.openai.com/v1/responses";
+
+/// Serialize the EXACT wire body an [`ImageStart`] would send — for provider-call logs and
+/// dry runs. Same construction path as the real send, so what's logged is what would fire.
+pub(crate) fn image_wire_json(start: &ImageStart<'_>) -> Result<serde_json::Value, OpenAiError> {
+  let body = build_image_body(start)?;
+  serde_json::to_value(&body)
+    .map_err(|e| OpenAiClientError::InvalidRequest(format!("request not serializable: {e}")).into())
+}
+
 pub(crate) async fn start_image(
   api_key: &OpenAiApiKey,
   start: &ImageStart<'_>,
