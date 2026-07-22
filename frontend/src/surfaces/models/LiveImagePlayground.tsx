@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
-import { Badge, Button, Card, Label, Select, Slider, Textarea } from "@/components/ui";
+import { Check, Copy, ExternalLink, ImagePlus, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
+import { Badge, Button, Card, Label, Modal, Select, Slider, Textarea } from "@/components/ui";
 import { CodeBlock } from "@/components/CodeBlock";
 import { AccountModal } from "@/components/AccountModal";
 import { useAuth } from "@/lib/auth";
@@ -19,6 +19,8 @@ import {
   type ApiAccount,
   type ApiCostQuote,
   type ApiJob,
+  type ApiJobOutput,
+  type ApiStoredImageParams,
   type ImageGenerationParams,
   type UploadedFile,
 } from "@/lib/api";
@@ -75,6 +77,35 @@ const INITIAL_FORM: FormState = {
   mask: null,
 };
 
+/** Per-model playground state that survives navigating away and back (SPA lifetime).
+ * Keyed by model slug: the form as last edited plus the most recent request's job. */
+const PLAYGROUND_STATE = new Map<string, { form: FormState; job: ApiJob | null }>();
+
+/** Stored router wire values → the form's provider-style vocabulary. */
+const SIZE_FROM_STORED: Record<string, string> = {
+  square1024: "1024x1024",
+  landscape1536x1024: "1536x1024",
+  portrait1024x1536: "1024x1536",
+  auto: "auto",
+};
+
+/** Re-fill the form from a job's persisted request (image refs come back as CDN URLs,
+ * which the API accepts as inputs directly). */
+function formFromStored(p: ApiStoredImageParams, dryRun: boolean): FormState {
+  const asUpload = (url: string): UploadedFile => ({ file_id: url, cdn_url: url, mime: "", bytes: 0, width: 0, height: 0 });
+  return {
+    prompt: p.prompt,
+    dryRun,
+    n: p.n,
+    size: p.size ? (SIZE_FROM_STORED[p.size] ?? "auto") : "auto",
+    quality: p.quality ?? "auto",
+    outputFormat: p.output_format ?? "png",
+    inputFidelity: p.input_fidelity ?? "",
+    inputs: p.image_urls.map(asUpload),
+    mask: p.mask_url ? asUpload(p.mask_url) : null,
+  };
+}
+
 function buildParams(form: FormState, accountId: string): ImageGenerationParams {
   const p: ImageGenerationParams = { account_id: accountId, prompt: form.prompt, n: form.n };
   if (form.inputs.length) p.image_inputs = form.inputs.map((f) => f.file_id);
@@ -91,17 +122,42 @@ export function LiveImagePlayground({ model }: { model: Model }) {
   const { user } = useAuth();
   const [accounts, setAccounts] = useState<ApiAccount[]>([]);
   const [accountId, setAccountId] = useState<string>("");
-  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [form, setForm] = useState<FormState>(() => PLAYGROUND_STATE.get(model.slug)?.form ?? INITIAL_FORM);
   const [uploading, setUploading] = useState<"input" | "mask" | null>(null);
-  const [job, setJob] = useState<ApiJob | null>(null);
+  const [job, setJob] = useState<ApiJob | null>(() => PLAYGROUND_STATE.get(model.slug)?.job ?? null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<ApiCostQuote | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [historyNonce, setHistoryNonce] = useState(0);
+  const [lightbox, setLightbox] = useState<ApiJobOutput | null>(null);
   const pollTimer = useRef<number | null>(null);
+  /** Invalidates in-flight poll ticks when the result is cleared or the model swaps. */
+  const pollEpoch = useRef(0);
+  const topRef = useRef<HTMLDivElement>(null);
+  /** The slug the current form/job state belongs to (the prop can change without remount). */
+  const activeSlug = useRef(model.slug);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
+
+  /* Persist the latest form + result so navigating away and back restores them. Writes
+     under the ACTIVE slug — on a model switch this runs before the swap effect below. */
+  useEffect(() => {
+    PLAYGROUND_STATE.set(activeSlug.current, { form, job });
+  }, [form, job]);
+
+  /* Model switched without a remount: load the new model's saved state. */
+  useEffect(() => {
+    if (activeSlug.current === model.slug) return;
+    activeSlug.current = model.slug;
+    pollEpoch.current += 1;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    const cached = PLAYGROUND_STATE.get(model.slug);
+    setForm(cached?.form ?? INITIAL_FORM);
+    setJob(cached?.job ?? null);
+    setRunning(false);
+    setError(null);
+  }, [model.slug]);
 
   /* Load the caller's organizations (the job needs an owning account). */
   useEffect(() => {
@@ -141,9 +197,11 @@ export function LiveImagePlayground({ model }: { model: Model }) {
   /* Poll the enqueued job until terminal; outputs render as they arrive. */
   const poll = useCallback(
     (jobId: string, acct: string) => {
+      const epoch = pollEpoch.current;
       const tick = async () => {
         try {
           const j = await api.getJob(jobId, acct);
+          if (epoch !== pollEpoch.current) return; // result was cleared / model swapped
           setJob(j);
           if (j.status === "queued" || j.status === "running") {
             pollTimer.current = window.setTimeout(tick, 2000);
@@ -152,6 +210,7 @@ export function LiveImagePlayground({ model }: { model: Model }) {
             setHistoryNonce((n) => n + 1);
           }
         } catch {
+          if (epoch !== pollEpoch.current) return;
           pollTimer.current = window.setTimeout(tick, 4000);
         }
       };
@@ -162,6 +221,17 @@ export function LiveImagePlayground({ model }: { model: Model }) {
   useEffect(() => () => {
     if (pollTimer.current) window.clearTimeout(pollTimer.current);
   }, []);
+
+  /* A restored job that was still in flight when the user navigated away: resume polling
+     once the account is known. The guards make re-runs (each poll tick updates `job`) a
+     no-op while a poll loop is live or the job is terminal. */
+  useEffect(() => {
+    if (!accountId || !job || running) return;
+    if (job.status !== "queued" && job.status !== "running") return;
+    setRunning(true);
+    poll(job.id, accountId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, job, running]);
 
   const execute = async () => {
     if (!accountId) return;
@@ -206,19 +276,34 @@ export function LiveImagePlayground({ model }: { model: Model }) {
     }
   };
 
+  /** Reset the REQUEST side to defaults (the result pane is untouched — that's Clear). */
   const reset = () => {
-    if (pollTimer.current) window.clearTimeout(pollTimer.current);
     setForm(INITIAL_FORM);
+    setError(null);
+  };
+
+  /** Blank the result pane (stops any in-flight polling; the job itself is unaffected). */
+  const clearResult = () => {
+    pollEpoch.current += 1;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
     setJob(null);
     setRunning(false);
+    setLightbox(null);
+  };
+
+  /** Re-fill the form from a past job's persisted request — the request JSON below
+   * rebuilds from the form, so it comes back too. */
+  const recreate = (j: ApiJob) => {
+    setForm(formFromStored(j.request_params, j.dry_run));
     setError(null);
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const isEdit = form.inputs.length > 0;
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <div ref={topRef} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         {/* ── Controls ── */}
         <Card className="p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -367,8 +452,9 @@ export function LiveImagePlayground({ model }: { model: Model }) {
               {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
               {running ? "Generating…" : form.dryRun ? `Dry run (${form.n})` : `Run (${form.n})`}
             </Button>
-            <Button variant="outline" onClick={reset} disabled={running}>
+            <Button variant="outline" onClick={reset} title="Reset the request to defaults">
               <RotateCcw className="h-4 w-4" />
+              Reset
             </Button>
           </div>
           <p className="mt-3 text-xs text-muted">
@@ -395,6 +481,23 @@ export function LiveImagePlayground({ model }: { model: Model }) {
                 </span>
               )}
               {job && <StatusBadge status={job.status} />}
+              {job && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => recreate(job)}
+                    title="Re-fill the request form from this result"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Recreate
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={clearResult} title="Blank the result pane">
+                    <X className="h-3.5 w-3.5" />
+                    Clear
+                  </Button>
+                </>
+              )}
             </div>
           </div>
           <div className="flex-1 p-5">
@@ -418,13 +521,19 @@ export function LiveImagePlayground({ model }: { model: Model }) {
                 )}
                 <div className={cn("grid gap-3", job.outputs.length > 1 || (job.progress?.total ?? 1) > 1 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-1")}>
                   {job.outputs.map((o) => (
-                    <a key={o.index} href={o.url} target="_blank" rel="noreferrer" className="group block">
+                    <button
+                      key={o.index}
+                      type="button"
+                      onClick={() => setLightbox(o)}
+                      className="group block text-left"
+                      title="View details"
+                    >
                       <img
                         src={o.url}
                         alt={`Output ${o.index + 1}`}
                         className="w-full rounded-xl border border-border object-cover transition group-hover:opacity-90"
                       />
-                    </a>
+                    </button>
                   ))}
                   {(job.status === "queued" || job.status === "running") &&
                     Array.from({ length: Math.max((job.progress?.total ?? 1) - job.outputs.length, job.status === "queued" && !job.progress ? 1 : 0) }).map((_, i) => (
@@ -468,7 +577,7 @@ export function LiveImagePlayground({ model }: { model: Model }) {
 
       <RequestJsonBuilder model={model} form={form} accountId={accountId || "acct_YOUR_ACCOUNT"} />
       <ApiDocs model={model} />
-      {user && accountId && <LiveHistory model={model} accountId={accountId} nonce={historyNonce} />}
+      {user && accountId && <LiveHistory model={model} accountId={accountId} nonce={historyNonce} onRecreate={recreate} />}
 
       <AccountModal
         open={showAccountModal}
@@ -476,7 +585,177 @@ export function LiveImagePlayground({ model }: { model: Model }) {
         onAuthed={() => void execute()}
         reason={`Create a free account to run ${model.name} in the playground.`}
       />
+
+      {job && lightbox && (
+        <OutputLightbox model={model} job={job} output={lightbox} onClose={() => setLightbox(null)} />
+      )}
     </div>
+  );
+}
+
+/* ── Output lightbox ── */
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+/** Clipboard image support is PNG-only in practice — transcode other formats via canvas. */
+async function toPngBlob(blob: Blob): Promise<Blob> {
+  if (blob.type === "image/png") return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext("2d")!.drawImage(bitmap, 0, 0);
+  return await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("png encode failed"))), "image/png"),
+  );
+}
+
+function OutputLightbox({
+  model,
+  job,
+  output,
+  onClose,
+}: {
+  model: Model;
+  job: ApiJob;
+  output: ApiJobOutput;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState<"url" | "image" | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const flashTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    };
+  }, [onClose]);
+
+  const flash = (kind: "url" | "image") => {
+    setCopied(kind);
+    setCopyError(null);
+    if (flashTimer.current) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setCopied(null), 1500);
+  };
+
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(output.url);
+      flash("url");
+    } catch {
+      setCopyError("Couldn't copy the URL — clipboard access was blocked.");
+    }
+  };
+
+  const copyImage = async () => {
+    try {
+      const res = await fetch(output.url);
+      if (!res.ok) throw new Error(String(res.status));
+      const png = await toPngBlob(await res.blob());
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      flash("image");
+    } catch {
+      setCopyError("Couldn't copy the image — your browser may not allow it. Copy the URL instead.");
+    }
+  };
+
+  const p = job.request_params;
+  const stats: [string, string][] = [
+    ["Job", job.id],
+    ["Model", model.name],
+    ["Status", job.status],
+    ["Output", `${output.index + 1} of ${job.progress?.total ?? job.outputs.length}`],
+    ["Format", output.mime],
+    ["File size", formatBytes(output.bytes)],
+    ["Size", p.size ? (SIZE_FROM_STORED[p.size] ?? p.size) : "auto"],
+    ["Quality", p.quality ?? "auto"],
+    ["Est. cost", `$${(job.estimated_micros / 1_000_000).toFixed(4)}`],
+    ["Created", new Date(job.created_at).toLocaleString()],
+  ];
+
+  return (
+    <Modal open onClose={onClose} className="max-w-4xl p-0">
+      <div className="flex items-center justify-between border-b border-border px-5 py-3">
+        <div className="flex items-center gap-2">
+          <h3 className="font-display font-semibold">Output {output.index + 1}</h3>
+          <StatusBadge status={job.status} />
+        </div>
+        <button
+          onClick={onClose}
+          title="Close"
+          className="rounded-lg p-2 text-muted transition hover:bg-surface2 hover:text-fg"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div className="grid place-items-center rounded-xl bg-surface2/40 p-2">
+          <img src={output.url} alt={`Output ${output.index + 1}`} className="max-h-[65vh] w-auto max-w-full rounded-lg object-contain" />
+        </div>
+
+        <div className="min-w-0 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void copyUrl()}>
+              {copied === "url" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied === "url" ? "Copied" : "Copy URL"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void copyImage()}>
+              {copied === "image" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <ImagePlus className="h-3.5 w-3.5" />}
+              {copied === "image" ? "Copied" : "Copy image"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => window.open(output.url, "_blank", "noopener")}>
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open in new tab
+            </Button>
+          </div>
+          {copyError && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">{copyError}</p>}
+
+          <div>
+            <div className="text-xs text-muted">Prompt</div>
+            <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap rounded-lg bg-surface2/60 px-3 py-2 text-sm text-fg">
+              {p.prompt}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            {stats.map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-surface2/60 px-3 py-2">
+                <div className="text-xs text-muted">{label}</div>
+                <div className="truncate font-medium text-fg" title={value}>
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {p.image_urls.length > 0 && (
+            <div>
+              <div className="text-xs text-muted">Edit inputs</div>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {p.image_urls.map((u) => (
+                  <img key={u} src={u} alt="" className="h-12 w-12 rounded-lg border border-border object-cover" />
+                ))}
+              </div>
+            </div>
+          )}
+          {job.param_adjustments.length > 0 && (
+            <p className="rounded-lg bg-surface2/60 px-3 py-2 text-xs text-muted">
+              Adjusted: {job.param_adjustments.map((a) => `${a.param} (${a.action}) — ${a.detail}`).join("; ")}
+            </p>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -634,7 +913,17 @@ function ApiDocs({ model }: { model: Model }) {
 
 /* ── Real request history ── */
 
-function LiveHistory({ model, accountId, nonce }: { model: Model; accountId: string; nonce: number }) {
+function LiveHistory({
+  model,
+  accountId,
+  nonce,
+  onRecreate,
+}: {
+  model: Model;
+  accountId: string;
+  nonce: number;
+  onRecreate: (j: ApiJob) => void;
+}) {
   const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [nextAfter, setNextAfter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -704,8 +993,19 @@ function LiveHistory({ model, accountId, nonce }: { model: Model; accountId: str
                     )}
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-muted sm:table-cell">{j.modality.replace(/_/g, " ")}</td>
-                  <td className="py-3 pl-3 pr-5 text-right font-medium text-fg">
+                  <td className="px-3 py-3 text-right font-medium text-fg">
                     ${(j.estimated_micros / 1_000_000).toFixed(4)}
+                  </td>
+                  <td className="py-3 pl-3 pr-5 text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onRecreate(j)}
+                      title="Re-fill the request form from this job"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      Recreate
+                    </Button>
                   </td>
                 </tr>
               ))}

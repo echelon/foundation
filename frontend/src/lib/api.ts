@@ -285,6 +285,20 @@ export type ApiJobSource = "api_key" | "dashboard" | "mcp";
 /** Which API plane the request came through (`unified` = model-specific endpoint). */
 export type ApiJobShape = "granular" | "unified" | "any" | "chat";
 
+/** The sanitized, resolved request as the backend persisted it (`StoredImageParams`) —
+ * image refs are already CDN URLs, enum values use the router's snake_case wire strings. */
+export type ApiStoredImageParams = {
+  model: string;
+  prompt: string;
+  image_urls: string[];
+  mask_url: string | null;
+  n: number;
+  size: "square1024" | "landscape1536x1024" | "portrait1024x1536" | "auto" | null;
+  quality: "low" | "medium" | "high" | "auto" | null;
+  output_format: "png" | "jpeg" | "webp" | null;
+  input_fidelity: "low" | "high" | null;
+};
+
 export type ApiJob = {
   id: string;
   model: string;
@@ -300,6 +314,7 @@ export type ApiJob = {
   failure_message: string | null;
   estimated_micros: number;
   param_adjustments: { param: string; action: "pruned" | "coerced"; detail: string }[];
+  request_params: ApiStoredImageParams;
   created_at: string;
   completed_at: string | null;
 };
