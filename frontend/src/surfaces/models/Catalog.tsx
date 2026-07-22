@@ -4,6 +4,7 @@ import { LayoutGrid, Rows3, Search, TrendingDown, TrendingUp } from "lucide-reac
 import { Badge, Container, Input } from "@/components/ui";
 import { Sparkline } from "@/components/Sparkline";
 import { ModelCard } from "@/components/ModelCard";
+import { ModelIcon } from "@/components/ModelArt";
 import { MODELS, MODALITY_LABEL, PROVIDERS, priceLabel, type Modality } from "@/lib/catalog";
 import { SORTS, rankModels, sortMetric, type RankedModel, type SortKey } from "@/lib/model-stats";
 import { cn } from "@/lib/cn";
@@ -136,8 +137,6 @@ function ViewButton({ active, onClick, icon: Icon, label }: { active: boolean; o
   );
 }
 
-const GLYPH: Record<Modality, string> = { image: "🖼", video: "🎬", "3d": "🧊", world: "🌐", chat: "💬" };
-
 function TableView({ ranked, sort }: { ranked: RankedModel[]; sort: SortKey }) {
   const navigate = useNavigate();
   const metricLabel = sortMetric(ranked[0], sort).label;
@@ -169,7 +168,7 @@ function TableView({ ranked, sort }: { ranked: RankedModel[]; sort: SortKey }) {
                 <td className="px-4 py-3 font-mono text-muted">{rm.rank}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-lg">{GLYPH[m.modality]}</span>
+                    <ModelIcon model={m} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium text-fg">{m.name}</span>

@@ -2,16 +2,9 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { Sparkline } from "@/components/Sparkline";
+import { MODALITY_GLYPH, ModelCoverArt } from "@/components/ModelArt";
 import { MODALITY_LABEL, priceLabel, type Model } from "@/lib/catalog";
 import type { ModelStats } from "@/lib/model-stats";
-
-const MODALITY_GLYPH: Record<Model["modality"], string> = {
-  image: "🖼",
-  video: "🎬",
-  "3d": "🧊",
-  world: "🌐",
-  chat: "💬",
-};
 
 /** Optional ranking/usage overlay for the catalog index (design §3.3). */
 export function ModelCard({
@@ -28,8 +21,10 @@ export function ModelCard({
   return (
     <Link to={`/models/${model.slug}`} className="group block">
       <Card className="h-full overflow-hidden transition group-hover:border-brand/50 group-hover:shadow-glow">
-        <div className="relative grid h-32 place-items-center brand-gradient text-4xl">
+        <div className="relative grid h-32 place-items-center overflow-hidden brand-gradient text-4xl">
           <span className="opacity-90">{MODALITY_GLYPH[model.modality]}</span>
+          {/* Cover art layers over the gradient/glyph when the model has a sample set. */}
+          <ModelCoverArt slug={model.slug} className="transition duration-300 group-hover:scale-[1.03]" />
           {rank !== undefined && (
             <div className="absolute left-3 top-3 grid h-7 min-w-7 place-items-center rounded-lg bg-black/45 px-1.5 text-sm font-bold text-white backdrop-blur-sm">
               #{rank}

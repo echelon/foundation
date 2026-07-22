@@ -3,6 +3,7 @@ import { Link, useParams, Navigate, useLocation, useNavigate } from "react-route
 import { ArrowLeft, BarChart3, Bot, FileText, ImageOff, Plug } from "lucide-react";
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
+import { ModelMarquee } from "@/components/ModelArt";
 import { CodeTabs } from "@/components/CodeBlock";
 import { Playground } from "./Playground";
 import { Gallery, type RemixValues } from "./Gallery";
@@ -53,6 +54,9 @@ export default function ModelPage() {
       <Link to="/models" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
         <ArrowLeft className="h-4 w-4" /> All models
       </Link>
+
+      {/* ── Marquee cover (models with generated sample art) ── */}
+      <ModelMarquee slug={model.slug} />
 
       {/* ── Header ── */}
       <div className="flex flex-col gap-6 border-b border-border pb-8 md:flex-row md:items-start md:justify-between">
