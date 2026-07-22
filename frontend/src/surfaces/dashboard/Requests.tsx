@@ -8,9 +8,10 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { BatchBadge } from "@/components/BatchBadge";
+import { OutputLightbox, sessionRequestLoader } from "@/components/OutputLightbox";
 import { useOrg } from "@/lib/org";
 import { api, type ApiJob } from "@/lib/api";
-import { MODELS } from "@/lib/catalog";
+import { MODEL_BY_SLUG, MODELS } from "@/lib/catalog";
 
 const LIVE_MODELS = MODELS.filter((m) => m.live);
 
@@ -21,6 +22,7 @@ export default function Requests() {
   const [nextAfter, setNextAfter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [nonce, setNonce] = useState(0);
+  const [selected, setSelected] = useState<{ job: ApiJob; index: number } | null>(null);
 
   useEffect(() => {
     if (!current) return;
@@ -106,14 +108,26 @@ export default function Requests() {
               </thead>
               <tbody>
                 {jobs.map((j) => (
-                  <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
+                  <tr
+                    key={j.id}
+                    onClick={() => setSelected({ job: j, index: 0 })}
+                    title="View details"
+                    className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40"
+                  >
                     <td className="py-3 pl-5 pr-3">
                       <div className="flex items-center gap-2">
                         <div className="flex -space-x-2">
-                          {j.outputs.slice(0, 3).map((o) => (
-                            <a key={o.index} href={o.url} target="_blank" rel="noreferrer">
+                          {j.outputs.slice(0, 3).map((o, i) => (
+                            <button
+                              key={o.index}
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelected({ job: j, index: i });
+                              }}
+                            >
                               <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
-                            </a>
+                            </button>
                           ))}
                           {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                         </div>
@@ -156,6 +170,16 @@ export default function Requests() {
           </div>
         )}
       </Card>
+
+      {selected && current && (
+        <OutputLightbox
+          job={selected.job}
+          modelName={MODEL_BY_SLUG[selected.job.model]?.name ?? selected.job.model}
+          initialIndex={selected.index}
+          loadRequest={sessionRequestLoader(current.account_id)}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
