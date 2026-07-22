@@ -25,9 +25,25 @@ pub fn http_client(user_agent: &str) -> reqwest::Client {
         .expect("build reqwest client")
 }
 
+/// How binding `cost_micros()` is to the final bill.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CostCertainty {
+    /// The request params fully determine the charge.
+    Exact,
+    /// Good-faith estimate — the provider's reported usage is authoritative
+    /// (e.g. thinking tokens billed on top of a per-image rate).
+    Estimated,
+}
+
 /// Estimate the cost of a request WITHOUT making it. Implemented on each `*Request` type
 /// (the request body is what drives the bill), next to the endpoint in `cost.rs`.
 pub trait CostCalculator {
     /// Estimated charge in micro-USD (`money::Micros`).
     fn cost_micros(&self) -> Micros;
+
+    /// Whether `cost_micros()` is exact or an estimate. Defaults to exact —
+    /// override where the provider can bill beyond what the params determine.
+    fn cost_certainty(&self) -> CostCertainty {
+        CostCertainty::Exact
+    }
 }

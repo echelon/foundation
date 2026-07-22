@@ -17,7 +17,7 @@ members = [
   "crates/clients/client-core",
   "crates/clients/kinovi_client",
   "crates/clients/openai_client",
-  "crates/clients/google_client",
+  "crates/clients/google_aistudio_client",
   "crates/clients/anthropic_client",
   "crates/clients/email_client",
   "crates/clients/bucket_client",
@@ -86,7 +86,7 @@ test_data = { path = "crates/testing/test_data" }
 foundation_router = { path = "crates/router" }
 kinovi_client = { path = "crates/clients/kinovi_client" }
 openai_client = { path = "crates/clients/openai_client" }
-google_client = { path = "crates/clients/google_client" }
+google_aistudio_client = { path = "crates/clients/google_aistudio_client" }
 anthropic_client = { path = "crates/clients/anthropic_client" }
 email_client = { path = "crates/clients/email_client" }
 bucket_client = { path = "crates/clients/bucket_client" }
