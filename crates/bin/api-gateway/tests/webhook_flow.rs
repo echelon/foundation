@@ -212,8 +212,20 @@ async fn matched_delivery_correlates_to_job_and_request_log() {
   let job_id: ids::JobId = body_json(enq).await["id"].as_str().unwrap().parse().unwrap();
 
   let resp_handle = format!("resp_corr_{}", id_core::mint("t"));
-  let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, 300.0, 100).await.unwrap();
-  assert!(claimed.iter().any(|j| j.id == job_id), "job should be dispatch-claimable");
+  // The shared test DB accumulates queued jobs from other end-to-end tests, and the claim
+  // takes the OLDEST `limit` due jobs — drain in batches until ours comes up.
+  let mut found = false;
+  loop {
+    let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, 300.0, 100).await.unwrap();
+    if claimed.iter().any(|j| j.id == job_id) {
+      found = true;
+      break;
+    }
+    if claimed.is_empty() {
+      break;
+    }
+  }
+  assert!(found, "job should be dispatch-claimable");
   let call = db_queries::provider_calls::create_provider_call(
     &pool,
     db_queries::provider_calls::NewProviderCall {

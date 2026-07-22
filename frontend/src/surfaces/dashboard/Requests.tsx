@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge, Button, Card, Select } from "@/components/ui";
+import { BatchBadge } from "@/components/BatchBadge";
 import { useOrg } from "@/lib/org";
 import { api, type ApiJob } from "@/lib/api";
 import { MODELS } from "@/lib/catalog";
@@ -107,13 +108,16 @@ export default function Requests() {
                 {jobs.map((j) => (
                   <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
                     <td className="py-3 pl-5 pr-3">
-                      <div className="flex -space-x-2">
-                        {j.outputs.slice(0, 3).map((o) => (
-                          <a key={o.index} href={o.url} target="_blank" rel="noreferrer">
-                            <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
-                          </a>
-                        ))}
-                        {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
+                      <div className="flex items-center gap-2">
+                        <div className="flex -space-x-2">
+                          {j.outputs.slice(0, 3).map((o) => (
+                            <a key={o.index} href={o.url} target="_blank" rel="noreferrer">
+                              <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
+                            </a>
+                          ))}
+                          {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
+                        </div>
+                        <BatchBadge count={j.progress?.total ?? j.outputs.length} />
                       </div>
                     </td>
                     <td className="px-3 py-3">

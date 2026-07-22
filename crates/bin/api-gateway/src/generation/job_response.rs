@@ -59,9 +59,6 @@ pub struct JobBody {
   pub estimated_micros: i64,
   /// Param adjustments the router made (api_any.md) — pruned/coerced params.
   pub param_adjustments: serde_json::Value,
-  /// The sanitized, RESOLVED request as persisted (`StoredImageParams`: file refs already
-  /// CDN URLs, n post-clamp) — enough for a client to recreate the request.
-  pub request_params: serde_json::Value,
   pub created_at: chrono::DateTime<chrono::Utc>,
   pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -118,7 +115,6 @@ pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[Out
     failure_message: job.failure_message.clone(),
     estimated_micros: estimated,
     param_adjustments: job.param_adjustments.clone(),
-    request_params: job.request_params.clone(),
     created_at: job.created_at,
     completed_at: job.completed_at,
   }

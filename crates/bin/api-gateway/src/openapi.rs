@@ -73,7 +73,9 @@ use crate::handlers::{
     generation::list_jobs_handler,
     generation::get_job_handler,
     generation::get_job_status_handler,
+    generation::get_job_request_handler,
     generation::admin_list_jobs_handler,
+    generation::admin_get_job_request_handler,
     files::upload_file_handler,
     webhooks::openai_webhook_handler,
   ),
@@ -139,7 +141,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 55 operations over 51 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
-    assert_eq!(documented.len(), 51, "unexpected number of documented paths: {documented:#?}");
+    // 57 operations over 53 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
+    assert_eq!(documented.len(), 53, "unexpected number of documented paths: {documented:#?}");
   }
 }

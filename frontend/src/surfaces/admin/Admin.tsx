@@ -7,7 +7,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, RefreshCw, ShieldAlert } from "lucide-react";
 import { Badge, Button, Card, Container, Logo, ThemeToggle } from "@/components/ui";
+import { BatchBadge } from "@/components/BatchBadge";
+import { OutputLightbox } from "@/components/OutputLightbox";
 import { api, ApiError, type AdminJob } from "@/lib/api";
+import { MODEL_BY_SLUG } from "@/lib/catalog";
 
 export default function Admin() {
   const [jobs, setJobs] = useState<AdminJob[]>([]);
@@ -15,6 +18,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  const [selected, setSelected] = useState<AdminJob | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -108,15 +112,26 @@ export default function Admin() {
                     </thead>
                     <tbody>
                       {jobs.map((j) => (
-                        <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
+                        <tr
+                          key={j.id}
+                          onClick={() => setSelected(j)}
+                          title="View details"
+                          className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40"
+                        >
                           <td className="py-3 pl-5 pr-3">
-                            <div className="flex -space-x-2">
-                              {j.outputs.slice(0, 3).map((o) => (
-                                <a key={o.index} href={o.url} target="_blank" rel="noreferrer">
-                                  <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
-                                </a>
-                              ))}
-                              {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
+                            <div className="flex items-center gap-2">
+                              <div className="flex -space-x-2">
+                                {j.outputs.slice(0, 3).map((o) => (
+                                  <img
+                                    key={o.index}
+                                    src={o.url}
+                                    alt=""
+                                    className="h-10 w-10 rounded-lg border border-border object-cover"
+                                  />
+                                ))}
+                                {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
+                              </div>
+                              <BatchBadge count={j.progress?.total ?? j.outputs.length} />
                             </div>
                           </td>
                           <td className="px-3 py-3">
@@ -161,6 +176,16 @@ export default function Admin() {
           </div>
         )}
       </Container>
+
+      {selected && (
+        <OutputLightbox
+          job={selected}
+          modelName={MODEL_BY_SLUG[selected.model]?.name ?? selected.model}
+          loadRequest={(id) => api.adminGetJobRequest(id)}
+          extraStats={[["Account", selected.account_id]]}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }

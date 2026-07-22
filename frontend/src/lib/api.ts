@@ -285,18 +285,20 @@ export type ApiJobSource = "api_key" | "dashboard" | "mcp";
 /** Which API plane the request came through (`unified` = model-specific endpoint). */
 export type ApiJobShape = "granular" | "unified" | "any" | "chat";
 
-/** The sanitized, resolved request as the backend persisted it (`StoredImageParams`) —
- * image refs are already CDN URLs, enum values use the router's snake_case wire strings. */
-export type ApiStoredImageParams = {
+/** `GET /v1/jobs/{id}/request` — a job's originating request in the SAME wire shape the
+ * generate endpoints accept (image refs resolved to CDN URLs), so it can be replayed. */
+export type ApiJobRequest = {
+  job_id: string;
   model: string;
   prompt: string;
-  image_urls: string[];
-  mask_url: string | null;
+  image_inputs: string[];
+  mask: string | null;
   n: number;
-  size: "square1024" | "landscape1536x1024" | "portrait1024x1536" | "auto" | null;
-  quality: "low" | "medium" | "high" | "auto" | null;
-  output_format: "png" | "jpeg" | "webp" | null;
-  input_fidelity: "low" | "high" | null;
+  size: ApiImageSize | null;
+  quality: ApiImageQuality | null;
+  output_format: ApiOutputFormat | null;
+  input_fidelity: ApiInputFidelity | null;
+  dry_run: boolean;
 };
 
 export type ApiJob = {
@@ -314,7 +316,6 @@ export type ApiJob = {
   failure_message: string | null;
   estimated_micros: number;
   param_adjustments: { param: string; action: "pruned" | "coerced"; detail: string }[];
-  request_params: ApiStoredImageParams;
   created_at: string;
   completed_at: string | null;
 };
@@ -570,6 +571,10 @@ export const api = {
   getJob: (jobId: string, accountId: string) =>
     request<ApiJob>("GET", `/v1/jobs/${jobId}?account_id=${encodeURIComponent(accountId)}`),
 
+  /** The job's originating request, replayable (recreate flows, request inspection). */
+  getJobRequest: (jobId: string, accountId: string) =>
+    request<ApiJobRequest>("GET", `/v1/jobs/${jobId}/request?account_id=${encodeURIComponent(accountId)}`),
+
   /** The account's job history, newest first (keyset: pass `after` from the prior page). */
   listJobs: (accountId: string, opts?: { model?: string; after?: string }) => {
     const q = new URLSearchParams({ account_id: accountId });
@@ -579,6 +584,9 @@ export const api = {
   },
 
   /** Staff only: recent jobs across every account. */
+  /** Staff only: the originating request behind any account's job. */
+  adminGetJobRequest: (jobId: string) => request<ApiJobRequest>("GET", `/v1/admin/jobs/${jobId}/request`),
+
   adminListJobs: (after?: string) =>
     request<{ jobs: AdminJob[]; next_after: string | null }>(
       "GET",

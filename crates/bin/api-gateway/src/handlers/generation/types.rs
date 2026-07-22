@@ -43,6 +43,17 @@ impl From<ApiImageSize> for RouterImageSize {
   }
 }
 
+impl From<RouterImageSize> for ApiImageSize {
+  fn from(s: RouterImageSize) -> Self {
+    match s {
+      RouterImageSize::Square1024 => Self::Square,
+      RouterImageSize::Landscape1536x1024 => Self::Landscape,
+      RouterImageSize::Portrait1024x1536 => Self::Portrait,
+      RouterImageSize::Auto => Self::Auto,
+    }
+  }
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiImageQuality {
@@ -59,6 +70,17 @@ impl From<ApiImageQuality> for RouterImageQuality {
       ApiImageQuality::Medium => Self::Medium,
       ApiImageQuality::High => Self::High,
       ApiImageQuality::Auto => Self::Auto,
+    }
+  }
+}
+
+impl From<RouterImageQuality> for ApiImageQuality {
+  fn from(q: RouterImageQuality) -> Self {
+    match q {
+      RouterImageQuality::Low => Self::Low,
+      RouterImageQuality::Medium => Self::Medium,
+      RouterImageQuality::High => Self::High,
+      RouterImageQuality::Auto => Self::Auto,
     }
   }
 }
@@ -81,6 +103,16 @@ impl From<ApiOutputFormat> for RouterOutputFormat {
   }
 }
 
+impl From<RouterOutputFormat> for ApiOutputFormat {
+  fn from(f: RouterOutputFormat) -> Self {
+    match f {
+      RouterOutputFormat::Png => Self::Png,
+      RouterOutputFormat::Jpeg => Self::Jpeg,
+      RouterOutputFormat::Webp => Self::Webp,
+    }
+  }
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiInputFidelity {
@@ -93,6 +125,15 @@ impl From<ApiInputFidelity> for RouterInputFidelity {
     match f {
       ApiInputFidelity::Low => Self::Low,
       ApiInputFidelity::High => Self::High,
+    }
+  }
+}
+
+impl From<RouterInputFidelity> for ApiInputFidelity {
+  fn from(f: RouterInputFidelity) -> Self {
+    match f {
+      RouterInputFidelity::Low => Self::Low,
+      RouterInputFidelity::High => Self::High,
     }
   }
 }
