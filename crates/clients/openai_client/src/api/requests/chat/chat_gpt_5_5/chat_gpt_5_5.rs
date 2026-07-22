@@ -69,6 +69,7 @@ mod tests {
     assert_eq!(body["input"][1]["content"], "hi");
     assert!(body.get("temperature").is_none());
     assert!(body.get("tools").is_none());
+    assert!(body.get("metadata").is_none()); // correlation is by response id, not metadata
   }
 
   #[test]

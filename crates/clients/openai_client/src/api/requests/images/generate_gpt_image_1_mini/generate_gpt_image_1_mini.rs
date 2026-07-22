@@ -105,6 +105,7 @@ mod tests {
     assert_eq!(content[0]["type"], "input_text");
     assert_eq!(content[0]["text"], "a red fox");
     assert_eq!(content.as_array().unwrap().len(), 1);
+    assert!(body.get("metadata").is_none()); // correlation is by response id, not metadata
   }
 
   /// The EDIT modality: input images ride in the message (URL / file id — never base64);
