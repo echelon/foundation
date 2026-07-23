@@ -3,17 +3,24 @@
 //! conversational cinematic control. Text/image/video inputs in one request;
 //! chain edits with `previous_interaction_id`.
 //!
-//! Delivery: default here is [`OmniDelivery::Uri`] — the response carries a
-//! direct download link for [`crate::api::requests::files::download_file`]
-//! instead of inline base64 (which only works ≤ 4 MB). Empirically the link is
-//! live as soon as the interaction returns.
+//! ASYNC: starts a background interaction and returns the handle immediately —
+//! poll with [`crate::api::requests::interactions::get_interaction`], then map
+//! the completed items with [`omni_video_success_from_interaction`]. No
+//! connection is held while the model renders. (`store: false` is incompatible
+//! with background mode and is rejected client-side.)
+//!
+//! Delivery: default here is [`OmniDelivery::Uri`] — the completed interaction
+//! carries a direct download link for
+//! [`crate::api::requests::files::download_file`] instead of inline base64
+//! (which only works ≤ 4 MB).
 //!
 //! Docs: <https://ai.google.dev/gemini-api/docs/omni>
 
 use serde::Serialize;
 
 use crate::api::requests::interactions::common::{
-  run_interaction, GenerationConfigWire, InputItem, InteractionRequestBody, ResponseFormatWire, VideoConfigWire,
+  run_background_interaction, GenerationConfigWire, InputItem, InteractionRequestBody, InteractionSuccess,
+  ResponseFormatWire, VideoConfigWire,
 };
 use crate::api::types::image_types::image_input::ImageInput;
 use crate::api::types::video_types::omni_aspect_ratio::OmniAspectRatio;
@@ -25,6 +32,8 @@ use crate::error::google_gemini_generic_api_error::GoogleGeminiGenericApiError;
 
 /// The exact model identifier this binding pins.
 pub const GEMINI_OMNI_FLASH_MODEL_ID: &str = "gemini-omni-flash-preview";
+
+pub use crate::api::requests::interactions::common::InteractionHandle;
 
 /// Top-level argument to [`generate_gemini_omni_flash`]. Borrows the API key
 /// separately from the request body so callers can log/persist (and PRICE) the
@@ -101,14 +110,21 @@ pub struct GenerateOmniVideoSuccess {
   pub interaction_id: Option<String>,
 }
 
-/// Generate (or edit) a video with Gemini Omni Flash.
+/// Start a background video generation/edit. Returns the interaction handle
+/// to poll with `get_interaction`.
 pub async fn generate_gemini_omni_flash(
   args: GenerateGeminiOmniFlashArgs<'_>,
-) -> Result<GenerateOmniVideoSuccess, GoogleGeminiError> {
+) -> Result<InteractionHandle, GoogleGeminiError> {
   let GenerateGeminiOmniFlashArgs { api_key, request } = args;
   let body = build_body(&request);
-  let interaction = run_interaction(api_key, &body).await?;
+  run_background_interaction(api_key, &body).await
+}
 
+/// Map a COMPLETED interaction's items into video output (used after a
+/// successful poll).
+pub fn omni_video_success_from_interaction(
+  interaction: InteractionSuccess,
+) -> Result<GenerateOmniVideoSuccess, GoogleGeminiError> {
   let text = interaction.joined_text();
   let videos: Vec<OmniVideoOutput> = interaction
     .items
@@ -141,6 +157,8 @@ pub(crate) fn build_body(request: &GeminiOmniFlashRequest) -> InteractionRequest
     input.push(InputItem::video_file(uri));
   }
   InteractionRequestBody {
+    system_instruction: None,
+    tools: None,
     model: GEMINI_OMNI_FLASH_MODEL_ID.to_string(),
     input,
     response_format: Some(ResponseFormatWire {
@@ -150,9 +168,10 @@ pub(crate) fn build_body(request: &GeminiOmniFlashRequest) -> InteractionRequest
     }),
     generation_config: request
       .task
-      .map(|t| GenerationConfigWire { video_config: Some(VideoConfigWire { task: t.as_str() }) }),
+      .map(|t| GenerationConfigWire { video_config: Some(VideoConfigWire { task: t.as_str() }), ..Default::default() }),
     previous_interaction_id: request.previous_interaction_id.clone(),
     store: request.store,
+    background: Some(true),
   }
 }
 
@@ -182,7 +201,8 @@ mod tests {
         "model": "gemini-omni-flash-preview",
         "input": [{ "type": "text", "text": "a red kite over dunes, sweeping drone shot" }],
         "response_format": { "type": "video", "aspect_ratio": "16:9", "delivery": "uri" },
-        "generation_config": { "video_config": { "task": "text_to_video" } }
+        "generation_config": { "video_config": { "task": "text_to_video" } },
+        "background": true
       })
     );
   }
@@ -210,7 +230,8 @@ mod tests {
           { "type": "document", "mime_type": "image/png", "uri": "files/ref1" }
         ],
         "response_format": { "type": "video", "delivery": "uri" },
-        "generation_config": { "video_config": { "task": "reference_to_video" } }
+        "generation_config": { "video_config": { "task": "reference_to_video" } },
+        "background": true
       })
     );
   }
@@ -236,15 +257,31 @@ mod tests {
       store: None,
       expected_output_seconds: Some(4),
     };
-    let success = generate_gemini_omni_flash(GenerateGeminiOmniFlashArgs { api_key: &api_key, request }).await?;
-    match &success.videos[0] {
-      OmniVideoOutput::Inline { bytes, .. } => assert!(bytes.len() > 10_000),
-      OmniVideoOutput::FileUri(uri) => {
-        // The URI is a direct download link, live immediately.
-        let bytes = download_file(DownloadFileArgs { api_key: &api_key, name: uri }).await?;
-        assert!(bytes.len() > 10_000, "suspiciously small video");
+    let handle = generate_gemini_omni_flash(GenerateGeminiOmniFlashArgs { api_key: &api_key, request }).await?;
+
+    // Background: poll (5s cadence, ≤6 min) until terminal, then download.
+    use crate::api::requests::interactions::get_interaction::get_interaction::{
+      get_interaction, GetInteractionArgs, InteractionPollOutcome,
+    };
+    for _ in 0..72 {
+      tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+      match get_interaction(GetInteractionArgs { api_key: &api_key, interaction: &handle }).await? {
+        InteractionPollOutcome::InProgress => continue,
+        InteractionPollOutcome::Cancelled => anyhow::bail!("interaction cancelled"),
+        InteractionPollOutcome::Failed { message } => anyhow::bail!("interaction failed: {message}"),
+        InteractionPollOutcome::Completed(success) => {
+          let video = omni_video_success_from_interaction(success)?;
+          match &video.videos[0] {
+            OmniVideoOutput::Inline { bytes, .. } => assert!(bytes.len() > 10_000),
+            OmniVideoOutput::FileUri(uri) => {
+              let bytes = download_file(DownloadFileArgs { api_key: &api_key, name: uri }).await?;
+              assert!(bytes.len() > 10_000, "suspiciously small video");
+            }
+          }
+          return Ok(());
+        }
       }
     }
-    Ok(())
+    anyhow::bail!("interaction did not complete within 6 minutes")
   }
 }

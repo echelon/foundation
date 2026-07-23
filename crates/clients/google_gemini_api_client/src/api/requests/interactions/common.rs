@@ -39,6 +39,10 @@ pub(crate) struct InteractionRequestBody {
   pub model: String,
   pub input: Vec<InputItem>,
   #[serde(skip_serializing_if = "Option::is_none")]
+  pub system_instruction: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tools: Option<Vec<crate::api::types::chat_types::gemini_chat_tool::GeminiChatTool>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
   pub response_format: Option<ResponseFormatWire>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub generation_config: Option<GenerationConfigWire>,
@@ -46,6 +50,11 @@ pub(crate) struct InteractionRequestBody {
   pub previous_interaction_id: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub store: Option<bool>,
+  /// Async mode: the POST returns immediately with an id + `in_progress`; poll
+  /// with [`crate::api::requests::interactions::get_interaction`]. Incompatible
+  /// with `store: false`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub background: Option<bool>,
 }
 
 #[derive(Serialize, Debug)]
@@ -60,11 +69,25 @@ pub(crate) struct InputItem {
   pub data: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub uri: Option<String>,
+  /// `message` items carry a role + nested content (chat history replay).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub role: Option<&'static str>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub content: Option<Vec<InputItem>>,
 }
 
 impl InputItem {
   pub fn text(text: &str) -> Self {
-    Self { kind: "text", text: Some(text.to_string()), mime_type: None, data: None, uri: None }
+    Self { kind: "text", text: Some(text.to_string()), ..Self::empty() }
+  }
+
+  /// A role-tagged chat turn wrapping nested content items.
+  pub fn message(role: &'static str, content: Vec<InputItem>) -> Self {
+    Self { kind: "message", role: Some(role), content: Some(content), ..Self::empty() }
+  }
+
+  fn empty() -> Self {
+    Self { kind: "text", text: None, mime_type: None, data: None, uri: None, role: None, content: None }
   }
 
   /// An image input part. Files-API refs ride as `document` items with a
@@ -73,24 +96,22 @@ impl InputItem {
     match input {
       ImageInput::FileUri { uri, mime } => Self {
         kind: "document",
-        text: None,
         mime_type: Some(mime.clone()),
-        data: None,
         uri: Some(uri.clone()),
+        ..Self::empty()
       },
       ImageInput::InlineBytes { mime, bytes } => Self {
         kind: "image",
-        text: None,
         mime_type: Some(mime.clone()),
         data: Some(STANDARD.encode(bytes)),
-        uri: None,
+        ..Self::empty()
       },
     }
   }
 
   /// A video reference (a Files-API upload) — used by Omni edit tasks.
   pub fn video_file(uri: &str) -> Self {
-    Self { kind: "document", text: None, mime_type: None, data: None, uri: Some(uri.to_string()) }
+    Self { kind: "document", uri: Some(uri.to_string()), ..Self::empty() }
   }
 }
 
@@ -104,10 +125,21 @@ pub(crate) struct ResponseFormatWire {
   pub delivery: Option<String>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Default)]
 pub(crate) struct GenerationConfigWire {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub video_config: Option<VideoConfigWire>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub temperature: Option<f32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub top_p: Option<f32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub max_output_tokens: Option<u32>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub thinking_level: Option<crate::api::types::chat_types::thinking_level::ThinkingLevel>,
+  /// Structured output: a JSON Schema the response must conform to.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub response_json_schema: Option<serde_json::Value>,
 }
 
 #[derive(Serialize, Debug)]
@@ -118,17 +150,28 @@ pub(crate) struct VideoConfigWire {
 // ── Wire: response (tolerant — the surface is in preview) ──
 
 #[derive(Deserialize, Debug)]
-struct InteractionResponseBody {
-  id: Option<String>,
+pub(crate) struct InteractionResponseBody {
+  pub(crate) id: Option<String>,
+  pub(crate) status: Option<String>,
   #[serde(default)]
   steps: Vec<StepIn>,
   /// Some responses carry outputs at the top level instead of inside steps.
   #[serde(default, alias = "output", alias = "outputs")]
   content: Vec<ContentItemIn>,
+  pub(crate) error: Option<InteractionErrorIn>,
+}
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct InteractionErrorIn {
+  pub(crate) message: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
 struct StepIn {
+  /// `user_input`, `thought`, `model_output`, … — only model_output carries
+  /// generated artifacts (completed background interactions echo the inputs).
+  #[serde(rename = "type")]
+  kind: Option<String>,
   #[serde(default)]
   content: Vec<ContentItemIn>,
 }
@@ -184,11 +227,68 @@ impl InteractionSuccess {
   }
 }
 
-/// `POST /v1beta/interactions` — send one interaction and normalize the output.
-pub(crate) async fn run_interaction(
+/// Normalize a parsed interaction body into items. Only `model_output` steps
+/// (and legacy top-level content) count — completed background interactions
+/// echo the caller's `user_input` step, which must never leak into results.
+pub(crate) fn items_from_body(parsed: InteractionResponseBody) -> Result<InteractionSuccess, GoogleGeminiError> {
+  let mut items = Vec::new();
+  let step_content = parsed
+    .steps
+    .into_iter()
+    .filter(|s| s.kind.as_deref().is_none_or(|k| k == "model_output"))
+    .flat_map(|s| s.content);
+  let all = parsed.content.into_iter().chain(step_content);
+  for item in all {
+    let bytes = match &item.data {
+      Some(b64) => Some(
+        STANDARD
+          .decode(b64.as_bytes())
+          .map_err(|e| GoogleGeminiGenericApiError::Base64DecodeError { detail: format!("interaction data: {e}") })?,
+      ),
+      None => None,
+    };
+    items.push(InteractionItem {
+      kind: item.kind.unwrap_or_else(|| "unknown".to_string()),
+      mime: item.mime_type,
+      bytes,
+      uri: item.uri,
+      text: item.text,
+    });
+  }
+  Ok(InteractionSuccess { interaction_id: parsed.id, items })
+}
+
+/// The handle a background start returns — poll it with
+/// [`crate::api::requests::interactions::get_interaction`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InteractionHandle(pub String);
+
+/// `POST /v1beta/interactions` with `background: true` — start an async
+/// interaction and return its id immediately.
+pub(crate) async fn run_background_interaction(
   api_key: &GoogleGeminiApiKey,
   body: &InteractionRequestBody,
-) -> Result<InteractionSuccess, GoogleGeminiError> {
+) -> Result<InteractionHandle, GoogleGeminiError> {
+  if body.store == Some(false) {
+    return Err(
+      GoogleGeminiClientError::InvalidRequest("background interactions require store != false".to_string()).into(),
+    );
+  }
+  let parsed = post_interaction(api_key, body).await?;
+  match parsed.id {
+    Some(id) => Ok(InteractionHandle(id)),
+    None => Err(
+      GoogleGeminiGenericApiError::EmptyResponse { detail: "background start returned no interaction id".to_string() }
+        .into(),
+    ),
+  }
+}
+
+/// Shared POST + parse for both the sync and background paths.
+pub(crate) async fn post_interaction(
+  api_key: &GoogleGeminiApiKey,
+  body: &InteractionRequestBody,
+) -> Result<InteractionResponseBody, GoogleGeminiError> {
   let body_json = serde_json::to_string(body).map_err(GoogleGeminiClientError::RequestSerializationError)?;
   let url = format!("{GEMINI_API_BASE_URL}/interactions");
 
@@ -208,33 +308,24 @@ pub(crate) async fn run_interaction(
   info!(status = %status, model = %body.model, "Gemini interaction response");
   classify_google_gemini_http_error(status, Some(&response_body))?;
 
-  let parsed: InteractionResponseBody = serde_json::from_str(&response_body)
-    .map_err(|e| GoogleGeminiGenericApiError::SerdeResponseParseErrorWithBody(e, response_body))?;
+  serde_json::from_str(&response_body)
+    .map_err(|e| GoogleGeminiGenericApiError::SerdeResponseParseErrorWithBody(e, response_body).into())
+}
 
-  let mut items = Vec::new();
-  let all = parsed.content.into_iter().chain(parsed.steps.into_iter().flat_map(|s| s.content));
-  for item in all {
-    let bytes = match &item.data {
-      Some(b64) => Some(
-        STANDARD
-          .decode(b64.as_bytes())
-          .map_err(|e| GoogleGeminiGenericApiError::Base64DecodeError { detail: format!("interaction data: {e}") })?,
-      ),
-      None => None,
-    };
-    items.push(InteractionItem {
-      kind: item.kind.unwrap_or_else(|| "unknown".to_string()),
-      mime: item.mime_type,
-      bytes,
-      uri: item.uri,
-      text: item.text,
-    });
-  }
-  if items.is_empty() {
+/// `POST /v1beta/interactions` — send one SYNCHRONOUS interaction and
+/// normalize the output.
+#[allow(dead_code)] // kept for models without background support joining this surface later
+pub(crate) async fn run_interaction(
+  api_key: &GoogleGeminiApiKey,
+  body: &InteractionRequestBody,
+) -> Result<InteractionSuccess, GoogleGeminiError> {
+  let parsed = post_interaction(api_key, body).await?;
+  let success = items_from_body(parsed)?;
+  if success.items.is_empty() {
     return Err(
       GoogleGeminiGenericApiError::EmptyResponse { detail: "interaction returned no content items".to_string() }
         .into(),
     );
   }
-  Ok(InteractionSuccess { interaction_id: parsed.id, items })
+  Ok(success)
 }

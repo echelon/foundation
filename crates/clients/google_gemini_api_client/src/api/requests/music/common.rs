@@ -24,7 +24,9 @@ pub struct GenerateMusicSuccess {
   pub interaction_id: Option<String>,
 }
 
-pub(crate) fn music_success_from_interaction(
+/// Map a COMPLETED interaction's items into music output (used after a
+/// successful poll).
+pub fn music_success_from_interaction(
   interaction: InteractionSuccess,
 ) -> Result<GenerateMusicSuccess, GoogleGeminiError> {
   let lyrics = interaction.joined_text();
