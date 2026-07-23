@@ -52,6 +52,17 @@ pub async fn get_interaction(args: GetInteractionArgs<'_>) -> Result<Interaction
   let status = response.status();
   let response_body = response.text().await.map_err(GoogleGeminiGenericApiError::ReqwestError)?;
   info!(status = %status, interaction = %interaction.0, "interaction poll");
+  // PROVIDER BUG (live-verified 2026-07): when a background generation fails
+  // server-side, GET returns a bare 400 "Request contains an invalid argument"
+  // instead of a body with `status: "failed"` (later it 404s). The id we poll
+  // came from the provider itself, so a 400 here can never mean "malformed
+  // request" — treat it as the interaction's own terminal failure.
+  if status == reqwest::StatusCode::BAD_REQUEST {
+    return Ok(InteractionPollOutcome::Failed {
+      message: "the provider reports this interaction as invalid — background generations that fail                 server-side become unretrievable (GET returns 400 instead of a failed status)"
+        .to_string(),
+    });
+  }
   classify_google_gemini_http_error(status, Some(&response_body))?;
 
   let parsed: crate::api::requests::interactions::common::InteractionResponseBody =

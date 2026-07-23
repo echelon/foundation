@@ -637,8 +637,13 @@ export const MODEL_BY_SLUG: Record<string, Model> = Object.fromEntries(MODELS.ma
 
 /* Generated sample art (script/generate-model-samples.mjs) served from public/cdn/.
  * Not every model has a set yet — render with an onError fallback (see ModelArt). */
-export const modelCoverUrl = (slug: string) => `/cdn/model_samples/image_models/${slug}/cover_image.webp`;
-export const modelIconUrl = (slug: string) => `/cdn/model_samples/image_models/${slug}/icon_image.webp`;
+/** Sample-art root per media type: video model art is LOOPING ANIMATED WEBP
+ * (plays natively in <img>), image model art is a still. */
+const sampleRoot = (slug: string) =>
+  `/cdn/model_samples/${MODEL_BY_SLUG[slug]?.modality === "video" ? "video_models" : "image_models"}/${slug}`;
+
+export const modelCoverUrl = (slug: string) => `${sampleRoot(slug)}/cover_image.webp`;
+export const modelIconUrl = (slug: string) => `${sampleRoot(slug)}/icon_image.webp`;
 
 export const PROVIDERS = Array.from(new Set(MODELS.map((m) => m.provider))).sort();
 

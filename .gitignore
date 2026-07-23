@@ -11,3 +11,4 @@ external/*
 # per-service dev secrets (config crate convention — see crates/core/config)
 *.development-secrets.env
 
+frontend/public/cdn/model_samples/.tmp/

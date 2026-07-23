@@ -51,7 +51,7 @@ axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 # http client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "http2"] }
 # object storage (S3-compatible: R2, minio)
 rust-s3 = { version = "0.36.0-beta.2", default-features = false, features = ["fail-on-err", "tags", "tokio-rustls-tls"] }
 # image decode/crop/resize (avatars)

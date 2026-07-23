@@ -317,6 +317,7 @@ pub(crate) async fn post_interaction(
   let url = format!("{GEMINI_API_BASE_URL}/interactions");
 
   info!(model = %body.model, "Gemini interaction start");
+  tracing::info!(body = %body_json, "interaction start request bytes");
   let client = http_client(GEMINI_USER_AGENT);
   let response = client
     .post(&url)
@@ -330,6 +331,7 @@ pub(crate) async fn post_interaction(
   let status = response.status();
   let response_body = response.text().await.map_err(GoogleGeminiGenericApiError::ReqwestError)?;
   info!(status = %status, model = %body.model, "Gemini interaction response");
+  tracing::info!(body = %response_body, "interaction start response bytes");
   classify_google_gemini_http_error(status, Some(&response_body))?;
 
   serde_json::from_str(&response_body)
