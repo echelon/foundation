@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::videos::generate_gemini_omni_flash::generate_gemini_omni_flash::GeminiOmniFlashRequest;
 
@@ -12,9 +12,9 @@ const MICROS_PER_ESTIMATED_SECOND: i64 = 100_000;
 const DEFAULT_ESTIMATED_SECONDS: i64 = 8;
 
 impl CostCalculator for GeminiOmniFlashRequest {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     let seconds = self.expected_output_seconds.unwrap_or(DEFAULT_ESTIMATED_SECONDS);
-    Micros(MICROS_PER_ESTIMATED_SECOND * seconds)
+    MicroUsd(MICROS_PER_ESTIMATED_SECOND * seconds)
   }
 
   /// Token-billed with prompt-driven output length — always an estimate.
@@ -43,8 +43,8 @@ mod tests {
 
   #[test]
   fn estimates_by_expected_seconds() {
-    assert_eq!(req(None).cost_micros(), Micros(800_000)); // 8 s default ≈ $0.80
-    assert_eq!(req(Some(4)).cost_micros(), Micros(400_000));
+    assert_eq!(req(None).cost_micros(), MicroUsd(800_000)); // 8 s default ≈ $0.80
+    assert_eq!(req(Some(4)).cost_micros(), MicroUsd(400_000));
     assert_eq!(req(None).cost_certainty(), CostCertainty::Estimated);
   }
 }

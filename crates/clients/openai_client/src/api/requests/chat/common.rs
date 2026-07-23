@@ -1,7 +1,7 @@
 //! Shared chat plumbing: every LLM binding builds a background `/v1/responses` body from
 //! its messages, and shares one token-based cost estimator.
 
-use client_core::Micros;
+use client_core::MicroUsd;
 
 use crate::api::requests::responses::create_response::{create_background_response, StartedResponse};
 use crate::api::requests::responses::wire::{CreateResponseBody, InputMessage, MessageContent};
@@ -64,11 +64,11 @@ pub(crate) fn estimate_chat_micros(
   model: &ChatModel,
   messages: &[ChatMessage],
   max_output_tokens: Option<u32>,
-) -> Micros {
+) -> MicroUsd {
   let (in_rate, out_rate) = model.pricing_micros_per_mtok();
   let input_tokens: u64 = messages.iter().map(|m| m.estimated_tokens()).sum();
   let output_tokens = max_output_tokens.map(u64::from).unwrap_or(DEFAULT_ASSUMED_OUTPUT_TOKENS);
   let input_micros = (input_tokens as i64) * in_rate / 1_000_000;
   let output_micros = (output_tokens as i64) * out_rate / 1_000_000;
-  Micros(input_micros + output_micros)
+  MicroUsd(input_micros + output_micros)
 }

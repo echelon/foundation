@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::chat::chat_gemini_3_6_flash::chat_gemini_3_6_flash::Gemini36FlashRequest;
 use crate::api::requests::chat::common::estimate_chat_micros;
@@ -8,7 +8,7 @@ const MICROS_PER_MTOK_IN: i64 = 1_500_000;
 const MICROS_PER_MTOK_OUT: i64 = 7_500_000;
 
 impl CostCalculator for Gemini36FlashRequest {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     estimate_chat_micros(
       MICROS_PER_MTOK_IN,
       MICROS_PER_MTOK_OUT,
@@ -50,7 +50,7 @@ mod tests {
   fn exact_estimate_for_known_inputs() {
     // "hello world" = 11 chars → ceil(11/4)+4 = 7 input tokens; 1000 output tokens.
     let expected = 7 * MICROS_PER_MTOK_IN / 1_000_000 + 1000 * MICROS_PER_MTOK_OUT / 1_000_000;
-    assert_eq!(req("hello world", Some(1000)).cost_micros(), Micros(expected));
+    assert_eq!(req("hello world", Some(1000)).cost_micros(), MicroUsd(expected));
     assert_eq!(req("hi", None).cost_certainty(), CostCertainty::Estimated);
   }
 

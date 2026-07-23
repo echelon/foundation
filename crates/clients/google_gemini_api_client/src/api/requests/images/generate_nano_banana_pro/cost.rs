@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::images::generate_nano_banana_pro::generate_nano_banana_pro::NanoBananaProRequest;
 use crate::api::types::image_types::nano_banana_pro_image_size::NanoBananaProImageSize;
@@ -6,10 +6,10 @@ use crate::api::types::image_types::nano_banana_pro_image_size::NanoBananaProIma
 // Nano Banana Pro (gemini-3-pro-image): $0.134 (1K/2K, default 1K) / $0.24 (4K) per image.
 
 impl CostCalculator for NanoBananaProRequest {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     match self.image_size.unwrap_or(NanoBananaProImageSize::K1) {
-    NanoBananaProImageSize::K1 | NanoBananaProImageSize::K2 => Micros(134_000),
-    NanoBananaProImageSize::K4 => Micros(240_000),
+    NanoBananaProImageSize::K1 | NanoBananaProImageSize::K2 => MicroUsd(134_000),
+    NanoBananaProImageSize::K4 => MicroUsd(240_000),
   }
   }
 
@@ -29,10 +29,10 @@ mod tests {
 
   #[test]
   fn tiers_follow_image_size() {
-    assert_eq!(req(None).cost_micros(), Micros(134_000)); // default 1K
-    assert_eq!(req(Some(NanoBananaProImageSize::K1)).cost_micros(), Micros(134_000));
-    assert_eq!(req(Some(NanoBananaProImageSize::K2)).cost_micros(), Micros(134_000));
-    assert_eq!(req(Some(NanoBananaProImageSize::K4)).cost_micros(), Micros(240_000));
+    assert_eq!(req(None).cost_micros(), MicroUsd(134_000)); // default 1K
+    assert_eq!(req(Some(NanoBananaProImageSize::K1)).cost_micros(), MicroUsd(134_000));
+    assert_eq!(req(Some(NanoBananaProImageSize::K2)).cost_micros(), MicroUsd(134_000));
+    assert_eq!(req(Some(NanoBananaProImageSize::K4)).cost_micros(), MicroUsd(240_000));
   }
 
   #[test]

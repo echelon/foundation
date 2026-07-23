@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::images::generate_nano_banana::generate_nano_banana::NanoBananaRequest;
 
@@ -7,8 +7,8 @@ pub(crate) const NANO_BANANA_MICROS_PER_IMAGE: i64 = 39_000;
 // Nano Banana (gemini-2.5-flash-image): $0.039 per image, flat (1024px, ~1,290 output tokens).
 
 impl CostCalculator for NanoBananaRequest {
-  fn cost_micros(&self) -> Micros {
-    Micros(NANO_BANANA_MICROS_PER_IMAGE)
+  fn cost_micros(&self) -> MicroUsd {
+    MicroUsd(NANO_BANANA_MICROS_PER_IMAGE)
   }
 
   /// Flat per-image rate — the params fully determine the charge.
@@ -27,7 +27,7 @@ mod tests {
 
   #[test]
   fn flat_per_image() {
-    assert_eq!(req().cost_micros(), Micros(39_000)); // $0.039
+    assert_eq!(req().cost_micros(), MicroUsd(39_000)); // $0.039
     assert_eq!(req().cost_certainty(), CostCertainty::Exact);
   }
 }
@@ -61,13 +61,13 @@ impl BetterCostEstimator for NanoBananaRequest {
 #[cfg(test)]
 mod better_tests {
   use super::*;
-  use client_core::{CostAmount, Micros};
+  use client_core::{CostAmount, MicroUsd};
 
   #[test]
   fn breakdown_matches_legacy_and_is_exact() {
     let request = NanoBananaRequest { prompt: "p".into(), images: vec![], aspect_ratio: None };
     let breakdown = request.estimate_cost();
-    assert_eq!(breakdown.amount, CostAmount::Exact(Micros(39_000)));
+    assert_eq!(breakdown.amount, CostAmount::Exact(MicroUsd(39_000)));
     assert_eq!(breakdown.amount.micros(), request.cost_micros());
     assert_eq!(breakdown.components.len(), 1);
     assert_eq!(breakdown.formula.rates.len(), 1);

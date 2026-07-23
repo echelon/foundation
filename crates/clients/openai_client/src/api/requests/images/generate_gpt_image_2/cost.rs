@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, Micros};
+use client_core::{CostCalculator, MicroUsd};
 
 use crate::api::requests::images::per_image_micros;
 use crate::api::requests::images::generate_gpt_image_2::generate_gpt_image_2::GptImage2Request;
@@ -10,9 +10,9 @@ use crate::api::types::image_types::image_quality::ImageQuality;
 /// additional tokens not visible in this request, and the tool's LLM driver adds a sliver.
 /// The response `usage` is authoritative post-call.
 impl CostCalculator for GptImage2Request {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     let quality = self.quality.unwrap_or(ImageQuality::Medium);
-    Micros(per_image_micros(&ImageModel::GptImage2, quality))
+    MicroUsd(per_image_micros(&ImageModel::GptImage2, quality))
   }
 }
 
@@ -28,15 +28,15 @@ mod tests {
 
   #[test]
   fn published_rates_at_1024() {
-    assert_eq!(req(Some(ImageQuality::Low)).cost_micros(), Micros(6000));
-    assert_eq!(req(Some(ImageQuality::Medium)).cost_micros(), Micros(53000));
-    assert_eq!(req(Some(ImageQuality::High)).cost_micros(), Micros(211000));
+    assert_eq!(req(Some(ImageQuality::Low)).cost_micros(), MicroUsd(6000));
+    assert_eq!(req(Some(ImageQuality::Medium)).cost_micros(), MicroUsd(53000));
+    assert_eq!(req(Some(ImageQuality::High)).cost_micros(), MicroUsd(211000));
   }
 
   #[test]
   fn default_and_auto_bill_as_medium() {
-    assert_eq!(req(None).cost_micros(), Micros(53000));
-    assert_eq!(req(Some(ImageQuality::Auto)).cost_micros(), Micros(53000));
+    assert_eq!(req(None).cost_micros(), MicroUsd(53000));
+    assert_eq!(req(Some(ImageQuality::Auto)).cost_micros(), MicroUsd(53000));
   }
 
   #[test]

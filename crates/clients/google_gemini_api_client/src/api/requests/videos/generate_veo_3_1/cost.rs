@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::videos::generate_veo_3_1::generate_veo_3_1::Veo31Request;
 use crate::api::types::video_types::veo_duration::VeoDuration;
@@ -9,13 +9,13 @@ use crate::api::types::video_types::veo_resolution::VeoResolution;
 // per-params price is exact for every billed generation.
 
 impl CostCalculator for Veo31Request {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     let per_second = match self.resolution.unwrap_or(VeoResolution::P720) {
     VeoResolution::P720 | VeoResolution::P1080 => 400_000,
     VeoResolution::K4 => 600_000,
   };
     let seconds = self.duration.unwrap_or(VeoDuration::S8).seconds();
-    Micros(per_second * seconds)
+    MicroUsd(per_second * seconds)
   }
 
   /// Exact per the params: Veo bills per output second, and safety-blocked
@@ -35,9 +35,9 @@ mod tests {
 
   #[test]
   fn per_second_by_resolution() {
-    assert_eq!(req(None, None).cost_micros(), Micros(3_200_000)); // 8s × $0.40 default
-    assert_eq!(req(Some(VeoResolution::P1080), Some(VeoDuration::S4)).cost_micros(), Micros(1_600_000));
-    assert_eq!(req(Some(VeoResolution::K4), Some(VeoDuration::S8)).cost_micros(), Micros(4_800_000));
+    assert_eq!(req(None, None).cost_micros(), MicroUsd(3_200_000)); // 8s × $0.40 default
+    assert_eq!(req(Some(VeoResolution::P1080), Some(VeoDuration::S4)).cost_micros(), MicroUsd(1_600_000));
+    assert_eq!(req(Some(VeoResolution::K4), Some(VeoDuration::S8)).cost_micros(), MicroUsd(4_800_000));
     assert_eq!(req(None, None).cost_certainty(), CostCertainty::Exact);
   }
 }

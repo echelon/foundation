@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, Micros};
+use client_core::{CostCalculator, MicroUsd};
 
 use crate::api::requests::messages::create_message::create_message::CreateMessageRequest;
 
@@ -6,7 +6,7 @@ use crate::api::requests::messages::create_message::create_message::CreateMessag
 /// rates from the model. Output length is unknown pre-call, so `max_tokens` is the ceiling;
 /// the response `usage` is authoritative for the real bill.
 impl CostCalculator for CreateMessageRequest {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     let (in_rate, out_rate) = self.model.pricing_micros_per_mtok();
 
     let mut input_tokens: u64 = self.messages.iter().map(|m| m.estimated_tokens()).sum();
@@ -17,7 +17,7 @@ impl CostCalculator for CreateMessageRequest {
 
     let input_micros = (input_tokens as i64) * in_rate / 1_000_000;
     let output_micros = (output_tokens as i64) * out_rate / 1_000_000;
-    Micros(input_micros + output_micros)
+    MicroUsd(input_micros + output_micros)
   }
 }
 

@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::images::generate_nano_banana_2::generate_nano_banana_2::NanoBanana2Request;
 use crate::api::types::image_types::nano_banana_2_image_size::NanoBanana2ImageSize;
@@ -6,12 +6,12 @@ use crate::api::types::image_types::nano_banana_2_image_size::NanoBanana2ImageSi
 // Nano Banana 2 (gemini-3.1-flash-image): $0.045 (512px) / $0.067 (1K, default) / $0.101 (2K) / $0.151 (4K) per image.
 
 impl CostCalculator for NanoBanana2Request {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     match self.image_size.unwrap_or(NanoBanana2ImageSize::K1) {
-    NanoBanana2ImageSize::P512 => Micros(45_000),
-    NanoBanana2ImageSize::K1 => Micros(67_000),
-    NanoBanana2ImageSize::K2 => Micros(101_000),
-    NanoBanana2ImageSize::K4 => Micros(151_000),
+    NanoBanana2ImageSize::P512 => MicroUsd(45_000),
+    NanoBanana2ImageSize::K1 => MicroUsd(67_000),
+    NanoBanana2ImageSize::K2 => MicroUsd(101_000),
+    NanoBanana2ImageSize::K4 => MicroUsd(151_000),
   }
   }
 
@@ -31,11 +31,11 @@ mod tests {
 
   #[test]
   fn tiers_follow_image_size() {
-    assert_eq!(req(None).cost_micros(), Micros(67_000)); // default 1K
-    assert_eq!(req(Some(NanoBanana2ImageSize::P512)).cost_micros(), Micros(45_000));
-    assert_eq!(req(Some(NanoBanana2ImageSize::K1)).cost_micros(), Micros(67_000));
-    assert_eq!(req(Some(NanoBanana2ImageSize::K2)).cost_micros(), Micros(101_000));
-    assert_eq!(req(Some(NanoBanana2ImageSize::K4)).cost_micros(), Micros(151_000));
+    assert_eq!(req(None).cost_micros(), MicroUsd(67_000)); // default 1K
+    assert_eq!(req(Some(NanoBanana2ImageSize::P512)).cost_micros(), MicroUsd(45_000));
+    assert_eq!(req(Some(NanoBanana2ImageSize::K1)).cost_micros(), MicroUsd(67_000));
+    assert_eq!(req(Some(NanoBanana2ImageSize::K2)).cost_micros(), MicroUsd(101_000));
+    assert_eq!(req(Some(NanoBanana2ImageSize::K4)).cost_micros(), MicroUsd(151_000));
   }
 
   #[test]

@@ -1,4 +1,4 @@
-use money::Micros;
+use money::MicroUsd;
 
 use crate::cost::cost_amount::CostAmount;
 use crate::cost::cost_component::CostComponent;
@@ -22,7 +22,7 @@ impl CostBreakdown {
     pub fn from_components(formula: CostFormula, components: Vec<CostComponent>, force_estimated: bool) -> Self {
         let total: i64 = components.iter().map(|c| c.subtotal_micros).sum();
         let estimated = force_estimated || components.iter().any(|c| c.quantity.is_estimated());
-        let amount = if estimated { CostAmount::Estimated(Micros(total)) } else { CostAmount::Exact(Micros(total)) };
+        let amount = if estimated { CostAmount::Estimated(MicroUsd(total)) } else { CostAmount::Exact(MicroUsd(total)) };
         Self { amount, components, formula }
     }
 }
@@ -49,7 +49,7 @@ mod tests {
             vec![flat("a", 10, CostQuantity::Exact(1.0)), flat("b", 5, CostQuantity::Exact(2.0))],
             false,
         );
-        assert_eq!(b.amount, CostAmount::Exact(Micros(20)));
+        assert_eq!(b.amount, CostAmount::Exact(MicroUsd(20)));
     }
 
     #[test]

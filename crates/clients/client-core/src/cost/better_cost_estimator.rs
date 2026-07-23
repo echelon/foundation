@@ -15,7 +15,7 @@ pub trait BetterCostEstimator {
 
 #[cfg(test)]
 mod tests {
-    use money::Micros;
+    use money::MicroUsd;
 
     use super::*;
     use crate::cost::cost_amount::CostAmount;
@@ -58,7 +58,7 @@ mod tests {
     #[test]
     fn a_request_prices_itself_as_a_breakdown() {
         let breakdown = FakeVideoRequest { seconds: 4.0 }.estimate_cost();
-        assert_eq!(breakdown.amount, CostAmount::Exact(Micros(400_000)));
+        assert_eq!(breakdown.amount, CostAmount::Exact(MicroUsd(400_000)));
         assert_eq!(breakdown.amount.certainty(), CostCertainty::Exact);
         assert_eq!(breakdown.components.len(), 1);
         assert_eq!(breakdown.formula.rates.len(), 1);

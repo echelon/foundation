@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, Micros};
+use client_core::{CostCalculator, MicroUsd};
 
 use crate::api::requests::chat::common::estimate_chat_micros;
 use crate::api::requests::chat::chat_gpt_5_6_sol::chat_gpt_5_6_sol::ChatGpt5_6SolRequest;
@@ -8,7 +8,7 @@ use crate::api::types::chat_types::chat_model::ChatModel;
 /// output assumed at `max_output_tokens` (or the shared default). Authoritative cost is the
 /// response `usage` post-call.
 impl CostCalculator for ChatGpt5_6SolRequest {
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     estimate_chat_micros(&ChatModel::Gpt5_6Sol, &self.messages, self.max_output_tokens)
   }
 }
@@ -30,7 +30,7 @@ mod tests {
     // "hello world" = 11 chars → ceil(11/4)+4 = 7 input tokens; 1000 output tokens.
     let (in_rate, out_rate) = ChatModel::Gpt5_6Sol.pricing_micros_per_mtok();
     let expected = 7 * in_rate / 1_000_000 + 1000 * out_rate / 1_000_000;
-    assert_eq!(req("hello world", Some(1000)).cost_micros(), Micros(expected));
+    assert_eq!(req("hello world", Some(1000)).cost_micros(), MicroUsd(expected));
   }
 
   #[test]

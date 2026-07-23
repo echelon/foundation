@@ -1,12 +1,12 @@
-use client_core::{CostCalculator, CostCertainty, Micros};
+use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::images::generate_nano_banana_2_lite::generate_nano_banana_2_lite::NanoBanana2LiteRequest;
 
 // Nano Banana 2 Lite (gemini-3.1-flash-lite-image): ~$0.0336 per 1K image (1K only; $30.00 / 1M output tokens).
 
 impl CostCalculator for NanoBanana2LiteRequest {
-  fn cost_micros(&self) -> Micros {
-    Micros(33_600)
+  fn cost_micros(&self) -> MicroUsd {
+    MicroUsd(33_600)
   }
 
   /// Token-priced ($30/1M) — the per-image figure assumes a typical 1K image; provider usage is authoritative.
@@ -25,7 +25,7 @@ mod tests {
 
   #[test]
   fn flat_1k_only() {
-    assert_eq!(req().cost_micros(), Micros(33_600)); // ~$0.0336
+    assert_eq!(req().cost_micros(), MicroUsd(33_600)); // ~$0.0336
     assert_eq!(req().cost_certainty(), CostCertainty::Estimated); // token-priced
   }
 }

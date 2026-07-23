@@ -1,4 +1,4 @@
-use money::Micros;
+use money::MicroUsd;
 
 use crate::cost::cost_certainty::CostCertainty;
 
@@ -8,8 +8,8 @@ use crate::cost::cost_certainty::CostCertainty;
 /// adds components and a renderable rate card); this trait remains until every
 /// client crate has migrated.
 pub trait CostCalculator {
-    /// Estimated charge in micro-USD (`money::Micros`).
-    fn cost_micros(&self) -> Micros;
+    /// Estimated charge in micro-USD (`money::MicroUsd`).
+    fn cost_micros(&self) -> MicroUsd;
 
     /// Whether `cost_micros()` is exact or an estimate. Defaults to exact —
     /// override where the provider can bill beyond what the params determine.
@@ -26,16 +26,16 @@ mod tests {
     struct FlatRequest;
 
     impl CostCalculator for FlatRequest {
-        fn cost_micros(&self) -> Micros {
-            Micros(1_250)
+        fn cost_micros(&self) -> MicroUsd {
+            MicroUsd(1_250)
         }
     }
 
     struct DriftingRequest;
 
     impl CostCalculator for DriftingRequest {
-        fn cost_micros(&self) -> Micros {
-            Micros(99)
+        fn cost_micros(&self) -> MicroUsd {
+            MicroUsd(99)
         }
 
         fn cost_certainty(&self) -> CostCertainty {
@@ -45,7 +45,7 @@ mod tests {
 
     #[test]
     fn interface_and_default_certainty() {
-        assert_eq!(FlatRequest.cost_micros(), Micros(1_250));
+        assert_eq!(FlatRequest.cost_micros(), MicroUsd(1_250));
         assert_eq!(FlatRequest.cost_certainty(), CostCertainty::Exact);
         assert_eq!(DriftingRequest.cost_certainty(), CostCertainty::Estimated);
     }

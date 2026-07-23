@@ -25,7 +25,7 @@ pub use cost::cost_formula::CostFormula;
 pub use cost::cost_quantity::CostQuantity;
 pub use cost::cost_unit::CostUnit;
 pub use cost::rate_row::RateRow;
-pub use money::Micros;
+pub use money::MicroUsd;
 
 /// Build a reqwest client with our provider-call defaults (connect + total timeouts).
 pub fn http_client(user_agent: &str) -> reqwest::Client {

@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, Micros};
+use client_core::{CostCalculator, MicroUsd};
 
 use crate::api::requests::video::create_task::request_types::CreateTaskRequest;
 use crate::api::types::video_types::seedance_model::SeedanceModel;
@@ -29,9 +29,9 @@ pub(crate) fn micros_per_second(model: &SeedanceModel) -> i64 {
 
 impl CostCalculator for CreateTaskRequest {
   /// Estimated charge = per-second rate × clip duration (seconds), in micro-USD.
-  fn cost_micros(&self) -> Micros {
+  fn cost_micros(&self) -> MicroUsd {
     let rate = micros_per_second(&self.model);
-    Micros(rate * self.inputs.duration_seconds as i64)
+    MicroUsd(rate * self.inputs.duration_seconds as i64)
   }
 }
 
@@ -64,25 +64,25 @@ mod tests {
     #[test]
     fn seedance20_is_120k_micros_per_second() {
       let req = request(SeedanceModel::Seedance20, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), Micros(120_000));
+      assert_eq!(req.cost_micros(), MicroUsd(120_000));
     }
 
     #[test]
     fn fast_is_60k_micros_per_second() {
       let req = request(SeedanceModel::Seedance2Fast, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), Micros(60_000));
+      assert_eq!(req.cost_micros(), MicroUsd(60_000));
     }
 
     #[test]
     fn mini_is_30k_micros_per_second() {
       let req = request(SeedanceModel::Seedance20Mini, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), Micros(30_000));
+      assert_eq!(req.cost_micros(), MicroUsd(30_000));
     }
 
     #[test]
     fn custom_falls_back_to_flagship_rate() {
       let req = request(SeedanceModel::Custom("seedance-30".to_string()), 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), Micros(120_000));
+      assert_eq!(req.cost_micros(), MicroUsd(120_000));
     }
   }
 
@@ -95,7 +95,7 @@ mod tests {
     fn five_second_seedance20_is_600k_micros() {
       // $0.12/sec × 5s = $0.60 = 600_000 micros.
       let req = request(SeedanceModel::Seedance20, 5, VideoResolution::P1080);
-      assert_eq!(req.cost_micros(), Micros(600_000));
+      assert_eq!(req.cost_micros(), MicroUsd(600_000));
     }
 
     #[test]
@@ -110,7 +110,7 @@ mod tests {
           let req = request(model.clone(), duration, VideoResolution::P720);
           assert_eq!(
             req.cost_micros(),
-            Micros(rate * duration as i64),
+            MicroUsd(rate * duration as i64),
             "model={} duration={duration}",
             model.as_str()
           );
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn zero_duration_is_zero_cost() {
       let req = request(SeedanceModel::Seedance20, 0, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), Micros(0));
+      assert_eq!(req.cost_micros(), MicroUsd(0));
     }
   }
 
@@ -140,7 +140,7 @@ mod tests {
       ] {
         let req = request(SeedanceModel::Seedance20, 6, resolution);
         // Same as 720p at the same duration — resolution does not (yet) move the bill.
-        assert_eq!(req.cost_micros(), Micros(120_000 * 6), "resolution={resolution:?}");
+        assert_eq!(req.cost_micros(), MicroUsd(120_000 * 6), "resolution={resolution:?}");
       }
     }
   }

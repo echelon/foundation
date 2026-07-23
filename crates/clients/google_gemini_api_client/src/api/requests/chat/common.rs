@@ -3,7 +3,7 @@
 //! bindings) where Google allows it, synchronous where the model is gated out
 //! of background mode — and shares one token-based cost estimator.
 
-use client_core::Micros;
+use client_core::MicroUsd;
 
 use crate::api::requests::interactions::common::{
   GenerationConfigWire, InputItem, InteractionRequestBody, InteractionSuccess, InteractionUsage,
@@ -118,11 +118,11 @@ pub(crate) fn estimate_chat_micros(
   messages: &[GeminiChatMessage],
   system_instruction: Option<&str>,
   max_output_tokens: Option<u32>,
-) -> Micros {
+) -> MicroUsd {
   let mut input_tokens: u64 = messages.iter().map(|m| m.estimated_tokens()).sum();
   input_tokens += system_instruction.map(|s| (s.len() as u64).div_ceil(4)).unwrap_or(0);
   let output_tokens = max_output_tokens.map(u64::from).unwrap_or(DEFAULT_ASSUMED_OUTPUT_TOKENS);
   let input_micros = (input_tokens as i64) * micros_per_mtok_in / 1_000_000;
   let output_micros = (output_tokens as i64) * micros_per_mtok_out / 1_000_000;
-  Micros(input_micros + output_micros)
+  MicroUsd(input_micros + output_micros)
 }
