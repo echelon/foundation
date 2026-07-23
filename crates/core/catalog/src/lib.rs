@@ -66,7 +66,7 @@ pub static MODELS: &[ModelSpec] = &[
         provider_model_id: "gemini-2.5-flash-image",
         modalities: &["text_to_image", "image_edit"],
         price_unit: PriceUnit::PerImage,
-        price_nanos: 20_000_000, // $0.020
+        price_nanos: 39_000_000, // $0.039 (flat per image)
     },
     ModelSpec {
         slug: "google_nano_banana_pro",
@@ -77,7 +77,7 @@ pub static MODELS: &[ModelSpec] = &[
         provider_model_id: "gemini-3-pro-image",
         modalities: &["text_to_image", "image_edit"],
         price_unit: PriceUnit::PerImage,
-        price_nanos: 50_000_000, // $0.050
+        price_nanos: 134_000_000, // $0.134 (1K/2K tier; 4K bills $0.24)
     },
     ModelSpec {
         slug: "google_nano_banana_2",
@@ -88,7 +88,52 @@ pub static MODELS: &[ModelSpec] = &[
         provider_model_id: "gemini-3.1-flash-image",
         modalities: &["text_to_image", "image_edit"],
         price_unit: PriceUnit::PerImage,
-        price_nanos: 40_000_000, // $0.040
+        price_nanos: 67_000_000, // $0.067 (1K tier; 512px/2K/4K bill differently)
+    },
+    ModelSpec {
+        slug: "google_nano_banana_2_lite",
+        display_name: "Nano Banana 2 Lite",
+        owner: "Google",
+        media_type: MediaType::Image,
+        provider: Provider::Google,
+        provider_model_id: "gemini-3.1-flash-lite-image",
+        modalities: &["text_to_image", "image_edit"],
+        price_unit: PriceUnit::PerImage,
+        price_nanos: 33_600_000, // ~$0.0336 (1K only; token-priced)
+    },
+    // ── Google · Veo 3.1 (video) ──
+    ModelSpec {
+        slug: "google_veo_3_1",
+        display_name: "Veo 3.1",
+        owner: "Google",
+        media_type: MediaType::Video,
+        provider: Provider::Google,
+        provider_model_id: "veo-3.1-generate-preview",
+        modalities: &["text_to_video", "image_to_video"],
+        price_unit: PriceUnit::PerVideoSecond,
+        price_nanos: 400_000_000, // $0.40/s at 720p/1080p ($0.60/s at 4K)
+    },
+    ModelSpec {
+        slug: "google_veo_3_1_fast",
+        display_name: "Veo 3.1 Fast",
+        owner: "Google",
+        media_type: MediaType::Video,
+        provider: Provider::Google,
+        provider_model_id: "veo-3.1-fast-generate-preview",
+        modalities: &["text_to_video", "image_to_video"],
+        price_unit: PriceUnit::PerVideoSecond,
+        price_nanos: 100_000_000, // $0.10/s at 720p ($0.12 1080p, $0.30 4K)
+    },
+    ModelSpec {
+        slug: "google_veo_3_1_lite",
+        display_name: "Veo 3.1 Lite",
+        owner: "Google",
+        media_type: MediaType::Video,
+        provider: Provider::Google,
+        provider_model_id: "veo-3.1-lite-generate-preview",
+        modalities: &["text_to_video", "image_to_video"],
+        price_unit: PriceUnit::PerVideoSecond,
+        price_nanos: 50_000_000, // $0.05/s at 720p ($0.08 1080p; no 4K)
     },
     // ── OpenAI · GPT Image (image) ──
     ModelSpec {
@@ -186,12 +231,37 @@ mod tests {
         for m in MODELS {
             assert!(seen.insert(m.slug), "duplicate slug: {}", m.slug);
         }
-        assert_eq!(MODELS.len(), 10);
+        assert_eq!(MODELS.len(), 14);
     }
 
     #[test]
     fn lookup_resolves_provider_id() {
         assert_eq!(by_slug("google_nano_banana").unwrap().provider_model_id, "gemini-2.5-flash-image");
         assert_eq!(by_slug("bytedance_seedance_2").unwrap().provider, Provider::Kinovi);
+    }
+}
+
+impl MediaType {
+    /// The wire/DB string for `jobs.media_type`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Video => "video",
+            Self::Audio => "audio",
+            Self::Mesh => "mesh",
+            Self::Splat => "splat",
+            Self::Text => "text",
+        }
+    }
+}
+
+impl Provider {
+    /// The wire/DB string for `jobs.provider`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Google => "google",
+            Self::Openai => "openai",
+            Self::Kinovi => "kinovi",
+        }
     }
 }

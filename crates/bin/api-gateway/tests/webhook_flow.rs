@@ -216,7 +216,7 @@ async fn matched_delivery_correlates_to_job_and_request_log() {
   // takes the OLDEST `limit` due jobs — drain in batches until ours comes up.
   let mut found = false;
   loop {
-    let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, 300.0, 100).await.unwrap();
+    let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, "openai", 300.0, 100).await.unwrap();
     if claimed.iter().any(|j| j.id == job_id) {
       found = true;
       break;

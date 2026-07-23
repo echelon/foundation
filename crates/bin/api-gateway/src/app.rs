@@ -236,6 +236,8 @@ pub fn build_router(state: AppState) -> Router {
     // generation: the Any plane, the unified model plane, their cost twins, job polling
     .route("/v1/any/image", post(generation::generate_any_image_handler))
     .route("/v1/any/image/cost", post(generation::cost_any_image_handler))
+    .route("/v1/any/video", post(generation::generate_any_video_handler))
+    .route("/v1/any/video/cost", post(generation::cost_any_video_handler))
     .route("/v1/models/:slug/generate", post(generation::generate_with_model_handler))
     .route("/v1/models/:slug/generate/cost", post(generation::cost_with_model_handler))
     .route("/v1/jobs", get(generation::list_jobs_handler))

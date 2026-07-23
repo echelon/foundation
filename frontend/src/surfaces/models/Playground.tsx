@@ -7,6 +7,7 @@ import { mockGenerate, playgroundHistory, type GenerateResult, type PlayRun } fr
 import { MODALITY_LABEL, priceLabel, type Control, type Model } from "@/lib/catalog";
 import { cn } from "@/lib/cn";
 import { LiveImagePlayground } from "./LiveImagePlayground";
+import { LiveVideoPlayground } from "./LiveVideoPlayground";
 
 type Values = Record<string, unknown>;
 
@@ -25,8 +26,9 @@ function defaults(model: Model, initial?: Values): Values {
 }
 
 export function Playground({ model, initialValues }: { model: Model; initialValues?: Values }) {
-  // Routable models get the REAL playground (live API + uploads + polling); the rest keep
-  // the mock preview until their providers are wired up.
+  // Routable models get the REAL playground (live API + uploads + polling), picked by
+  // media type; the rest keep the mock preview until their providers are wired up.
+  if (model.live && model.modality === "video") return <LiveVideoPlayground model={model} />;
   if (model.live) return <LiveImagePlayground model={model} />;
   return <MockPlayground model={model} initialValues={initialValues} />;
 }

@@ -98,6 +98,27 @@ pub async fn generate_veo_3_1_lite(args: GenerateVeo31LiteArgs<'_>) -> Result<Ve
   run_predict_long_running(api_key, VEO_3_1_LITE_MODEL_ID, &body).await
 }
 
+/// The EXACT provider-native JSON body this request would send (router
+/// logging / dry-run contract). Upload-first image inputs appear as the
+/// request carries them at call time.
+pub fn generate_veo_3_1_lite_wire_json(request: &Veo31LiteRequest) -> Result<serde_json::Value, GoogleGeminiError> {
+  let body = build_veo_body(VeoBodyParts {
+    prompt: &request.prompt,
+    image: request.image.as_ref(),
+    last_frame: request.last_frame.as_ref(),
+    reference_images: &request.reference_images,
+    video_uri: request.video_uri.as_deref(),
+    aspect_ratio: request.aspect_ratio.map(|a| a.as_str()),
+    resolution: request.resolution.map(|r| r.as_str()),
+    duration_seconds: request.duration.map(|d| d.seconds()),
+    negative_prompt: request.negative_prompt.as_deref(),
+    person_generation: request.person_generation.map(|p| p.as_str()),
+  });
+  serde_json::to_value(&body).map_err(|e| {
+    crate::error::google_gemini_client_error::GoogleGeminiClientError::RequestSerializationError(e).into()
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use serde_json::json;

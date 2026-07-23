@@ -3,7 +3,11 @@ use sqlx::PgExecutor;
 use super::JobSlice;
 
 /// Running slices with provider handles, poll-due across all jobs.
-pub async fn list_pollable_slices<'e, E: PgExecutor<'e>>(exec: E, limit: i64) -> sqlx::Result<Vec<JobSlice>> {
+pub async fn list_pollable_slices<'e, E: PgExecutor<'e>>(
+  exec: E,
+  provider: &str,
+  limit: i64,
+) -> sqlx::Result<Vec<JobSlice>> {
   sqlx::query_as!(
     JobSlice,
     r#"SELECT id AS "id: ids::JobSliceId", job_id AS "job_id: ids::JobId", slice_index,
@@ -11,9 +15,11 @@ pub async fn list_pollable_slices<'e, E: PgExecutor<'e>>(exec: E, limit: i64) ->
                  failure_code, failure_message, created_at, dispatched_at, completed_at
        FROM job_slices
        WHERE status = 'running' AND provider_job_id IS NOT NULL
+         AND job_id IN (SELECT id FROM jobs WHERE provider = $2)
        ORDER BY sid
        LIMIT $1"#,
     limit,
+    provider,
   )
   .fetch_all(exec)
   .await

@@ -20,6 +20,7 @@ pub struct NewJob<'a> {
   pub param_adjustments: &'a serde_json::Value,
   pub provider: &'a str,
   /// Catalog headline unit price (nano-USD).
+  pub price_unit: &'a str,
   pub unit_amount_nanos: i64,
   /// e.g. image count `n`.
   pub quantity: f64,
@@ -41,7 +42,7 @@ pub async fn create_job<'e, E: PgExecutor<'e>>(exec: E, new: NewJob<'_>) -> sqlx
           provider, billing_mode, billing_state, price_unit, unit_amount_nanos, quantity,
           estimated_max_micros, is_dry_run, refunded_micros, next_dispatch_at, expires_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'queued', 'at_our_gateway', 0,
-               $13, 'fixed', 'not_charged', 'per_image', $14, $15::float8::numeric, $16, $17, 0, now(), $18)
+               $13, 'fixed', 'not_charged', $19, $14, $15::float8::numeric, $16, $17, 0, now(), $18)
        RETURNING id AS "id: ids::JobId", account_id AS "account_id: ids::AccountId",
                  api_key_id AS "api_key_id?: ids::ApiKeyId", user_id AS "user_id?: ids::UserId",
                  source AS "source: enums::JobSource", media_type, model, modality,
@@ -68,6 +69,7 @@ pub async fn create_job<'e, E: PgExecutor<'e>>(exec: E, new: NewJob<'_>) -> sqlx
     new.estimated_max_micros,
     new.is_dry_run,
     new.expires_at,
+    new.price_unit,
   )
   .fetch_one(exec)
   .await

@@ -10,11 +10,12 @@ pub enum InputStrategy {
   ProviderUpload,
 }
 
-/// Every OpenAI GPT Image model takes public URLs.
+/// OpenAI fetches public URLs; Google (Gemini API) CANNOT — its inputs go
+/// upload-first through the provider Files API at dispatch time.
 pub fn input_strategy_for(provider: catalog::Provider) -> InputStrategy {
   match provider {
     catalog::Provider::Openai => InputStrategy::PublicUrls,
-    catalog::Provider::Google => InputStrategy::PublicUrls,
+    catalog::Provider::Google => InputStrategy::ProviderUpload,
     catalog::Provider::Kinovi => InputStrategy::ProviderUpload,
   }
 }

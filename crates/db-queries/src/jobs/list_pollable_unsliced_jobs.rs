@@ -4,7 +4,11 @@ use super::Job;
 
 /// Running single-call jobs (no slices — the jobs row itself carries the provider handle)
 /// that need a provider poll.
-pub async fn list_pollable_unsliced_jobs<'e, E: PgExecutor<'e>>(exec: E, limit: i64) -> sqlx::Result<Vec<Job>> {
+pub async fn list_pollable_unsliced_jobs<'e, E: PgExecutor<'e>>(
+  exec: E,
+  provider: &str,
+  limit: i64,
+) -> sqlx::Result<Vec<Job>> {
   sqlx::query_as!(
     Job,
     r#"SELECT id AS "id: ids::JobId", account_id AS "account_id: ids::AccountId",
@@ -16,10 +20,11 @@ pub async fn list_pollable_unsliced_jobs<'e, E: PgExecutor<'e>>(exec: E, limit: 
                  unit_amount_nanos, quantity::float8 AS "quantity?: f64", estimated_max_micros,
                  is_dry_run, created_at, completed_at, expires_at
        FROM jobs
-       WHERE status = 'running' AND provider_job_id IS NOT NULL
+       WHERE status = 'running' AND provider = $2 AND provider_job_id IS NOT NULL
        ORDER BY sid
        LIMIT $1"#,
     limit,
+    provider,
   )
   .fetch_all(exec)
   .await

@@ -68,6 +68,8 @@ use crate::handlers::{
     invitations::accept_invitation_handler,
     generation::generate_any_image_handler,
     generation::cost_any_image_handler,
+    generation::generate_any_video_handler,
+    generation::cost_any_video_handler,
     generation::generate_with_model_handler,
     generation::cost_with_model_handler,
     generation::list_jobs_handler,
@@ -91,7 +93,7 @@ use crate::handlers::{
     (name = "api-keys", description = "API keys: list, mint (secret shown once), revoke"),
     (name = "invitations", description = "Inviting people into an organization"),
     (name = "audit-logs", description = "Keyset-paginated audit trails"),
-    (name = "generation", description = "Image generation: enqueue (Any + model-specific planes), cost quotes, job polling"),
+    (name = "generation", description = "Image and video generation: enqueue (Any + model-specific planes), cost quotes, job polling"),
     (name = "files", description = "Input uploads: `file_…` ids + CDN URLs for generation inputs"),
     (name = "admin", description = "Staff-only record browsing"),
     (name = "webhooks", description = "Inbound provider webhooks (signature-verified, logged, idempotent)"),
@@ -141,7 +143,7 @@ mod tests {
     // axum `:param` ↔ OpenAPI `{param}`
     let documented: std::collections::BTreeSet<String> = doc.paths.paths.keys().cloned().collect();
     assert!(documented.contains("/v1/auth/me"));
-    // 57 operations over 53 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
-    assert_eq!(documented.len(), 53, "unexpected number of documented paths: {documented:#?}");
+    // 59 operations over 55 paths (sessions, avatar, api_keys, and invitations each pair two on one path).
+    assert_eq!(documented.len(), 55, "unexpected number of documented paths: {documented:#?}");
   }
 }

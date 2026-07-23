@@ -555,7 +555,7 @@ async fn dry_run_on_every_generation_endpoint() {
   assert!(calls.iter().all(|c| c.is_dry_run && c.job_slice_id.is_some()));
 
   // And a dry-run job never gets picked up by the dispatcher's claim query.
-  let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, 1.0, 100).await.unwrap();
+  let claimed = db_queries::jobs::claim_due_dispatch_jobs(&pool, "openai", 1.0, 100).await.unwrap();
   assert!(claimed.iter().all(|j| !j.is_dry_run), "terminal dry-run jobs must not be claimable");
 }
 

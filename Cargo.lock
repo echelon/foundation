@@ -395,6 +395,8 @@ version = "0.1.0"
 dependencies = [
  "money",
  "reqwest",
+ "serde",
+ "serde_json",
  "tracing",
 ]
 
@@ -748,6 +750,7 @@ version = "0.1.0"
 dependencies = [
  "catalog",
  "client_core",
+ "google_gemini_api_client",
  "openai_client",
  "serde",
  "serde_json",
@@ -921,6 +924,68 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "google_gemini_dispatch"
+version = "0.1.0"
+dependencies = [
+ "bucket_client",
+ "bucket_paths",
+ "catalog",
+ "db_queries",
+ "enums",
+ "foundation_router",
+ "google_gemini_api_client",
+ "hex",
+ "ids",
+ "reqwest",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "google_gemini_outbound_job"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bucket_client",
+ "catalog",
+ "client_core",
+ "config",
+ "db",
+ "db_queries",
+ "enums",
+ "google_gemini_api_client",
+ "google_gemini_dispatch",
+ "ids",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "google_gemini_polling_job"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bucket_client",
+ "catalog",
+ "client_core",
+ "config",
+ "db",
+ "db_queries",
+ "enums",
+ "google_gemini_api_client",
+ "google_gemini_dispatch",
+ "ids",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",

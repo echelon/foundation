@@ -44,7 +44,62 @@ fn slugs_route_and_match_the_catalog() {
     assert_eq!(model.slug(), slug);
     assert_eq!(model.spec().provider, catalog::Provider::Openai);
   }
-  assert!(RouterImageModel::from_slug("google_nano_banana").is_none(), "not yet routed");
+  for slug in ["google_nano_banana", "google_nano_banana_pro", "google_nano_banana_2", "google_nano_banana_2_lite"] {
+    let model = RouterImageModel::from_slug(slug).unwrap();
+    assert_eq!(model.slug(), slug);
+    assert_eq!(model.spec().provider, catalog::Provider::Google);
+  }
+}
+
+#[test]
+fn google_routes_map_and_prune_the_gpt_flavored_params() {
+  use foundation_router::input_strategy::InputStrategy;
+  use foundation_router::image::plan::{RouterImageQuality, RouterImageSize};
+  let mut p = plan(RouterImageModel::GoogleNanoBanana2);
+  p.n = 3;
+  p.size = Some(RouterImageSize::Landscape1536x1024);
+  p.quality = Some(RouterImageQuality::High);
+  p.output_format = Some(foundation_router::image::plan::RouterOutputFormat::Png);
+  p.image_urls = vec!["https://cdn.example/in.png".into()];
+  let built = build_image_route(p).unwrap();
+  // size→aspect + quality→tier coerced, output_format pruned; inputs pend for upload-first.
+  assert_eq!(built.route.fan_out(), 3);
+  assert_eq!(built.route.input_strategy(), InputStrategy::ProviderUpload);
+  assert_eq!(built.route.input_urls(), ["https://cdn.example/in.png"]);
+  let params: Vec<&str> = built.adjustments.iter().map(|a| a.param.as_str()).collect();
+  assert!(params.contains(&"size"));
+  assert!(params.contains(&"quality"));
+  assert!(params.contains(&"output_format"));
+  // Priced per slice through the client estimator: 3 × $0.151 (4K tier).
+  let quote = built.route.price();
+  assert_eq!(quote.amount_micros, 3 * 151_000);
+  assert_eq!(quote.line_items.len(), 3);
+}
+
+#[test]
+fn veo_routes_build_price_exactly_and_coerce_lite_4k() {
+  use foundation_router::video::build::build_video_route;
+  use foundation_router::video::plan::*;
+  let built = build_video_route(VideoGenerationPlan {
+    model: RouterVideoModel::GoogleVeo3_1Lite,
+    prompt: "a candle flame".into(),
+    negative_prompt: None,
+    image_url: None,
+    n: 2,
+    resolution: Some(RouterVideoResolution::K4),
+    duration: Some(RouterVideoDuration::S4),
+    aspect_ratio: Some(RouterVideoAspectRatio::Portrait9x16),
+  })
+  .unwrap();
+  // Lite has no 4K → coerced to 1080p, which forces 8 s.
+  let params: Vec<&str> = built.adjustments.iter().map(|a| a.param.as_str()).collect();
+  assert!(params.contains(&"resolution"));
+  assert!(params.contains(&"duration_seconds"));
+  assert_eq!(built.route.fan_out(), 2);
+  // 2 videos × 8 s × $0.08/s (lite 1080p) = $1.28, EXACT.
+  let quote = built.route.price();
+  assert_eq!(quote.amount_micros, 2 * 8 * 80_000);
+  assert!(matches!(quote.certainty, foundation_router::pricing::PriceCertainty::Exact));
 }
 
 #[test]

@@ -272,6 +272,27 @@ export type ImageGenerationParams = {
   dry_run?: boolean;
 };
 
+export type ApiVideoResolution = "720p" | "1080p" | "4k";
+export type ApiVideoAspectRatio = "16:9" | "9:16";
+
+/** The params shared by `POST /v1/any/video` and `POST /v1/models/{slug}/generate`
+ * (video models). */
+export type VideoGenerationParams = {
+  account_id: string;
+  prompt: string;
+  negative_prompt?: string | null;
+  /** Image-to-video conditioning frame: a `file_…` id (from uploadFile) or a public
+   * https URL. */
+  image_input?: string | null;
+  /** 1–10; one provider operation per video (partial completion). */
+  n?: number;
+  resolution?: ApiVideoResolution;
+  /** 4, 6, or 8. 1080p/4K forces 8 (coerced and reported). */
+  duration_seconds?: number;
+  aspect_ratio?: ApiVideoAspectRatio;
+  dry_run?: boolean;
+};
+
 export type ApiJobOutput = { index: number; kind: string; url: string; mime: string; bytes: number };
 
 /** Present only for fanned-out (n>1) jobs. */
@@ -290,15 +311,24 @@ export type ApiJobShape = "granular" | "unified" | "any" | "chat";
 export type ApiJobRequest = {
   job_id: string;
   model: string;
+  /** `image` or `video` — which optional param set below is populated. */
+  media_type: string;
   prompt: string;
-  image_inputs: string[];
-  mask: string | null;
   n: number;
-  size: ApiImageSize | null;
-  quality: ApiImageQuality | null;
-  output_format: ApiOutputFormat | null;
-  input_fidelity: ApiInputFidelity | null;
   dry_run: boolean;
+  /* image params (media_type = image; empty/absent fields are omitted on the wire) */
+  image_inputs?: string[];
+  mask?: string | null;
+  size?: ApiImageSize | null;
+  quality?: ApiImageQuality | null;
+  output_format?: ApiOutputFormat | null;
+  input_fidelity?: ApiInputFidelity | null;
+  /* video params (media_type = video) */
+  negative_prompt?: string | null;
+  image_input?: string | null;
+  resolution?: ApiVideoResolution | null;
+  duration_seconds?: number | null;
+  aspect_ratio?: ApiVideoAspectRatio | null;
 };
 
 export type ApiJob = {
@@ -559,12 +589,21 @@ export const api = {
   costAnyImage: (body: ImageGenerationParams & { model: string }) =>
     request<ApiCostQuote>("POST", "/v1/any/image/cost", body),
 
-  /** Enqueue on the model-specific (unified) plane — the model is the path resource. */
-  generateWithModel: (slug: string, body: ImageGenerationParams) =>
+  /** Enqueue video on the Any plane (model as a param). Returns the queued job. */
+  generateAnyVideo: (body: VideoGenerationParams & { model: string }) =>
+    request<ApiJob>("POST", "/v1/any/video", body),
+
+  /** Price an Any-plane video request without running it. */
+  costAnyVideo: (body: VideoGenerationParams & { model: string }) =>
+    request<ApiCostQuote>("POST", "/v1/any/video/cost", body),
+
+  /** Enqueue on the model-specific (unified) plane — the model is the path resource;
+   * the body follows the model's media type (image or video params). */
+  generateWithModel: (slug: string, body: ImageGenerationParams | VideoGenerationParams) =>
     request<ApiJob>("POST", `/v1/models/${slug}/generate`, body),
 
   /** Price a model-specific request without running it. */
-  costWithModel: (slug: string, body: ImageGenerationParams) =>
+  costWithModel: (slug: string, body: ImageGenerationParams | VideoGenerationParams) =>
     request<ApiCostQuote>("POST", `/v1/models/${slug}/generate/cost`, body),
 
   /** Full job: status, outputs-so-far (CDN URLs), fan-out progress, failure, price. */

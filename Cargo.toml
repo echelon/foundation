@@ -11,6 +11,8 @@ members = [
   "crates/testing/test_data",
   # ── routing ──
   "crates/router",
+  # ── worker dispatch flows (shared by the job binaries) ──
+  "crates/workers/google-gemini-dispatch",
   # ── data layer ──
   "crates/db",
   # ── provider clients (pure HTTP) ──
@@ -30,6 +32,8 @@ members = [
   "crates/bin/api-gateway",
   "crates/bin/admin-cli",
   "crates/bin/sweeper",
+  "crates/bin/google-gemini-outbound-job",
+  "crates/bin/google-gemini-polling-job",
 ]
 
 [workspace.package]
@@ -84,6 +88,7 @@ db = { path = "crates/db" }
 client_core = { path = "crates/clients/client-core" }
 test_data = { path = "crates/testing/test_data" }
 foundation_router = { path = "crates/router" }
+google_gemini_dispatch = { path = "crates/workers/google-gemini-dispatch" }
 kinovi_client = { path = "crates/clients/kinovi_client" }
 openai_client = { path = "crates/clients/openai_client" }
 google_gemini_api_client = { path = "crates/clients/google_gemini_api_client" }

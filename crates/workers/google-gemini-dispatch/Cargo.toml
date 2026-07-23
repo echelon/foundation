@@ -1,0 +1,23 @@
+[package]
+name = "google_gemini_dispatch"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+foundation_router.workspace = true
+google_gemini_api_client.workspace = true
+catalog.workspace = true
+enums.workspace = true
+ids.workspace = true
+db_queries.workspace = true
+bucket_client.workspace = true
+bucket_paths.workspace = true
+sqlx.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+sha2.workspace = true
+hex.workspace = true

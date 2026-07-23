@@ -1,45 +1,6 @@
-//! The sanitized, RESOLVED image request persisted on `jobs.request_params` — everything
-//! the dispatcher needs to rebuild the router plan (file ids already resolved to CDN urls).
+//! Re-export of the router's persisted param shapes (`jobs.request_params`). The shapes
+//! live in `foundation_router` so the gateway and the worker binaries rebuild from ONE
+//! definition; gateway code keeps importing them from here.
 
-use serde::{Deserialize, Serialize};
-
-use foundation_router::image::plan::{
-  ImageGenerationPlan, RouterImageModel, RouterImageQuality, RouterImageSize, RouterInputFidelity,
-  RouterOutputFormat,
-};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StoredImageParams {
-  pub model: String,
-  pub prompt: String,
-  #[serde(default)]
-  pub image_urls: Vec<String>,
-  #[serde(default)]
-  pub mask_url: Option<String>,
-  pub n: u8,
-  #[serde(default)]
-  pub size: Option<RouterImageSize>,
-  #[serde(default)]
-  pub quality: Option<RouterImageQuality>,
-  #[serde(default)]
-  pub output_format: Option<RouterOutputFormat>,
-  #[serde(default)]
-  pub input_fidelity: Option<RouterInputFidelity>,
-}
-
-impl StoredImageParams {
-  pub fn to_plan(&self) -> Option<ImageGenerationPlan> {
-    let model = RouterImageModel::from_slug(&self.model)?;
-    Some(ImageGenerationPlan {
-      model,
-      prompt: self.prompt.clone(),
-      image_urls: self.image_urls.clone(),
-      mask_url: self.mask_url.clone(),
-      n: self.n,
-      size: self.size,
-      quality: self.quality,
-      output_format: self.output_format,
-      input_fidelity: self.input_fidelity,
-    })
-  }
-}
+pub use foundation_router::image::stored::StoredImageParams;
+pub use foundation_router::video::stored::StoredVideoParams;

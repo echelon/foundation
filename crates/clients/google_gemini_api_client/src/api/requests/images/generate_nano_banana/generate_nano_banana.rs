@@ -54,6 +54,17 @@ pub async fn generate_nano_banana(args: GenerateNanoBananaArgs<'_>) -> Result<Ge
   run_generate_content(api_key, NANO_BANANA_MODEL_ID, &body).await
 }
 
+/// The EXACT provider-native JSON body this request would send — same
+/// construction path as the real send (router logging / dry-run contract).
+/// NOTE: for upload-first inputs the `images` present here are whatever the
+/// request carries at call time; the dispatcher logs the post-upload body too.
+pub fn generate_nano_banana_wire_json(request: &NanoBananaRequest) -> Result<serde_json::Value, GoogleGeminiError> {
+  let body = build_image_body(&request.prompt, &request.images, request.aspect_ratio, None);
+  serde_json::to_value(&body).map_err(|e| {
+    crate::error::google_gemini_client_error::GoogleGeminiClientError::RequestSerializationError(e).into()
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use serde_json::json;

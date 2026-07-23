@@ -8,6 +8,7 @@ use super::Job;
 /// `queued` until the provider accepts (jobs.md: retries are invisible).
 pub async fn claim_due_dispatch_jobs<'e, E: PgExecutor<'e>>(
   exec: E,
+  provider: &str,
   lease_seconds: f64,
   limit: i64,
 ) -> sqlx::Result<Vec<Job>> {
@@ -17,7 +18,7 @@ pub async fn claim_due_dispatch_jobs<'e, E: PgExecutor<'e>>(
                        dispatch_attempts = dispatch_attempts + 1
        WHERE id IN (
          SELECT id FROM jobs
-         WHERE status = 'queued' AND next_dispatch_at <= now() AND expires_at > now()
+         WHERE status = 'queued' AND provider = $3 AND next_dispatch_at <= now() AND expires_at > now()
          ORDER BY sid
          LIMIT $2
          FOR UPDATE SKIP LOCKED
@@ -32,6 +33,7 @@ pub async fn claim_due_dispatch_jobs<'e, E: PgExecutor<'e>>(
                  is_dry_run, created_at, completed_at, expires_at"#,
     lease_seconds,
     limit,
+    provider,
   )
   .fetch_all(exec)
   .await

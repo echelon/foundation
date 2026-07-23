@@ -12,6 +12,7 @@ import { Badge, Button, Card, Label, Select, Slider, Textarea } from "@/componen
 import { CodeBlock } from "@/components/CodeBlock";
 import { AccountModal } from "@/components/AccountModal";
 import { BatchBadge } from "@/components/BatchBadge";
+import { OutputThumb } from "@/components/OutputThumb";
 import { OutputLightbox, sessionRequestLoader, StatusBadge } from "@/components/OutputLightbox";
 import { useAuth } from "@/lib/auth";
 import {
@@ -96,7 +97,7 @@ function formFromRequest(r: ApiJobRequest): FormState {
     quality: r.quality ?? "auto",
     outputFormat: r.output_format ?? "png",
     inputFidelity: r.input_fidelity ?? "",
-    inputs: r.image_inputs.map(asUpload),
+    inputs: (r.image_inputs ?? []).map(asUpload),
     mask: r.mask ? asUpload(r.mask) : null,
   };
 }
@@ -602,7 +603,7 @@ export function LiveImagePlayground({ model }: { model: Model }) {
 
 /* ── Upload tile ── */
 
-function UploadTile({ label, busy, onFile }: { label: string; busy: boolean; onFile: (f: File) => void }) {
+export function UploadTile({ label, busy, onFile }: { label: string; busy: boolean; onFile: (f: File) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
     <>
@@ -754,7 +755,7 @@ function ApiDocs({ model }: { model: Model }) {
 
 /* ── Real request history ── */
 
-function LiveHistory({
+export function LiveHistory({
   model,
   accountId,
   nonce,
@@ -817,7 +818,7 @@ function LiveHistory({
                     <div className="flex items-center gap-2">
                       <div className="flex -space-x-2">
                         {j.outputs.slice(0, 3).map((o) => (
-                          <img key={o.index} src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
+                          <OutputThumb key={o.index} output={o} />
                         ))}
                         {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                       </div>
@@ -869,7 +870,7 @@ function LiveHistory({
 }
 
 
-function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+export function Stat({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="rounded-lg bg-surface2/60 px-3 py-2">
       <div className="text-xs text-muted">{label}</div>

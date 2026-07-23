@@ -17,5 +17,6 @@
 
 pub mod error;
 pub mod image;
+pub mod video;
 pub mod input_strategy;
 pub mod pricing;

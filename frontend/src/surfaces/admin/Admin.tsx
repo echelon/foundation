@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, RefreshCw, ShieldAlert } from "lucide-react";
 import { Badge, Button, Card, Container, Logo, ThemeToggle } from "@/components/ui";
 import { BatchBadge } from "@/components/BatchBadge";
+import { OutputThumb } from "@/components/OutputThumb";
 import { OutputLightbox } from "@/components/OutputLightbox";
 import { api, ApiError, type AdminJob } from "@/lib/api";
 import { MODEL_BY_SLUG } from "@/lib/catalog";
@@ -122,12 +123,7 @@ export default function Admin() {
                             <div className="flex items-center gap-2">
                               <div className="flex -space-x-2">
                                 {j.outputs.slice(0, 3).map((o) => (
-                                  <img
-                                    key={o.index}
-                                    src={o.url}
-                                    alt=""
-                                    className="h-10 w-10 rounded-lg border border-border object-cover"
-                                  />
+                                  <OutputThumb key={o.index} output={o} />
                                 ))}
                                 {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                               </div>

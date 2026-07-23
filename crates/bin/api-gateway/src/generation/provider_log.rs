@@ -5,6 +5,7 @@
 use db_queries::provider_calls::{self, NewProviderCall};
 use db_queries::{JobSlice, ProviderCall};
 use foundation_router::image::route::ImageRoute;
+use foundation_router::video::route::VideoRoute;
 use ids::JobId;
 use sqlx::PgExecutor;
 
@@ -39,8 +40,43 @@ pub async fn log_outbound_image_request<'e, E: PgExecutor<'e>>(
     NewProviderCall {
       job_id: args.job_id,
       job_slice_id: args.slice.map(|s| &s.id),
-      provider: "openai",
-      url: args.route.endpoint_url(),
+      provider: args.route.provider().as_str(),
+      url: &args.route.endpoint_url(),
+      request_body: &request_body,
+      is_dry_run: args.is_dry_run,
+    },
+  )
+  .await?;
+  Ok(Some(call))
+}
+
+/// Video twin of [`log_outbound_image_request`].
+pub struct LogOutboundVideoRequestArgs<'a> {
+  pub job_id: &'a JobId,
+  pub slice: Option<&'a JobSlice>,
+  pub route: &'a VideoRoute,
+  pub index: usize,
+  pub is_dry_run: bool,
+}
+
+pub async fn log_outbound_video_request<'e, E: PgExecutor<'e>>(
+  exec: E,
+  args: LogOutboundVideoRequestArgs<'_>,
+) -> sqlx::Result<Option<ProviderCall>> {
+  let request_body = match args.route.request_json(args.index) {
+    Ok(json) => json,
+    Err(e) => {
+      tracing::error!("could not serialize outbound request for {} slice {}: {e}", args.job_id, args.index);
+      return Ok(None);
+    }
+  };
+  let call = provider_calls::create_provider_call(
+    exec,
+    NewProviderCall {
+      job_id: args.job_id,
+      job_slice_id: args.slice.map(|s| &s.id),
+      provider: args.route.provider().as_str(),
+      url: &args.route.endpoint_url(),
       request_body: &request_body,
       is_dry_run: args.is_dry_run,
     },

@@ -1,4 +1,5 @@
-//! The embedded dispatcher: an in-process tokio loop that (a) fires queued jobs at the
+//! The embedded OPENAI dispatcher: an in-process tokio loop (google jobs are
+//! provider-partitioned to the google-gemini-outbound/polling job binaries) that (a) fires queued jobs at the
 //! provider and (b) polls running work back to completion, ingesting output bytes into R2.
 //!
 //! Deliberately in-process for this iteration — the claim query leases with
@@ -56,7 +57,7 @@ fn backoff_seconds(attempt: i32) -> f64 {
 // ── Dispatch pass: queued → at the provider ──
 
 async fn dispatch_pass(state: &AppState) -> sqlx::Result<()> {
-  let claimed = jobs::claim_due_dispatch_jobs(&state.pool, DISPATCH_LEASE_SECONDS, DISPATCH_BATCH).await?;
+  let claimed = jobs::claim_due_dispatch_jobs(&state.pool, "openai", DISPATCH_LEASE_SECONDS, DISPATCH_BATCH).await?;
   for job in claimed {
     dispatch_one(state, &job).await?;
   }
@@ -261,12 +262,12 @@ async fn poll_pass(state: &AppState) -> sqlx::Result<()> {
     return Ok(());
   }
 
-  for job in jobs::list_pollable_unsliced_jobs(&state.pool, POLL_BATCH).await? {
+  for job in jobs::list_pollable_unsliced_jobs(&state.pool, "openai", POLL_BATCH).await? {
     if let Err(e) = poll_and_finish_unsliced_job(state, &job).await {
       tracing::warn!("poll of {} failed (will retry): {e}", job.id);
     }
   }
-  for slice in job_slices::list_pollable_slices(&state.pool, POLL_BATCH).await? {
+  for slice in job_slices::list_pollable_slices(&state.pool, "openai", POLL_BATCH).await? {
     if let Err(e) = poll_and_finish_slice(state, &slice).await {
       tracing::warn!("poll of slice {} failed (will retry): {e}", slice.id);
     }

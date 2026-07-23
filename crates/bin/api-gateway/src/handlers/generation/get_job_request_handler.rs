@@ -14,12 +14,14 @@ use super::get_job_handler::JobScopeParams;
 use super::types::{
   resolve_caller_account, ApiImageQuality, ApiImageSize, ApiInputFidelity, ApiOutputFormat,
 };
+use super::video_types::{ApiVideoAspectRatio, ApiVideoResolution};
 use crate::error::{ApiError, ApiResult};
-use crate::generation::stored_params::StoredImageParams;
+use crate::generation::stored_params::{StoredImageParams, StoredVideoParams};
 use crate::middleware::Caller;
 use crate::state::AppState;
 
-/// A job's originating request, replayable against the generate endpoints.
+/// A job's originating request, replayable against the generate endpoints. Image jobs
+/// fill the image params; video jobs fill the video params — `media_type` says which.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct JobRequestResponse {
   #[schema(value_type = String, example = "job_01k0…")]
@@ -27,36 +29,89 @@ pub struct JobRequestResponse {
   /// Catalog model slug the job ran on (the path resource for a replay).
   #[schema(example = "openai_gpt_image_1_5")]
   pub model: String,
+  /// `image` or `video` — which param set below is populated.
+  #[schema(example = "image")]
+  pub media_type: String,
   pub prompt: String,
-  /// Edit inputs, resolved to CDN URLs — `image_inputs` accepts these directly.
-  pub image_inputs: Vec<String>,
-  pub mask: Option<String>,
   /// Post-clamp fan-out (what actually ran).
   pub n: u8,
-  pub size: Option<ApiImageSize>,
-  pub quality: Option<ApiImageQuality>,
-  pub output_format: Option<ApiOutputFormat>,
-  pub input_fidelity: Option<ApiInputFidelity>,
   pub dry_run: bool,
+
+  // ── image params (media_type = image) ──
+  /// Edit inputs, resolved to CDN URLs — `image_inputs` accepts these directly.
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub image_inputs: Vec<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub mask: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub size: Option<ApiImageSize>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub quality: Option<ApiImageQuality>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub output_format: Option<ApiOutputFormat>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub input_fidelity: Option<ApiInputFidelity>,
+
+  // ── video params (media_type = video) ──
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub negative_prompt: Option<String>,
+  /// i2v conditioning frame, resolved to a CDN URL — `image_input` accepts it directly.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub image_input: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub resolution: Option<ApiVideoResolution>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub duration_seconds: Option<u8>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub aspect_ratio: Option<ApiVideoAspectRatio>,
+}
+
+impl JobRequestResponse {
+  fn base(job: &db_queries::Job, model: String, prompt: String, n: u8) -> Self {
+    Self {
+      job_id: job.id.clone(),
+      model,
+      media_type: job.media_type.clone(),
+      prompt,
+      n,
+      dry_run: job.is_dry_run,
+      image_inputs: Vec::new(),
+      mask: None,
+      size: None,
+      quality: None,
+      output_format: None,
+      input_fidelity: None,
+      negative_prompt: None,
+      image_input: None,
+      resolution: None,
+      duration_seconds: None,
+      aspect_ratio: None,
+    }
+  }
 }
 
 /// Map a job row into the replayable wire shape (shared with the admin twin).
 pub(crate) fn job_request_response(job: &db_queries::Job) -> ApiResult<JobRequestResponse> {
-  let stored: StoredImageParams = serde_json::from_value(job.request_params.clone())
-    .map_err(|e| ApiError::Internal(format!("stored params unreadable: {e}")))?;
-  Ok(JobRequestResponse {
-    job_id: job.id.clone(),
-    model: stored.model,
-    prompt: stored.prompt,
-    image_inputs: stored.image_urls,
-    mask: stored.mask_url,
-    n: stored.n,
-    size: stored.size.map(Into::into),
-    quality: stored.quality.map(Into::into),
-    output_format: stored.output_format.map(Into::into),
-    input_fidelity: stored.input_fidelity.map(Into::into),
-    dry_run: job.is_dry_run,
-  })
+  let unreadable = |e: serde_json::Error| ApiError::Internal(format!("stored params unreadable: {e}"));
+  if job.media_type == catalog::MediaType::Video.as_str() {
+    let stored: StoredVideoParams = serde_json::from_value(job.request_params.clone()).map_err(unreadable)?;
+    let mut body = JobRequestResponse::base(job, stored.model, stored.prompt, stored.n);
+    body.negative_prompt = stored.negative_prompt;
+    body.image_input = stored.image_url;
+    body.resolution = stored.resolution.map(Into::into);
+    body.duration_seconds = stored.duration.map(|d| d.seconds() as u8);
+    body.aspect_ratio = stored.aspect_ratio.map(Into::into);
+    return Ok(body);
+  }
+  let stored: StoredImageParams = serde_json::from_value(job.request_params.clone()).map_err(unreadable)?;
+  let mut body = JobRequestResponse::base(job, stored.model, stored.prompt, stored.n);
+  body.image_inputs = stored.image_urls;
+  body.mask = stored.mask_url;
+  body.size = stored.size.map(Into::into);
+  body.quality = stored.quality.map(Into::into);
+  body.output_format = stored.output_format.map(Into::into);
+  body.input_fidelity = stored.input_fidelity.map(Into::into);
+  Ok(body)
 }
 
 /// The request that created this job — for "recreate" flows and request inspection.

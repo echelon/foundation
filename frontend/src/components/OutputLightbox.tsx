@@ -65,6 +65,7 @@ export function OutputLightbox({
   const flashTimer = useRef<number | null>(null);
 
   const output = outputs.length > 0 ? outputs[Math.min(idx, outputs.length - 1)] : null;
+  const isVideo = output?.mime.startsWith("video/") ?? false;
   const canPrev = idx > 0;
   const canNext = idx < outputs.length - 1;
 
@@ -140,8 +141,16 @@ export function OutputLightbox({
           ["File size", formatBytes(output.bytes)],
         ] as [string, string][])
       : []),
-    ["Size", req ? (req.size ?? "auto") : "…"],
-    ["Quality", req ? (req.quality ?? "auto") : "…"],
+    ...(req?.media_type === "video"
+      ? ([
+          ["Resolution", req.resolution ?? "720p (default)"],
+          ["Duration", req.duration_seconds ? `${req.duration_seconds} s` : "8 s (default)"],
+          ["Aspect", req.aspect_ratio ?? "16:9 (default)"],
+        ] as [string, string][])
+      : ([
+          ["Size", req ? (req.size ?? "auto") : "…"],
+          ["Quality", req ? (req.quality ?? "auto") : "…"],
+        ] as [string, string][])),
     ["Est. cost", `$${(job.estimated_micros / 1_000_000).toFixed(4)}`],
     ["Created", new Date(job.created_at).toLocaleString()],
   ];
@@ -194,7 +203,17 @@ export function OutputLightbox({
 
       <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="grid place-items-center rounded-xl bg-surface2/40 p-2">
-          {output ? (
+          {output && isVideo ? (
+            <video
+              key={output.url}
+              src={output.url}
+              controls
+              autoPlay
+              loop
+              playsInline
+              className="max-h-[65vh] w-auto max-w-full rounded-lg object-contain"
+            />
+          ) : output ? (
             <img
               src={output.url}
               alt={`Output ${idx + 1}`}
@@ -218,14 +237,16 @@ export function OutputLightbox({
                 {copied === "url" ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
                 {copied === "url" ? "Copied" : "Copy URL"}
               </Button>
-              <Button variant="outline" size="sm" onClick={() => void copyImage()}>
-                {copied === "image" ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-500" />
-                ) : (
-                  <ImagePlus className="h-3.5 w-3.5" />
-                )}
-                {copied === "image" ? "Copied" : "Copy image"}
-              </Button>
+              {!isVideo && (
+                <Button variant="outline" size="sm" onClick={() => void copyImage()}>
+                  {copied === "image" ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : (
+                    <ImagePlus className="h-3.5 w-3.5" />
+                  )}
+                  {copied === "image" ? "Copied" : "Copy image"}
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => window.open(output.url, "_blank", "noopener")}>
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open in new tab
@@ -252,11 +273,11 @@ export function OutputLightbox({
             ))}
           </div>
 
-          {req && req.image_inputs.length > 0 && (
+          {req && ((req.image_inputs?.length ?? 0) > 0 || req.image_input) && (
             <div>
-              <div className="text-xs text-muted">Edit inputs</div>
+              <div className="text-xs text-muted">{req.media_type === "video" ? "Starting image" : "Edit inputs"}</div>
               <div className="mt-1 flex flex-wrap gap-2">
-                {req.image_inputs.map((u) => (
+                {(req.image_inputs ?? []).concat(req.image_input ? [req.image_input] : []).map((u) => (
                   <img key={u} src={u} alt="" className="h-12 w-12 rounded-lg border border-border object-cover" />
                 ))}
               </div>

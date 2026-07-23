@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { BatchBadge } from "@/components/BatchBadge";
+import { OutputThumb } from "@/components/OutputThumb";
 import { OutputLightbox, sessionRequestLoader } from "@/components/OutputLightbox";
 import { useOrg } from "@/lib/org";
 import { api, type ApiJob } from "@/lib/api";
@@ -126,7 +127,7 @@ export default function Requests() {
                                 setSelected({ job: j, index: i });
                               }}
                             >
-                              <img src={o.url} alt="" className="h-10 w-10 rounded-lg border border-border object-cover" />
+                              <OutputThumb output={o} />
                             </button>
                           ))}
                           {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}

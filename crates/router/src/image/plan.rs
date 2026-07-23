@@ -11,6 +11,10 @@ pub enum RouterImageModel {
   OpenaiGptImageV1Mini,
   OpenaiGptImageV1_5,
   OpenaiGptImageV2,
+  GoogleNanoBanana,
+  GoogleNanoBananaPro,
+  GoogleNanoBanana2,
+  GoogleNanoBanana2Lite,
 }
 
 impl RouterImageModel {
@@ -21,6 +25,10 @@ impl RouterImageModel {
       "openai_gpt_image_1_mini" => Some(Self::OpenaiGptImageV1Mini),
       "openai_gpt_image_1_5" => Some(Self::OpenaiGptImageV1_5),
       "openai_gpt_image_2" => Some(Self::OpenaiGptImageV2),
+      "google_nano_banana" => Some(Self::GoogleNanoBanana),
+      "google_nano_banana_pro" => Some(Self::GoogleNanoBananaPro),
+      "google_nano_banana_2" => Some(Self::GoogleNanoBanana2),
+      "google_nano_banana_2_lite" => Some(Self::GoogleNanoBanana2Lite),
       _ => None,
     }
   }
@@ -31,6 +39,10 @@ impl RouterImageModel {
       Self::OpenaiGptImageV1Mini => "openai_gpt_image_1_mini",
       Self::OpenaiGptImageV1_5 => "openai_gpt_image_1_5",
       Self::OpenaiGptImageV2 => "openai_gpt_image_2",
+      Self::GoogleNanoBanana => "google_nano_banana",
+      Self::GoogleNanoBananaPro => "google_nano_banana_pro",
+      Self::GoogleNanoBanana2 => "google_nano_banana_2",
+      Self::GoogleNanoBanana2Lite => "google_nano_banana_2_lite",
     }
   }
 
