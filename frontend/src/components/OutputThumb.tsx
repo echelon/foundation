@@ -7,7 +7,7 @@
 import type { ApiJobOutput } from "@/lib/api";
 
 export function OutputThumb({ output, className }: { output: ApiJobOutput; className?: string }) {
-  const cls = className ?? "h-10 w-10 rounded-lg border border-border object-cover";
+  const cls = (className ?? "h-10 w-10 rounded-lg border border-border object-cover") + " pointer-events-none";
   if (output.mime.startsWith("video/")) {
     return <video src={output.url} muted playsInline preload="metadata" className={cls} />;
   }

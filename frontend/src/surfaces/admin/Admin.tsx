@@ -19,7 +19,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
-  const [selected, setSelected] = useState<AdminJob | null>(null);
+  const [selected, setSelected] = useState<{ job: AdminJob; index: number } | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -115,15 +115,25 @@ export default function Admin() {
                       {jobs.map((j) => (
                         <tr
                           key={j.id}
-                          onClick={() => setSelected(j)}
+                          onClick={() => setSelected({ job: j, index: 0 })}
                           title="View details"
                           className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40"
                         >
                           <td className="py-3 pl-5 pr-3">
                             <div className="flex items-center gap-2">
                               <div className="flex -space-x-2">
-                                {j.outputs.slice(0, 3).map((o) => (
-                                  <OutputThumb key={o.index} output={o} />
+                                {j.outputs.slice(0, 3).map((o, i) => (
+                                  <button
+                                    key={o.index}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelected({ job: j, index: i });
+                                    }}
+                                    title="View this result"
+                                  >
+                                    <OutputThumb output={o} />
+                                  </button>
                                 ))}
                                 {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                               </div>
@@ -175,10 +185,11 @@ export default function Admin() {
 
       {selected && (
         <OutputLightbox
-          job={selected}
-          modelName={MODEL_BY_SLUG[selected.model]?.name ?? selected.model}
+          job={selected.job}
+          modelName={MODEL_BY_SLUG[selected.job.model]?.name ?? selected.job.model}
+          initialIndex={selected.index}
           loadRequest={(id) => api.adminGetJobRequest(id)}
-          extraStats={[["Account", selected.account_id]]}
+          extraStats={[["Account", selected.job.account_id]]}
           onClose={() => setSelected(null)}
         />
       )}

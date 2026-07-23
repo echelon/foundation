@@ -769,6 +769,7 @@ export function LiveHistory({
   const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [nextAfter, setNextAfter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<{ job: ApiJob; index: number } | null>(null);
 
   useEffect(() => {
     let dead = false;
@@ -813,12 +814,27 @@ export function LiveHistory({
           <table className="w-full text-sm">
             <tbody>
               {jobs.map((j) => (
-                <tr key={j.id} className="border-b border-border/60 last:border-0 hover:bg-surface2/40">
+                <tr
+                  key={j.id}
+                  onClick={() => setSelected({ job: j, index: 0 })}
+                  title="View details"
+                  className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40"
+                >
                   <td className="py-3 pl-5 pr-3">
                     <div className="flex items-center gap-2">
                       <div className="flex -space-x-2">
-                        {j.outputs.slice(0, 3).map((o) => (
-                          <OutputThumb key={o.index} output={o} />
+                        {j.outputs.slice(0, 3).map((o, i) => (
+                          <button
+                            key={o.index}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelected({ job: j, index: i });
+                            }}
+                            title="View this result"
+                          >
+                            <OutputThumb output={o} />
+                          </button>
                         ))}
                         {j.outputs.length === 0 && <div className="h-10 w-10 rounded-lg bg-surface2" />}
                       </div>
@@ -845,7 +861,10 @@ export function LiveHistory({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void onRecreate(j)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onRecreate(j);
+                      }}
                       title="Re-fill the request form from this job"
                     >
                       <RotateCcw className="h-3.5 w-3.5" />
@@ -864,6 +883,15 @@ export function LiveHistory({
             {loading ? "Loading…" : "Load more"}
           </Button>
         </div>
+      )}
+      {selected && (
+        <OutputLightbox
+          job={selected.job}
+          modelName={model.name}
+          initialIndex={selected.index}
+          loadRequest={sessionRequestLoader(accountId)}
+          onClose={() => setSelected(null)}
+        />
       )}
     </Card>
   );
