@@ -5,6 +5,9 @@ use crate::api::requests::chat::common::{start_chat, ChatKnobs};
 use crate::api::requests::responses::create_response::StartedResponse;
 use crate::api::types::chat_types::chat_message::ChatMessage;
 use crate::api::types::chat_types::chat_model::ChatModel;
+use crate::api::types::chat_types::reasoning_effort::ReasoningEffort;
+
+pub use crate::api::requests::chat::common::JsonSchemaFormat;
 use crate::creds::openai_api_key::OpenAiApiKey;
 use crate::error::openai_error::OpenAiError;
 
@@ -19,16 +22,38 @@ pub struct ChatGpt5_5Args<'a> {
 /// One gpt-5.5 turn. The model is pinned by this binding.
 #[derive(Clone, Debug)]
 pub struct ChatGpt5_5Request {
+  /// The conversation so far (at least one message; system turns allowed).
   pub messages: Vec<ChatMessage>,
+  /// Cap on generated tokens (also the cost estimator's output assumption).
   pub max_output_tokens: Option<u32>,
+  /// Sampling temperature; server default when `None`.
   pub temperature: Option<f32>,
+  /// Nucleus sampling; server default when `None`.
   pub top_p: Option<f32>,
+  /// End-user identifier for abuse attribution.
   pub user: Option<String>,
+  /// GPT-5-family reasoning depth (`reasoning.effort`); supported values are
+  /// model-dependent — see [`ReasoningEffort`].
+  pub reasoning_effort: Option<ReasoningEffort>,
+  /// Structured output: constrain the reply to a JSON Schema
+  /// (`text.format` json_schema).
+  pub response_json_schema: Option<JsonSchemaFormat>,
+  /// Continue a stored server-side conversation from a prior response id.
+  pub previous_response_id: Option<String>,
 }
 
 impl ChatGpt5_5Request {
   pub fn new(messages: Vec<ChatMessage>) -> Self {
-    Self { messages, max_output_tokens: None, temperature: None, top_p: None, user: None }
+    Self {
+      messages,
+      max_output_tokens: None,
+      temperature: None,
+      top_p: None,
+      user: None,
+      reasoning_effort: None,
+      response_json_schema: None,
+      previous_response_id: None,
+    }
   }
 }
 
@@ -39,6 +64,9 @@ pub(crate) fn knobs(request: &ChatGpt5_5Request) -> ChatKnobs<'_> {
     temperature: request.temperature,
     top_p: request.top_p,
     user: request.user.as_deref(),
+    reasoning_effort: request.reasoning_effort,
+    response_json_schema: request.response_json_schema.as_ref(),
+    previous_response_id: request.previous_response_id.as_deref(),
   }
 }
 

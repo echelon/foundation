@@ -10,7 +10,10 @@ use crate::api::requests::responses::wire::{
 };
 use crate::api::types::chat_types::chat_model::ChatModel;
 use crate::api::types::chat_types::chat_role::ChatRole;
+use crate::api::types::image_types::image_action::ImageAction;
+use crate::api::types::image_types::image_background::ImageBackground;
 use crate::api::types::image_types::image_model::ImageModel;
+use crate::api::types::image_types::image_moderation::ImageModeration;
 use crate::api::types::image_types::image_quality::ImageQuality;
 use crate::api::types::image_types::image_size::ImageSize;
 use crate::api::types::image_types::input_fidelity::InputFidelity;
@@ -34,6 +37,10 @@ pub(crate) struct ImageStart<'a> {
   pub quality: Option<ImageQuality>,
   pub output_format: Option<OutputFormat>,
   pub input_fidelity: Option<InputFidelity>,
+  pub action: Option<ImageAction>,
+  pub background: Option<ImageBackground>,
+  pub moderation: Option<ImageModeration>,
+  pub output_compression: Option<u8>,
   pub driver_model: Option<&'a ChatModel>,
 }
 
@@ -43,6 +50,16 @@ pub(crate) fn build_image_body(start: &ImageStart<'_>) -> Result<CreateResponseB
   }
   if start.mask.is_some() && start.input_images.is_empty() {
     return Err(OpenAiClientError::InvalidRequest("a mask requires at least one input image".into()));
+  }
+  if let Some(compression) = start.output_compression {
+    if compression > 100 {
+      return Err(OpenAiClientError::InvalidRequest("output_compression must be 0–100".into()));
+    }
+    if !matches!(start.output_format, Some(OutputFormat::Jpeg) | Some(OutputFormat::Webp)) {
+      return Err(OpenAiClientError::InvalidRequest(
+        "output_compression applies only to jpeg/webp output_format".into(),
+      ));
+    }
   }
 
   let mut parts: Vec<ContentPart> = vec![ContentPart::Text { text: start.prompt.to_string() }];
@@ -66,6 +83,9 @@ pub(crate) fn build_image_body(start: &ImageStart<'_>) -> Result<CreateResponseB
     temperature: None,
     top_p: None,
     user: None,
+    reasoning: None,
+    text: None,
+    previous_response_id: None,
     tools: Some(vec![ImageGenerationTool {
       kind: "image_generation",
       model: start.model.as_str().to_string(),
@@ -74,6 +94,10 @@ pub(crate) fn build_image_body(start: &ImageStart<'_>) -> Result<CreateResponseB
       output_format: start.output_format,
       input_fidelity: start.input_fidelity,
       input_image_mask: mask,
+      action: start.action,
+      background: start.background,
+      moderation: start.moderation,
+      output_compression: start.output_compression,
     }]),
     tool_choice: Some(ForcedToolChoice { kind: "image_generation" }),
   })

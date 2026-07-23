@@ -4,9 +4,12 @@
 use client_core::{CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::responses::create_response::{create_background_response, StartedResponse};
-use crate::api::requests::responses::wire::{CreateResponseBody, InputMessage, MessageContent};
+use crate::api::requests::responses::wire::{
+  CreateResponseBody, InputMessage, JsonSchemaFormatWire, MessageContent, ReasoningWire, TextWire,
+};
 use crate::api::types::chat_types::chat_message::ChatMessage;
 use crate::api::types::chat_types::chat_model::ChatModel;
+use crate::api::types::chat_types::reasoning_effort::ReasoningEffort;
 use crate::creds::openai_api_key::OpenAiApiKey;
 use crate::error::openai_client_error::OpenAiClientError;
 use crate::error::openai_error::OpenAiError;
@@ -14,6 +17,18 @@ use crate::error::openai_error::OpenAiError;
 /// Default assumed output length when `max_output_tokens` is unset — chat cost can only be
 /// ESTIMATED pre-call (the real output length is unknown until the response).
 pub(crate) const DEFAULT_ASSUMED_OUTPUT_TOKENS: u64 = 512;
+
+/// A structured-output request: the reply must conform to this JSON Schema
+/// (`text.format` json_schema, strict by default).
+#[derive(Clone, Debug)]
+pub struct JsonSchemaFormat {
+  /// Schema name (shown in refusals/logs).
+  pub name: String,
+  /// The JSON Schema itself.
+  pub schema: serde_json::Value,
+  /// Enforce the schema exactly (recommended).
+  pub strict: bool,
+}
 
 /// The knobs every chat binding shares (each binding pins its own model).
 #[derive(Clone, Debug)]
@@ -23,6 +38,9 @@ pub(crate) struct ChatKnobs<'a> {
   pub temperature: Option<f32>,
   pub top_p: Option<f32>,
   pub user: Option<&'a str>,
+  pub reasoning_effort: Option<ReasoningEffort>,
+  pub response_json_schema: Option<&'a JsonSchemaFormat>,
+  pub previous_response_id: Option<&'a str>,
 }
 
 pub(crate) fn build_chat_body(model: &ChatModel, knobs: &ChatKnobs<'_>) -> Result<CreateResponseBody, OpenAiClientError> {
@@ -44,6 +62,11 @@ pub(crate) fn build_chat_body(model: &ChatModel, knobs: &ChatKnobs<'_>) -> Resul
     user: knobs.user.map(str::to_string),
     tools: None,
     tool_choice: None,
+    reasoning: knobs.reasoning_effort.map(|effort| ReasoningWire { effort }),
+    text: knobs.response_json_schema.map(|f| TextWire {
+      format: JsonSchemaFormatWire { kind: "json_schema", name: f.name.clone(), schema: f.schema.clone(), strict: f.strict },
+    }),
+    previous_response_id: knobs.previous_response_id.map(str::to_string),
   })
 }
 

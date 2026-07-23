@@ -7,7 +7,10 @@
 use crate::api::requests::images::common::{image_wire_json, start_image, ImageStart};
 use crate::api::requests::responses::create_response::StartedResponse;
 use crate::api::types::chat_types::chat_model::ChatModel;
+use crate::api::types::image_types::image_action::ImageAction;
+use crate::api::types::image_types::image_background::ImageBackground;
 use crate::api::types::image_types::image_model::ImageModel;
+use crate::api::types::image_types::image_moderation::ImageModeration;
 use crate::api::types::image_types::image_quality::ImageQuality;
 use crate::api::types::image_types::image_size::ImageSize;
 use crate::api::types::image_types::input_fidelity::InputFidelity;
@@ -33,11 +36,22 @@ pub struct GptImage1_5Request {
   pub input_images: Vec<InputImageSource>,
   /// Optional mask constraining the editable region (requires at least one input image).
   pub mask: Option<InputImageSource>,
+  /// Output dimensions (`auto` lets the model choose).
   pub size: Option<ImageSize>,
+  /// Rendering quality tier — drives the price.
   pub quality: Option<ImageQuality>,
+  /// Encoding of the returned image (`png` default).
   pub output_format: Option<OutputFormat>,
   /// Edit fidelity (how closely input images are preserved). Not on GPT Image 2.
   pub input_fidelity: Option<InputFidelity>,
+  /// Force `generate`/`edit` instead of the server's `auto` inference.
+  pub action: Option<ImageAction>,
+  /// Output transparency (`transparent` needs png/webp output).
+  pub background: Option<ImageBackground>,
+  /// Content-filter strictness (`auto` default, `low` = less restrictive).
+  pub moderation: Option<ImageModeration>,
+  /// 0–100 compression for jpeg/webp outputs (validated client-side).
+  pub output_compression: Option<u8>,
   /// The LLM that drives the tool call (defaults to the cheapest tier; the image model
   /// itself is fixed to gpt-image-1.5).
   pub driver_model: Option<ChatModel>,
@@ -53,6 +67,10 @@ impl GptImage1_5Request {
       quality: None,
       output_format: None,
       input_fidelity: None,
+      action: None,
+      background: None,
+      moderation: None,
+      output_compression: None,
       driver_model: None,
     }
   }
@@ -68,6 +86,10 @@ pub(crate) fn to_start(request: &GptImage1_5Request) -> ImageStart<'_> {
     quality: request.quality,
     output_format: request.output_format,
     input_fidelity: request.input_fidelity,
+    action: request.action,
+    background: request.background,
+    moderation: request.moderation,
+    output_compression: request.output_compression,
     driver_model: request.driver_model.as_ref(),
   }
 }

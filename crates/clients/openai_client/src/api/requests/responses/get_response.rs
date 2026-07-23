@@ -1,5 +1,5 @@
 //! `GET /v1/responses/{id}` — the poll. Keep calling while the status is non-terminal
-//! (`queued` / `in_progress`); [`await_response`](super::await_response) wraps the loop.
+//! (`queued` / `in_progress`); [`await_response`](fn@super::await_response::await_response) wraps the loop.
 
 use base64::Engine;
 use tracing::info;

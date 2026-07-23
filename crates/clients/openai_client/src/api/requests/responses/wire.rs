@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::api::types::chat_types::chat_role::ChatRole;
+use crate::api::types::chat_types::reasoning_effort::ReasoningEffort;
+use crate::api::types::image_types::image_action::ImageAction;
+use crate::api::types::image_types::image_background::ImageBackground;
+use crate::api::types::image_types::image_moderation::ImageModeration;
 use crate::api::types::image_types::image_quality::ImageQuality;
 use crate::api::types::image_types::image_size::ImageSize;
 use crate::api::types::image_types::input_fidelity::InputFidelity;
@@ -33,6 +37,34 @@ pub(crate) struct CreateResponseBody {
   pub tools: Option<Vec<ImageGenerationTool>>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub tool_choice: Option<ForcedToolChoice>,
+  /// `reasoning: {"effort": …}` — GPT-5-family reasoning depth.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub reasoning: Option<ReasoningWire>,
+  /// `text: {"format": {json_schema…}}` — structured output.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub text: Option<TextWire>,
+  /// Continue a stored conversation server-side.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub previous_response_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ReasoningWire {
+  pub effort: ReasoningEffort,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct TextWire {
+  pub format: JsonSchemaFormatWire,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct JsonSchemaFormatWire {
+  #[serde(rename = "type")]
+  pub kind: &'static str, // always "json_schema"
+  pub name: String,
+  pub schema: serde_json::Value,
+  pub strict: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,6 +113,18 @@ pub(crate) struct ImageGenerationTool {
   pub input_fidelity: Option<InputFidelity>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub input_image_mask: Option<MaskReference>,
+  /// `auto` (default) / `generate` / `edit`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub action: Option<ImageAction>,
+  /// Output transparency (gpt-image-2 rejects `transparent`).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub background: Option<ImageBackground>,
+  /// Content-filter strictness.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub moderation: Option<ImageModeration>,
+  /// 0–100, jpeg/webp outputs only.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub output_compression: Option<u8>,
 }
 
 #[derive(Debug, Serialize)]

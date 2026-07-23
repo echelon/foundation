@@ -7,7 +7,10 @@
 use crate::api::requests::images::common::{image_wire_json, start_image, ImageStart};
 use crate::api::requests::responses::create_response::StartedResponse;
 use crate::api::types::chat_types::chat_model::ChatModel;
+use crate::api::types::image_types::image_action::ImageAction;
+use crate::api::types::image_types::image_background::ImageBackground;
 use crate::api::types::image_types::image_model::ImageModel;
+use crate::api::types::image_types::image_moderation::ImageModeration;
 use crate::api::types::image_types::image_quality::ImageQuality;
 use crate::api::types::image_types::image_size::ImageSize;
 use crate::api::types::image_types::input_image_source::InputImageSource;
@@ -32,10 +35,22 @@ pub struct GptImage2Request {
   pub input_images: Vec<InputImageSource>,
   /// Optional mask constraining the editable region (requires at least one input image).
   pub mask: Option<InputImageSource>,
+  /// Output dimensions (`auto` lets the model choose).
   pub size: Option<ImageSize>,
+  /// Rendering quality tier — drives the price.
   pub quality: Option<ImageQuality>,
+  /// Encoding of the returned image (`png` default).
   pub output_format: Option<OutputFormat>,
   // NOTE: `input_fidelity` deliberately absent — gpt-image-2 does not support it.
+  /// Force `generate`/`edit` instead of the server's `auto` inference.
+  pub action: Option<ImageAction>,
+  /// Output transparency. gpt-image-2 does NOT support `Transparent` —
+  /// rejected client-side before any HTTP.
+  pub background: Option<ImageBackground>,
+  /// Content-filter strictness (`auto` default, `low` = less restrictive).
+  pub moderation: Option<ImageModeration>,
+  /// 0–100 compression for jpeg/webp outputs (validated client-side).
+  pub output_compression: Option<u8>,
   /// The LLM that drives the tool call (defaults to the cheapest tier; the image model
   /// itself is fixed to gpt-image-2).
   pub driver_model: Option<ChatModel>,
@@ -50,6 +65,10 @@ impl GptImage2Request {
       size: None,
       quality: None,
       output_format: None,
+      action: None,
+      background: None,
+      moderation: None,
+      output_compression: None,
       driver_model: None,
     }
   }
@@ -65,6 +84,10 @@ pub(crate) fn to_start(request: &GptImage2Request) -> ImageStart<'_> {
     quality: request.quality,
     output_format: request.output_format,
     input_fidelity: None,
+    action: request.action,
+    background: request.background,
+    moderation: request.moderation,
+    output_compression: request.output_compression,
     driver_model: request.driver_model.as_ref(),
   }
 }
@@ -72,6 +95,14 @@ pub(crate) fn to_start(request: &GptImage2Request) -> ImageStart<'_> {
 /// Start a 2 generation/edit in the background. Returns immediately with the
 /// response id — nothing is held open. Poll with `get_response`, or `await_response`.
 pub async fn generate_gpt_image_2(args: GenerateGptImage2Args<'_>) -> Result<StartedResponse, OpenAiError> {
+  if args.request.background == Some(ImageBackground::Transparent) {
+    return Err(
+      crate::error::openai_client_error::OpenAiClientError::InvalidRequest(
+        "gpt-image-2 does not support transparent backgrounds".to_string(),
+      )
+      .into(),
+    );
+  }
   start_image(args.api_key, &to_start(&args.request)).await
 }
 
@@ -84,6 +115,18 @@ pub fn generate_gpt_image_2_wire_json(request: &GptImage2Request) -> Result<serd
 
 #[cfg(test)]
 mod tests {
+
+  /// gpt-image-2 has no transparent-background support — rejected before HTTP.
+  #[tokio::test]
+  async fn transparent_background_rejected_client_side() {
+    use crate::creds::openai_api_key::OpenAiApiKey;
+
+    let mut req = GptImage2Request::new("a fox");
+    req.background = Some(ImageBackground::Transparent);
+    let key = OpenAiApiKey::new("sk-unused".to_string());
+    let err = generate_gpt_image_2(GenerateGptImage2Args { api_key: &key, request: req }).await;
+    assert!(err.is_err(), "transparent must be rejected for gpt-image-2");
+  }
   use super::*;
   use crate::api::requests::images::common::build_image_body;
   use crate::error::openai_client_error::OpenAiClientError;
