@@ -1,7 +1,7 @@
-//! The pricing vocabulary, one type per file. [`better_cost_estimator`] is THE
+//! The pricing vocabulary, one type per file. [`cost_calculator`] is THE
 //! pricing interface: certainty + component breakdown + renderable rate card.
 
-pub mod better_cost_estimator;
+pub mod cost_calculator;
 pub mod cost_amount;
 pub mod cost_breakdown;
 pub mod cost_certainty;

@@ -12,7 +12,7 @@
 //! Auth is `Authorization: Bearer <key>` on every request (see [`creds::kinovi_api_key`]).
 //! The rich, provider-specific error taxonomy lives in [`error`]; cost estimation (per
 //! video-second, in `money::MicroUsd`) is implemented on the create-task request via
-//! [`client_core::BetterCostEstimator`].
+//! [`client_core::CostCalculator`].
 
 // Public API
 pub mod api;

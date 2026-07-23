@@ -13,9 +13,9 @@ const DEFAULT_ESTIMATED_SECONDS: i64 = 8;
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
-impl BetterCostEstimator for GeminiOmniFlashRequest {
+impl CostCalculator for GeminiOmniFlashRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     let seconds = self.expected_output_seconds.unwrap_or(DEFAULT_ESTIMATED_SECONDS);
     CostBreakdown::from_components(

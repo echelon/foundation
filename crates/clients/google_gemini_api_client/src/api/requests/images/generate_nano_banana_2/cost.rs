@@ -7,7 +7,7 @@ use crate::api::types::image_types::nano_banana_2_image_size::NanoBanana2ImageSi
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 #[cfg(test)]
 use client_core::MicroUsd;
 
@@ -22,7 +22,7 @@ fn nb2_tier_micros(size: NanoBanana2ImageSize) -> i64 {
   }
 }
 
-impl BetterCostEstimator for NanoBanana2Request {
+impl CostCalculator for NanoBanana2Request {
   fn estimate_cost(&self) -> CostBreakdown {
     let size = self.image_size.unwrap_or(NanoBanana2ImageSize::K1);
     CostBreakdown::from_components(

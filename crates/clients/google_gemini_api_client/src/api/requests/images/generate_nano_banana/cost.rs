@@ -8,9 +8,9 @@ pub(crate) const NANO_BANANA_MICROS_PER_IMAGE: i64 = 39_000;
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
-impl BetterCostEstimator for NanoBananaRequest {
+impl CostCalculator for NanoBananaRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     CostBreakdown::from_components(
       CostFormula {

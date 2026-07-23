@@ -7,7 +7,7 @@
 //!   - one binding fn per model (`generate_nano_banana_2`, `generate_veo_3_1`, …),
 //!     each pinning its model id; args structs carry the API key SEPARATELY from
 //!     the request so the request alone drives pricing;
-//!   - a [`client_core::BetterCostEstimator`] impl (+ certainty) next to each binding
+//!   - a [`client_core::CostCalculator`] impl (+ certainty) next to each binding
 //!     in its `cost.rs`;
 //!   - three-layer error taxonomy (client / api-specific / api-generic);
 //!   - typed wire enums — no stringly-typed values;

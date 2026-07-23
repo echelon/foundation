@@ -3,7 +3,7 @@
 //! Deliberately lean — the cross-cutting pieces live here ONCE so the per-service client
 //! crates don't each re-declare them:
 //!   - [`http_client`]          — the reqwest factory with our provider-call timeouts.
-//!   - [`cost`]                 — the pricing vocabulary: [`BetterCostEstimator`]
+//!   - [`cost`]                 — the pricing vocabulary: [`CostCalculator`]
 //!                                (certainty + component breakdown + renderable rate card).
 //!
 //! Everything else — errors, credentials, endpoint bindings, typed enums, and each client's
@@ -14,7 +14,7 @@ use std::time::Duration;
 
 pub mod cost;
 
-pub use cost::better_cost_estimator::BetterCostEstimator;
+pub use cost::cost_calculator::CostCalculator;
 pub use cost::cost_amount::CostAmount;
 pub use cost::cost_breakdown::CostBreakdown;
 pub use cost::cost_certainty::CostCertainty;

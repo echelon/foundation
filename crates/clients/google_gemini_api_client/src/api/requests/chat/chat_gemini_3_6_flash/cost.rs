@@ -8,11 +8,11 @@ const MICROS_PER_MTOK_OUT: i64 = 7_500_000;
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::chat::common::DEFAULT_ASSUMED_OUTPUT_TOKENS as ASSUMED_OUT;
 
-impl BetterCostEstimator for Gemini36FlashRequest {
+impl CostCalculator for Gemini36FlashRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     let mut input_tokens: u64 = self.messages.iter().map(|m| m.estimated_tokens()).sum();
     input_tokens += self.system_instruction.as_deref().map(|s| (s.len() as u64).div_ceil(4)).unwrap_or(0);

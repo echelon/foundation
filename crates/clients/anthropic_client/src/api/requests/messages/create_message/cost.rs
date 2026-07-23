@@ -1,11 +1,11 @@
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::messages::create_message::create_message::CreateMessageRequest;
 
 /// Estimated cost = (est. input tokens × input rate) + (max_tokens × output rate), per-1M
 /// rates from the model. Output length is unknown pre-call, so `max_tokens` is the ceiling;
 /// the response `usage` is authoritative for the real bill.
-impl BetterCostEstimator for CreateMessageRequest {
+impl CostCalculator for CreateMessageRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     let (in_rate, out_rate) = self.model.pricing_micros_per_mtok();
 

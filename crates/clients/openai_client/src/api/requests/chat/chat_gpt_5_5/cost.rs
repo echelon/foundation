@@ -1,4 +1,4 @@
-use client_core::{BetterCostEstimator, CostBreakdown};
+use client_core::{CostCalculator, CostBreakdown};
 
 use crate::api::requests::chat::chat_gpt_5_5::chat_gpt_5_5::ChatGpt5_5Request;
 use crate::api::requests::chat::common::chat_cost_breakdown;
@@ -7,7 +7,7 @@ use crate::api::types::chat_types::chat_model::ChatModel;
 /// ESTIMATE: input tokens from message text (~4 chars/token) at the model's
 /// published rates, output assumed at `max_output_tokens` (or the shared
 /// default). Authoritative cost is the response `usage` post-call.
-impl BetterCostEstimator for ChatGpt5_5Request {
+impl CostCalculator for ChatGpt5_5Request {
   fn estimate_cost(&self) -> CostBreakdown {
     chat_cost_breakdown(&ChatModel::Gpt5_5, &self.messages, self.max_output_tokens)
   }

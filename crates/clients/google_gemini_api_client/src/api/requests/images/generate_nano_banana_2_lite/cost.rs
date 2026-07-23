@@ -6,9 +6,9 @@ use crate::api::requests::images::generate_nano_banana_2_lite::generate_nano_ban
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
-impl BetterCostEstimator for NanoBanana2LiteRequest {
+impl CostCalculator for NanoBanana2LiteRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     CostBreakdown::from_components(
       CostFormula {

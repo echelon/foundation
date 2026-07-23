@@ -1,7 +1,7 @@
 //! Router build + pricing tests: fan-out counts, param pruning/coercion with recorded
 //! adjustments, pricing delegation to the provider client, and validation rejections.
 
-use client_core::BetterCostEstimator;
+use client_core::CostCalculator;
 use foundation_router::error::RouterError;
 use foundation_router::image::build::build_image_route;
 use foundation_router::image::plan::{

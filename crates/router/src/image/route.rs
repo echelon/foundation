@@ -70,7 +70,7 @@ impl ImageRoute {
   /// Price the whole route (all slices), DELEGATING to the provider client's own cost
   /// calculators — the router never re-derives prices.
   pub fn price(&self) -> PriceQuote {
-    use client_core::BetterCostEstimator;
+    use client_core::CostCalculator;
     let per_slice: Vec<i64> = match self {
       Self::OpenaiGptImage1(reqs) => reqs.iter().map(|r| r.estimate_cost().amount.micros().0).collect(),
       Self::OpenaiGptImage1Mini(reqs) => reqs.iter().map(|r| r.estimate_cost().amount.micros().0).collect(),

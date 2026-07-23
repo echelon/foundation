@@ -6,9 +6,9 @@ use crate::api::requests::music::generate_lyria_3_pro::generate_lyria_3_pro::Lyr
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
-impl BetterCostEstimator for Lyria3ProRequest {
+impl CostCalculator for Lyria3ProRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     CostBreakdown::from_components(
       CostFormula {

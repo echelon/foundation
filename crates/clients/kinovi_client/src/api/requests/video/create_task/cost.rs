@@ -1,4 +1,4 @@
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::video::create_task::request_types::CreateTaskRequest;
 use crate::api::types::video_types::seedance_model::SeedanceModel;
@@ -27,7 +27,7 @@ pub(crate) fn micros_per_second(model: &SeedanceModel) -> i64 {
   }
 }
 
-impl BetterCostEstimator for CreateTaskRequest {
+impl CostCalculator for CreateTaskRequest {
   /// Estimated charge = per-second rate × clip duration. ESTIMATED (not exact)
   /// because higher resolutions may bill an upstream upscale surcharge Kinovi
   /// hasn't documented — see the module note.

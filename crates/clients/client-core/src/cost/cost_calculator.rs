@@ -8,7 +8,7 @@ use crate::cost::cost_breakdown::CostBreakdown;
 /// in/out), image models (per-image, possibly tiered), video models
 /// (per-second by resolution, or token-priced), and music (per-song).
 /// Implemented on each `*Request` next to its endpoint, in `cost.rs`.
-pub trait BetterCostEstimator {
+pub trait CostCalculator {
     fn estimate_cost(&self) -> CostBreakdown;
 }
 
@@ -31,7 +31,7 @@ mod tests {
         seconds: f64,
     }
 
-    impl BetterCostEstimator for FakeVideoRequest {
+    impl CostCalculator for FakeVideoRequest {
         fn estimate_cost(&self) -> CostBreakdown {
             CostBreakdown::from_components(
                 CostFormula {

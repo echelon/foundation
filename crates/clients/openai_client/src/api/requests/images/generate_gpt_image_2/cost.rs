@@ -1,5 +1,5 @@
 use client_core::{
-  BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow,
+  CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow,
 };
 
 use crate::api::requests::images::generate_gpt_image_2::generate_gpt_image_2::GptImage2Request;
@@ -12,7 +12,7 @@ use crate::api::types::image_types::image_quality::ImageQuality;
 // additional tokens not visible in this request, and the tool's LLM driver adds
 // a sliver — so the total is an ESTIMATE; the response `usage` is authoritative.
 
-impl BetterCostEstimator for GptImage2Request {
+impl CostCalculator for GptImage2Request {
   fn estimate_cost(&self) -> CostBreakdown {
     let quality = self.quality.unwrap_or(ImageQuality::Medium);
     let per_image = per_image_micros(&ImageModel::GptImage2, quality);

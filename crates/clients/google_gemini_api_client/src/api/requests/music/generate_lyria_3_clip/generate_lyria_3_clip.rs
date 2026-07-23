@@ -33,7 +33,7 @@ pub struct GenerateLyria3ClipArgs<'a> {
 }
 
 /// The material part of a Lyria 3 Clip request — drives both the wire body and the
-/// [`client_core::BetterCostEstimator`] price (see `cost.rs`).
+/// [`client_core::CostCalculator`] price (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct Lyria3ClipRequest {
   /// The music prompt — genre, mood, instrumentation, structure, BPM, key,

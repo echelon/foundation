@@ -10,9 +10,9 @@ use crate::api::types::video_types::veo_resolution::VeoResolution;
 
 
 
-use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostCalculator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
-impl BetterCostEstimator for Veo31FastRequest {
+impl CostCalculator for Veo31FastRequest {
   fn estimate_cost(&self) -> CostBreakdown {
     let per_second: i64 = match self.resolution.unwrap_or(VeoResolution::P720) {
       VeoResolution::P720 => 100_000,
