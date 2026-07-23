@@ -17,6 +17,10 @@
  * Every prompt is unique across the whole sample library (including the GPT
  * sets). Resumable: existing files are skipped. Usage:
  *   node script/generate-google-model-samples.mjs [--only <slug>] [--images|--videos]
+ *
+ * After generating, refresh the frontend manifest (powers the model-page
+ * "Sample results" showcase + lightboxes):
+ *   node script/build-model-samples-manifest.mjs
  */
 
 import { mkdir, readFile, writeFile, rm } from "node:fs/promises";

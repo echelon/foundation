@@ -20,6 +20,10 @@
  * Usage:  node script/generate-model-samples.mjs [--only <slug>]
  *   FOUNDATION_API_BASE  (default http://localhost:4000)
  *   FOUNDATION_API_KEY   (default: external/credentials/foundation_api_key.txt)
+ *
+ * After generating, refresh the frontend manifest (powers the model-page
+ * "Sample results" showcase + lightboxes):
+ *   node script/build-model-samples-manifest.mjs
  */
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";

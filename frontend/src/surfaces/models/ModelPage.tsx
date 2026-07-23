@@ -4,6 +4,7 @@ import { ArrowLeft, BarChart3, Bot, FileText, ImageOff, Plug } from "lucide-reac
 import { Badge, Button, Card, Container } from "@/components/ui";
 import { ModelCard } from "@/components/ModelCard";
 import { ModelMarquee } from "@/components/ModelArt";
+import { hasSampleShowcase, SampleShowcase } from "@/components/SampleShowcase";
 import { CodeTabs } from "@/components/CodeBlock";
 import { Playground } from "./Playground";
 import { Gallery, type RemixValues } from "./Gallery";
@@ -129,28 +130,31 @@ export default function ModelPage() {
       {/* ── Tab content ── */}
       <div className="py-8">
         {tab === "Overview" && (
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
-            <div className="prose-invert max-w-none">
-              <p className="text-lg leading-relaxed text-fg">{model.description}</p>
-              <h3 className="mt-8 font-display text-xl font-semibold">Good for</h3>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {model.tags.map((t) => (
-                  <Badge key={t} tone="brand">
-                    {t}
-                  </Badge>
-                ))}
+          <div className="space-y-10">
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="prose-invert max-w-none">
+                <p className="text-lg leading-relaxed text-fg">{model.description}</p>
+                <h3 className="mt-8 font-display text-xl font-semibold">Good for</h3>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {model.tags.map((t) => (
+                    <Badge key={t} tone="brand">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
               </div>
+              <Card className="h-fit p-5">
+                <h3 className="font-display font-semibold">At a glance</h3>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <Row k="Provider" v={model.provider} />
+                  <Row k="Modality" v={MODALITY_LABEL[model.modality]} />
+                  <Row k="Status" v={model.status.toUpperCase()} />
+                  <Row k="Released" v={model.released} />
+                  <Row k="Slug" v={model.slug} mono />
+                </dl>
+              </Card>
             </div>
-            <Card className="h-fit p-5">
-              <h3 className="font-display font-semibold">At a glance</h3>
-              <dl className="mt-3 space-y-2 text-sm">
-                <Row k="Provider" v={model.provider} />
-                <Row k="Modality" v={MODALITY_LABEL[model.modality]} />
-                <Row k="Status" v={model.status.toUpperCase()} />
-                <Row k="Released" v={model.released} />
-                <Row k="Slug" v={model.slug} mono />
-              </dl>
-            </Card>
+            <SampleShowcase slug={model.slug} modelName={model.name} />
           </div>
         )}
 
@@ -161,6 +165,8 @@ export default function ModelPage() {
         {tab === "Examples" &&
           (examplesForModel(model.slug).length ? (
             <Gallery slug={model.slug} onRemix={applyRemix} />
+          ) : hasSampleShowcase(model.slug) ? (
+            <SampleShowcase slug={model.slug} modelName={model.name} />
           ) : (
             <div className="rounded-2xl border border-dashed border-border py-24 text-center">
               <ImageOff className="mx-auto mb-4 h-10 w-10 text-muted/60" />
