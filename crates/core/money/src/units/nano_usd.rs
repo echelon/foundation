@@ -28,6 +28,26 @@ mod tests {
         assert_eq!(NanoUsd(120_000_000).charge(5.0), MicroUsd(600_000));
     }
 
+    /// PROOF vs exact integer arithmetic: for integer quantities, charge()
+    /// must equal round_half_up(rate × qty / 1000) computed in i128 rationals
+    /// (⌊(n×q + 500)/1000⌋ for non-negatives). Sweeps realistic rate shapes ×
+    /// quantities, including every remainder class mod 1000 and exact halves.
+    #[test]
+    fn charge_matches_exact_integer_arithmetic() {
+        let rates: Vec<i64> = (0..2000)
+            .chain((0..200).map(|k| 999_000 + k))               // sub-micro rates, every remainder near 1M
+            .chain([11_000_000, 20_000_000, 39_000_000, 120_000_000, 600_000_000, 17_500_000_000])
+            .collect();
+        let quantities: Vec<i64> = (0..50).chain([100, 999, 1_000, 1_001, 1_499, 1_500, 4_096, 1_000_000]).collect();
+        for &rate in &rates {
+            for &qty in &quantities {
+                let exact = ((rate as i128) * (qty as i128) + 500) / 1000; // half-up in exact integers
+                let got = NanoUsd(rate).charge(qty as f64);
+                assert_eq!(got, MicroUsd(exact as i64), "rate={rate} qty={qty}");
+            }
+        }
+    }
+
     #[test]
     fn sub_micro_rates_round_at_the_end() {
         // 1 nano × 1499 units = 1.499 micros → 1 micro (half-up applied once).

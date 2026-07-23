@@ -38,6 +38,7 @@ base64.workspace = true
 image.workspace = true
 # internal
 client_core.workspace = true
+money.workspace = true
 bucket_client.workspace = true
 bucket_paths.workspace = true
 config.workspace = true

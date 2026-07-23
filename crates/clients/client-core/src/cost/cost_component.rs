@@ -19,7 +19,10 @@ pub struct CostComponent {
 impl CostComponent {
     /// Build a component with the subtotal computed from unit semantics.
     pub fn new(label: impl Into<String>, unit: CostUnit, unit_price_micros: i64, quantity: CostQuantity) -> Self {
-        let subtotal = (quantity.value() * unit_price_micros as f64 / unit.units_per_price()).round() as i64;
+        // money::round_half_up — the ONE rounding rule (f64::round is half-away-
+        // from-zero, which differs on negative halves; costs are non-negative, but
+        // consistency should hold by construction, not by argument).
+        let subtotal = money::round_half_up(quantity.value() * unit_price_micros as f64 / unit.units_per_price());
         Self { label: label.into(), unit, unit_price_micros, quantity, subtotal_micros: subtotal, note: None }
     }
 

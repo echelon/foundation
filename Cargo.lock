@@ -87,6 +87,7 @@ dependencies = [
  "ids",
  "image",
  "jsonwebtoken",
+ "money",
  "openai_client",
  "rand 0.8.7",
  "reqwest",

@@ -4,6 +4,8 @@
 //! (conventions_database.md §2).
 
 pub mod rounding;
+
+pub use rounding::round_half_up;
 pub mod units;
 
 pub use units::micro_usd::MicroUsd;

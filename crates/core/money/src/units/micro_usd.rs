@@ -36,6 +36,16 @@ mod tests {
         assert_eq!(MicroUsd::from_usd(0.000_000_5), MicroUsd(1));
     }
 
+    /// PROOF: every whole-cent USD amount up to $100k converts exactly (no
+    /// float drift), since cents are the coarsest unit real prices use.
+    #[test]
+    fn whole_cents_convert_exactly() {
+        for cents in 0..1_000_000i64 {
+            let usd = cents as f64 / 100.0;
+            assert_eq!(MicroUsd::from_usd(usd), MicroUsd(cents * 10_000), "cents={cents}");
+        }
+    }
+
     #[test]
     fn orders_and_serializes_transparently() {
         assert!(MicroUsd(1) < MicroUsd(2));

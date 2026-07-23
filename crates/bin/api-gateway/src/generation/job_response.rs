@@ -119,7 +119,8 @@ pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[Out
       failed: slices.iter().filter(|s| s.status == enums::JobSliceStatus::Failed).count() as u32,
     }
   });
-  let estimated = (job.unit_amount_nanos / 1_000) * job.quantity.unwrap_or(1.0).round() as i64;
+  // Through the ONE money rounding path (nanos × qty → micros, rounded once).
+  let estimated = money::NanoUsd(job.unit_amount_nanos).charge(job.quantity.unwrap_or(1.0)).0;
   JobBody {
     id: job.id.clone(),
     model: job.model.clone(),
