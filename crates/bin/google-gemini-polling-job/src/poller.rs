@@ -1,5 +1,6 @@
 //! The poll loop: list incomplete google jobs/slices, advance each one.
-//! Veo renders take minutes — a relaxed tick is plenty.
+//! Renders take minutes — a relaxed tick is plenty, and the interactions/
+//! operations GET quota is tight enough that hammering it earns 429s.
 
 use std::time::Duration;
 
@@ -8,7 +9,7 @@ use tokio::sync::watch;
 use google_gemini_dispatch::context::DispatchContext;
 use google_gemini_dispatch::video_poll_flow::{poll_and_finish_unsliced_video_job, poll_and_finish_video_slice};
 
-const TICK: Duration = Duration::from_secs(5);
+const TICK: Duration = Duration::from_secs(15);
 const POLL_BATCH: i64 = 50;
 
 pub async fn run(ctx: DispatchContext, mut shutdown: watch::Receiver<bool>) {

@@ -10,7 +10,7 @@ use crate::complete::{
   backoff_seconds, fail_job_permanently, fail_slice, retry_or_fail, MAX_DISPATCH_ATTEMPTS,
 };
 use crate::context::DispatchContext;
-use crate::inputs::upload_video_input;
+use crate::inputs::prepare_video_input;
 use crate::provider_log::{log_outbound_request, record_call_result, LogOutboundRequestArgs, RouteRef};
 use crate::rebuild::rebuild_video_route;
 
@@ -28,8 +28,9 @@ pub async fn dispatch_video_job(ctx: &DispatchContext, job: &jobs::Job) -> sqlx:
     Err(reason) => return fail_job_permanently(&ctx.pool, &job.id, enums::FailureCode::Internal, &reason).await,
   };
 
-  // The i2v conditioning frame (if any) uploads once, shared by every slice.
-  let image = match upload_video_input(ctx, route.input_url()).await {
+  // The i2v conditioning frame (if any) prepares once, shared by every slice —
+  // inline bytes for Veo, a Files-API ref for Omni.
+  let image = match prepare_video_input(ctx, route.input_url(), route.prefers_files_api_input()).await {
     Ok(image) => image,
     Err(e) => return retry_or_fail(&ctx.pool, job, &e).await,
   };

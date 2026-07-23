@@ -123,6 +123,19 @@ pub async fn generate_gemini_omni_flash(
   run_background_interaction(api_key, &body).await
 }
 
+/// The EXACT provider-native JSON body this request would send — same
+/// construction path as the real send (router logging / dry-run contract).
+/// NOTE: for upload-first inputs the `images` present here are whatever the
+/// request carries at call time; the dispatcher logs the post-upload body too.
+pub fn generate_gemini_omni_flash_wire_json(
+  request: &GeminiOmniFlashRequest,
+) -> Result<serde_json::Value, GoogleGeminiError> {
+  let body = build_body(request);
+  serde_json::to_value(&body).map_err(|e| {
+    crate::error::google_gemini_client_error::GoogleGeminiClientError::RequestSerializationError(e).into()
+  })
+}
+
 /// Map a COMPLETED interaction's items into video output (used after a
 /// successful poll).
 pub fn omni_video_success_from_interaction(

@@ -14,6 +14,7 @@ ids.workspace = true
 db_queries.workspace = true
 bucket_client.workspace = true
 bucket_paths.workspace = true
+chrono.workspace = true
 sqlx.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true

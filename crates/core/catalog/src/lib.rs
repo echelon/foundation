@@ -135,6 +135,18 @@ pub static MODELS: &[ModelSpec] = &[
         price_unit: PriceUnit::PerVideoSecond,
         price_nanos: 50_000_000, // $0.05/s at 720p ($0.08 1080p; no 4K)
     },
+    // ── Google · Gemini Omni Flash (multimodal video, Interactions API) ──
+    ModelSpec {
+        slug: "google_omni_flash",
+        display_name: "Gemini Omni Flash",
+        owner: "Google",
+        media_type: MediaType::Video,
+        provider: Provider::Google,
+        provider_model_id: "gemini-omni-flash-preview",
+        modalities: &["text_to_video", "image_to_video", "video_edit"],
+        price_unit: PriceUnit::PerVideoSecond,
+        price_nanos: 100_000_000, // token-billed ≈ $0.10/s of 720p — ESTIMATE; usage is authoritative
+    },
     // ── OpenAI · GPT Image (image) ──
     ModelSpec {
         slug: "openai_gpt_image_1",
@@ -231,7 +243,7 @@ mod tests {
         for m in MODELS {
             assert!(seen.insert(m.slug), "duplicate slug: {}", m.slug);
         }
-        assert_eq!(MODELS.len(), 14);
+        assert_eq!(MODELS.len(), 15);
     }
 
     #[test]

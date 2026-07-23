@@ -236,6 +236,28 @@ export const MODELS: Model[] = [
     related: ["google_veo_3_1", "google_veo_3_1_fast", "bytedance_seedance_2_mini"],
   },
 
+  {
+    slug: "google_omni_flash",
+    name: "Gemini Omni Flash",
+    provider: "Google",
+    providerSlug: "google",
+    modality: "video",
+    tagline: "Multimodal video generation and editing with conversational control.",
+    description:
+      "Gemini Omni Flash is Google's omni video model on the Interactions API: text-to-video, reference-image conditioning, and edit chains in one surface. Output length is prompt-driven (token-billed, ≈ $0.10 per 720p second) — the quote is an estimate and provider usage is authoritative.",
+    tags: ["text-to-video", "image-to-video", "video-editing", "conversational"],
+    released: "2026-05-20",
+    status: "preview",
+    live: true,
+    pricing: [{ unit: "per_video_second", usd: 0.1, note: "≈ 720p second · token-billed · estimated" }],
+    controls: [
+      PROMPT,
+      { key: "aspect_ratio", label: "Aspect ratio", type: "select", default: "16:9", options: [{ value: "16:9", label: "16:9 · Landscape" }, { value: "9:16", label: "9:16 · Portrait" }] },
+    ],
+    changelog: [{ version: "1.0", date: "2026-05-20", note: "Preview launch on the Interactions API." }],
+    related: ["google_veo_3_1", "google_veo_3_1_fast", "bytedance_seedance_2"],
+  },
+
   /* ── OpenAI · GPT Image family ── */
   {
     slug: "openai_gpt_image_1",

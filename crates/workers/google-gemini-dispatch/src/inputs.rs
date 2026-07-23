@@ -6,7 +6,7 @@ use google_gemini_api_client::api::requests::files::upload_image_file::upload_im
   upload_image_file, UploadImageFileArgs, UploadImageFileRequest, UploadedFileRef,
 };
 use google_gemini_api_client::api::types::image_types::image_input::ImageInput;
-use google_gemini_api_client::api::types::video_types::veo_image_input::VeoImageInput;
+use foundation_router::video::route::RoutedVideoInput;
 
 use crate::context::DispatchContext;
 
@@ -41,25 +41,30 @@ pub async fn upload_image_inputs(ctx: &DispatchContext, urls: &[String]) -> Resu
   Ok(inputs)
 }
 
-/// The i2v conditioning frame, when the job has one. Veo's predictLongRunning
-/// REJECTS Files-API `fileUri` refs ("`fileUri` isn't supported by this model",
-/// live-verified) — the conditioning image must ride inline as base64 bytes.
-pub async fn upload_video_input(ctx: &DispatchContext, url: Option<&str>) -> Result<Option<VeoImageInput>, String> {
-  match url {
-    None => Ok(None),
-    Some(url) => {
-      let response = ctx.http.get(url).send().await.map_err(|e| format!("input fetch failed for {url}: {e}"))?;
-      if !response.status().is_success() {
-        return Err(format!("input fetch failed for {url}: HTTP {}", response.status()));
-      }
-      let mime = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/png")
-        .to_string();
-      let bytes = response.bytes().await.map_err(|e| format!("input read failed for {url}: {e}"))?.to_vec();
-      Ok(Some(VeoImageInput::InlineBytes { mime, bytes }))
-    }
+/// The i2v conditioning frame, when the job has one, in the form the route
+/// asked for. Veo's predictLongRunning REJECTS Files-API `fileUri` refs
+/// ("`fileUri` isn't supported by this model", live-verified) so its frame
+/// rides inline; Omni's Interactions API takes (and prefers) Files-API refs.
+pub async fn prepare_video_input(
+  ctx: &DispatchContext,
+  url: Option<&str>,
+  use_files_api: bool,
+) -> Result<Option<RoutedVideoInput>, String> {
+  let Some(url) = url else { return Ok(None) };
+  if use_files_api {
+    let file = upload_one(ctx, url).await?;
+    return Ok(Some(RoutedVideoInput::FileUri { uri: file.uri, mime: file.mime_type }));
   }
+  let response = ctx.http.get(url).send().await.map_err(|e| format!("input fetch failed for {url}: {e}"))?;
+  if !response.status().is_success() {
+    return Err(format!("input fetch failed for {url}: HTTP {}", response.status()));
+  }
+  let mime = response
+    .headers()
+    .get(reqwest::header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .unwrap_or("image/png")
+    .to_string();
+  let bytes = response.bytes().await.map_err(|e| format!("input read failed for {url}: {e}"))?.to_vec();
+  Ok(Some(RoutedVideoInput::Inline { mime, bytes }))
 }

@@ -44,6 +44,12 @@ const ASPECTS = [
   { value: "9:16", label: "9:16 · Portrait" },
 ] as const;
 
+/** Omni rides the Interactions API: no resolution/duration knobs (output length is
+ * prompt-driven, ~720p) and no discrete negative prompt (folded into the prompt). */
+function isOmni(slug: string): boolean {
+  return slug === "google_omni_flash";
+}
+
 /** Lite has no 4K — the router would coerce it to 1080p (and report it). */
 function resolutionOptions(slug: string): { value: string; label: string }[] {
   const base = [
@@ -321,7 +327,7 @@ export function LiveVideoPlayground({ model }: { model: Model }) {
               />
             </div>
             <div>
-              <Label hint="what NOT to generate">Negative prompt</Label>
+              <Label hint={isOmni(model.slug) ? "no discrete param — folded into the prompt as avoidance guidance" : "what NOT to generate"}>Negative prompt</Label>
               <Input
                 placeholder="e.g. text overlays, low quality, jump cuts"
                 value={form.negativePrompt}
@@ -357,26 +363,30 @@ export function LiveVideoPlayground({ model }: { model: Model }) {
               <Slider value={form.n} min={1} max={10} onChange={(v) => set("n", v)} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Resolution</Label>
-                <Select value={form.resolution} onChange={(e) => set("resolution", e.target.value)}>
-                  {resolutionOptions(model.slug).map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div>
-                <Label hint={needs8s ? "1080p/4K require 8 s" : undefined}>Duration</Label>
-                <Select value={form.duration} onChange={(e) => set("duration", e.target.value)}>
-                  {DURATIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+              {!isOmni(model.slug) && (
+                <div>
+                  <Label>Resolution</Label>
+                  <Select value={form.resolution} onChange={(e) => set("resolution", e.target.value)}>
+                    {resolutionOptions(model.slug).map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
+              {!isOmni(model.slug) && (
+                <div>
+                  <Label hint={needs8s ? "1080p/4K require 8 s" : undefined}>Duration</Label>
+                  <Select value={form.duration} onChange={(e) => set("duration", e.target.value)}>
+                    {DURATIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label>Aspect ratio</Label>
                 <Select value={form.aspectRatio} onChange={(e) => set("aspectRatio", e.target.value)}>
@@ -388,6 +398,12 @@ export function LiveVideoPlayground({ model }: { model: Model }) {
                 </Select>
               </div>
             </div>
+            {isOmni(model.slug) && (
+              <p className="rounded-lg bg-surface2/60 px-3 py-2 text-xs text-muted">
+                Omni has no resolution or duration knobs — output length is prompt-driven (~720p,
+                token-billed ≈ $0.10/s), so the quote is an estimate and provider usage is authoritative.
+              </p>
+            )}
           </div>
 
           <label className="mt-4 flex items-center justify-between rounded-lg border border-border bg-surface2/40 px-3 py-2.5">
@@ -418,7 +434,7 @@ export function LiveVideoPlayground({ model }: { model: Model }) {
           </div>
           <p className="mt-3 text-xs text-muted">
             {quote
-              ? `${quote.certainty === "exact" ? "Exactly" : "Estimated"} ${quote.display} — ${form.n} × ${billedSeconds(form)} s at ${model.pricing[0] ? `$${model.pricing[0].usd.toFixed(2)}/s` : "the per-second rate"}. Veo renders take a few minutes.`
+              ? `${quote.certainty === "exact" ? "Exactly" : "Estimated"} ${quote.display} — ${form.n} × ~${billedSeconds(form)} s at ${model.pricing[0] ? `$${model.pricing[0].usd.toFixed(2)}/s` : "the per-second rate"}. Renders take a few minutes.`
               : "Real request — billed per video second to your organization (billing is off during the preview)."}
           </p>
           {quote && quote.param_adjustments.length > 0 && (
@@ -618,21 +634,36 @@ function RequestJsonBuilder({ model, form, accountId }: { model: Model; form: Fo
 /* ── Per-model API documentation (both planes) ── */
 
 function ApiDocs({ model }: { model: Model }) {
+  const omni = isOmni(model.slug);
   const supports4k = model.slug !== "google_veo_3_1_lite";
   const rows: [string, string, string][] = [
     ["account_id", "string · required*", "The owning organization. *Session callers only — API-key callers omit it (the key implies the account)."],
     ["prompt", "string · required", "What to generate. Dialogue in quotes and SFX descriptions drive the generated audio."],
-    ["negative_prompt", "string", "What NOT to generate."],
+    [
+      "negative_prompt",
+      "string",
+      omni
+        ? "Omni has no discrete negative prompt — it is folded into the prompt as avoidance guidance (reported in param_adjustments)."
+        : "What NOT to generate.",
+    ],
     ["image_input", "string", "Image-to-video conditioning frame: a `file_…` id from POST /v1/files, or a public https URL."],
     ["n", "integer · 1–10 · default 1", "Videos per request. One provider operation each — poll shows partial completion; you keep whatever succeeds."],
     [
       "resolution",
-      supports4k ? '"720p" | "1080p" | "4k"' : '"720p" | "1080p"',
-      supports4k
-        ? "Output resolution (default 720p). 1080p/4K force an 8-second duration."
-        : "Output resolution (default 720p). 4K is NOT supported on Lite — it is coerced to 1080p and reported. 1080p forces 8 s.",
+      omni ? "—" : supports4k ? '"720p" | "1080p" | "4k"' : '"720p" | "1080p"',
+      omni
+        ? "NOT supported — Omni outputs ~720p; if sent, it is pruned and reported in param_adjustments."
+        : supports4k
+          ? "Output resolution (default 720p). 1080p/4K force an 8-second duration."
+          : "Output resolution (default 720p). 4K is NOT supported on Lite — it is coerced to 1080p and reported. 1080p forces 8 s.",
     ],
-    ["duration_seconds", "4 | 6 | 8 · default 8", "Clip length. Coerced to 8 (and reported) when the resolution demands it."],
+    [
+      "duration_seconds",
+      omni ? "—" : "4 | 6 | 8 · default 8",
+      omni
+        ? "NOT sent — Omni's output length is prompt-driven; the value only refines the cost estimate (pruned and reported)."
+        : "Clip length. Coerced to 8 (and reported) when the resolution demands it.",
+    ],
     ["aspect_ratio", '"16:9" | "9:16"', "Landscape (default) or portrait."],
     ["dry_run", "boolean", "Validate, price, and log the exact provider payload — never sent, never billed."],
   ];
@@ -646,7 +677,7 @@ function ApiDocs({ model }: { model: Model }) {
           with a Job. Veo runs ASYNC at the provider: poll{" "}
           <code className="rounded bg-surface2 px-1">GET /v1/jobs/{"{id}"}</code> (or the cheap{" "}
           <code className="rounded bg-surface2 px-1">/status</code> twin) until terminal — renders typically take 1–4
-          minutes per clip. Pricing is EXACT: n × seconds × the per-second rate.
+          minutes per clip. {model.slug === "google_omni_flash" ? "Pricing is an ESTIMATE (token-billed; output length is prompt-driven — provider usage is authoritative)." : "Pricing is EXACT: n × seconds × the per-second rate."}
         </p>
         <div className="mt-3 space-y-1 font-mono text-xs">
           <p>

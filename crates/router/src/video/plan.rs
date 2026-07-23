@@ -10,6 +10,7 @@ pub enum RouterVideoModel {
   GoogleVeo3_1,
   GoogleVeo3_1Fast,
   GoogleVeo3_1Lite,
+  GoogleOmniFlash,
 }
 
 impl RouterVideoModel {
@@ -18,6 +19,7 @@ impl RouterVideoModel {
       "google_veo_3_1" => Some(Self::GoogleVeo3_1),
       "google_veo_3_1_fast" => Some(Self::GoogleVeo3_1Fast),
       "google_veo_3_1_lite" => Some(Self::GoogleVeo3_1Lite),
+      "google_omni_flash" => Some(Self::GoogleOmniFlash),
       _ => None,
     }
   }
@@ -27,6 +29,7 @@ impl RouterVideoModel {
       Self::GoogleVeo3_1 => "google_veo_3_1",
       Self::GoogleVeo3_1Fast => "google_veo_3_1_fast",
       Self::GoogleVeo3_1Lite => "google_veo_3_1_lite",
+      Self::GoogleOmniFlash => "google_omni_flash",
     }
   }
 
