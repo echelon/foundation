@@ -7,7 +7,7 @@
 //! Design (mirrors the other Foundation provider clients):
 //!   - one binding fn PER MODEL, each with its own args struct (`{ api_key, request }` —
 //!     the key rides separately so the request alone feeds the cost estimator);
-//!   - a `cost.rs` `CostCalculator` per binding (published rates; estimates are labeled);
+//!   - a `cost.rs` `BetterCostEstimator` per binding (published rates; estimates are labeled);
 //!   - strongly typed params — real enums, no stringly-typed values;
 //!   - the three-layer error module (client / specific API / generic API);
 //!   - image EDIT inputs are public URLs (preferred) or Files-API uploads

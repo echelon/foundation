@@ -1,7 +1,7 @@
 //! Shared chat plumbing: every LLM binding builds a background `/v1/responses` body from
 //! its messages, and shares one token-based cost estimator.
 
-use client_core::MicroUsd;
+use client_core::{CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::responses::create_response::{create_background_response, StartedResponse};
 use crate::api::requests::responses::wire::{CreateResponseBody, InputMessage, MessageContent};
@@ -56,19 +56,50 @@ pub(crate) async fn start_chat(
   create_background_response(api_key, &body).await
 }
 
-/// Estimated cost = (est. input tokens × input rate) + (assumed output tokens × output
-/// rate). Input tokens estimated at ~4 chars/token; output assumes `max_output_tokens` or
-/// the default. ESTIMATE ONLY — the response `usage` is authoritative (and gpt-5.6-sol's
-/// >272K-context breakpoint pricing is not modeled).
-pub(crate) fn estimate_chat_micros(
+/// Shared chat pricing: input tokens estimated (~4 chars/token) + output at
+/// `max_output_tokens` (or the default) — ALWAYS an estimate; the response
+/// `usage` is authoritative. One rate card per model (in/out per 1M tokens).
+pub(crate) fn chat_cost_breakdown(
   model: &ChatModel,
   messages: &[ChatMessage],
   max_output_tokens: Option<u32>,
-) -> MicroUsd {
+) -> CostBreakdown {
   let (in_rate, out_rate) = model.pricing_micros_per_mtok();
   let input_tokens: u64 = messages.iter().map(|m| m.estimated_tokens()).sum();
   let output_tokens = max_output_tokens.map(u64::from).unwrap_or(DEFAULT_ASSUMED_OUTPUT_TOKENS);
-  let input_micros = (input_tokens as i64) * in_rate / 1_000_000;
-  let output_micros = (output_tokens as i64) * out_rate / 1_000_000;
-  MicroUsd(input_micros + output_micros)
+  CostBreakdown::from_components(
+    CostFormula {
+      display: "input_tokens × rate + output_tokens × rate",
+      rates: vec![
+        RateRow {
+          dimension: "tokens",
+          value: "input".to_string(),
+          unit: CostUnit::PerMillionInputTokens,
+          price_micros: in_rate,
+        },
+        RateRow {
+          dimension: "tokens",
+          value: "output".to_string(),
+          unit: CostUnit::PerMillionOutputTokens,
+          price_micros: out_rate,
+        },
+      ],
+    },
+    vec![
+      CostComponent::new(
+        "Input tokens (~4 chars/token estimate)",
+        CostUnit::PerMillionInputTokens,
+        in_rate,
+        CostQuantity::Estimated(input_tokens as f64),
+      ),
+      CostComponent::new(
+        if max_output_tokens.is_some() { "Output tokens (at max_output_tokens cap)" } else { "Output tokens (assumed default)" },
+        CostUnit::PerMillionOutputTokens,
+        out_rate,
+        CostQuantity::Estimated(output_tokens as f64),
+      )
+      .with_note("output length unknown pre-call; response usage is authoritative"),
+    ],
+    true,
+  )
 }

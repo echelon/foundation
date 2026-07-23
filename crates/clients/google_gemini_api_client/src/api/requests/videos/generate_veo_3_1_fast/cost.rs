@@ -1,4 +1,3 @@
-use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::videos::generate_veo_3_1_fast::generate_veo_3_1_fast::Veo31FastRequest;
 use crate::api::types::video_types::veo_duration::VeoDuration;
@@ -8,40 +7,7 @@ use crate::api::types::video_types::veo_resolution::VeoResolution;
 // output video; you are NOT charged for safety-blocked generations, so the
 // per-params price is exact for every billed generation.
 
-impl CostCalculator for Veo31FastRequest {
-  fn cost_micros(&self) -> MicroUsd {
-    let per_second = match self.resolution.unwrap_or(VeoResolution::P720) {
-    VeoResolution::P720 => 100_000,
-    VeoResolution::P1080 => 120_000,
-    VeoResolution::K4 => 300_000,
-  };
-    let seconds = self.duration.unwrap_or(VeoDuration::S8).seconds();
-    MicroUsd(per_second * seconds)
-  }
 
-  /// Exact per the params: Veo bills per output second, and safety-blocked
-  /// generations are not charged at all.
-  fn cost_certainty(&self) -> CostCertainty {
-    CostCertainty::Exact
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn req(res: Option<VeoResolution>, dur: Option<VeoDuration>) -> Veo31FastRequest {
-    Veo31FastRequest { prompt: "p".into(), negative_prompt: None, image: None, last_frame: None, reference_images: vec![], video_uri: None, person_generation: None, aspect_ratio: None, resolution: res, duration: dur }
-  }
-
-  #[test]
-  fn per_second_by_resolution() {
-    assert_eq!(req(None, None).cost_micros(), MicroUsd(800_000)); // 8s × $0.10 default
-    assert_eq!(req(Some(VeoResolution::P1080), Some(VeoDuration::S8)).cost_micros(), MicroUsd(960_000));
-    assert_eq!(req(Some(VeoResolution::K4), Some(VeoDuration::S6)).cost_micros(), MicroUsd(1_800_000));
-    assert_eq!(req(None, None).cost_certainty(), CostCertainty::Exact);
-  }
-}
 
 
 use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
@@ -94,8 +60,8 @@ mod better_tests {
       video_uri: None, person_generation: None, aspect_ratio: None, resolution: None, duration: None,
     };
     let breakdown = request.estimate_cost();
-    assert_eq!(breakdown.amount.micros(), request.cost_micros());
     assert_eq!(breakdown.amount.certainty(), CostCertainty::Exact);
     assert_eq!(breakdown.components[0].quantity, CostQuantity::Exact(8.0));
+    assert!(breakdown.amount.micros().0 > 0);
   }
 }

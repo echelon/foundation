@@ -57,7 +57,7 @@ impl std::fmt::Debug for GeneratedImage {
 }
 
 /// Authoritative post-call token counts — this is what OpenAI actually bills from, unlike
-/// the pre-call `CostCalculator` ESTIMATES.
+/// the pre-call `BetterCostEstimator` ESTIMATES.
 #[derive(Debug, Clone, Default)]
 pub struct ResponseUsage {
   pub input_tokens: i64,

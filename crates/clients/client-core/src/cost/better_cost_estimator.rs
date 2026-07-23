@@ -1,8 +1,7 @@
 use crate::cost::cost_breakdown::CostBreakdown;
 
-/// The richer pricing interface (successor to
-/// [`crate::cost::cost_calculator::CostCalculator`]): instead of one opaque
-/// number, a request prices itself as a BREAKDOWN — an exact-or-estimated
+/// THE pricing interface: instead of one opaque number, a request prices
+/// itself as a BREAKDOWN — an exact-or-estimated
 /// total, the per-line components behind it, and the model's full rate card +
 /// formula (structured enough for a pricing table or an interactive frontend
 /// calculator). One trait covers the pricing shapes of LLMs (per-token

@@ -1,7 +1,7 @@
 //! Router build + pricing tests: fan-out counts, param pruning/coercion with recorded
 //! adjustments, pricing delegation to the provider client, and validation rejections.
 
-use client_core::CostCalculator;
+use client_core::BetterCostEstimator;
 use foundation_router::error::RouterError;
 use foundation_router::image::build::build_image_route;
 use foundation_router::image::plan::{
@@ -104,7 +104,7 @@ fn pricing_delegates_to_the_client_and_scales_with_n() {
   let built = build_image_route(p).unwrap();
   let quote = built.route.price();
   let per_slice = match &built.route {
-    ImageRoute::OpenaiGptImage2(reqs) => reqs[0].cost_micros().0,
+    ImageRoute::OpenaiGptImage2(reqs) => reqs[0].estimate_cost().amount.micros().0,
     other => panic!("wrong route: {other:?}"),
   };
   assert_eq!(quote.amount_micros, per_slice * 3);

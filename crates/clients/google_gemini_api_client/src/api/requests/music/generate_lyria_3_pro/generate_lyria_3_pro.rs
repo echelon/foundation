@@ -34,7 +34,7 @@ pub struct GenerateLyria3ProArgs<'a> {
 }
 
 /// The material part of a Lyria 3 Pro request — drives both the wire body and the
-/// [`client_core::CostCalculator`] price (see `cost.rs`).
+/// [`client_core::BetterCostEstimator`] price (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct Lyria3ProRequest {
   /// The music prompt — genre, mood, instrumentation, structure, BPM, key,

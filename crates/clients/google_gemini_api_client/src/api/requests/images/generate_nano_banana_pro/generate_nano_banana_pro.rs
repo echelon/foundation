@@ -32,7 +32,7 @@ pub struct GenerateNanoBananaProArgs<'a> {
 }
 
 /// The material part of a Nano Banana Pro request — drives both the wire body and the
-/// [`client_core::CostCalculator`] price (see `cost.rs`).
+/// [`client_core::BetterCostEstimator`] price (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct NanoBananaProRequest {
   /// Text prompt. Required.

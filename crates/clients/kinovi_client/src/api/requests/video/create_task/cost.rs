@@ -1,4 +1,4 @@
-use client_core::{CostCalculator, MicroUsd};
+use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
 
 use crate::api::requests::video::create_task::request_types::CreateTaskRequest;
 use crate::api::types::video_types::seedance_model::SeedanceModel;
@@ -27,16 +27,47 @@ pub(crate) fn micros_per_second(model: &SeedanceModel) -> i64 {
   }
 }
 
-impl CostCalculator for CreateTaskRequest {
-  /// Estimated charge = per-second rate × clip duration (seconds), in micro-USD.
-  fn cost_micros(&self) -> MicroUsd {
+impl BetterCostEstimator for CreateTaskRequest {
+  /// Estimated charge = per-second rate × clip duration. ESTIMATED (not exact)
+  /// because higher resolutions may bill an upstream upscale surcharge Kinovi
+  /// hasn't documented — see the module note.
+  fn estimate_cost(&self) -> CostBreakdown {
     let rate = micros_per_second(&self.model);
-    MicroUsd(rate * self.inputs.duration_seconds as i64)
+    CostBreakdown::from_components(
+      CostFormula {
+        display: "seconds × rate(model); possible undocumented 4k upscale surcharge",
+        rates: [
+          (SeedanceModel::Seedance20, "seedance-20"),
+          (SeedanceModel::Seedance2Fast, "seedance2-fast"),
+          (SeedanceModel::Seedance20Mini, "seedance2.0-mini"),
+        ]
+        .iter()
+        .map(|(m, label)| RateRow {
+          dimension: "model",
+          value: label.to_string(),
+          unit: CostUnit::PerVideoSecond,
+          price_micros: micros_per_second(m),
+        })
+        .collect(),
+      },
+      vec![
+        CostComponent::new(
+          format!("Video output ({}s @ {})", self.inputs.duration_seconds, self.inputs.resolution.as_str()),
+          CostUnit::PerVideoSecond,
+          rate,
+          CostQuantity::Exact(self.inputs.duration_seconds as f64),
+        )
+        .with_note("possible undocumented resolution surcharge at 4k"),
+      ],
+      true,
+    )
   }
 }
 
 #[cfg(test)]
 mod tests {
+  use client_core::MicroUsd;
+
   use super::*;
   use crate::api::requests::video::create_task::request_types::VideoInputs;
   use crate::api::types::video_types::video_aspect_ratio::VideoAspectRatio;
@@ -64,25 +95,25 @@ mod tests {
     #[test]
     fn seedance20_is_120k_micros_per_second() {
       let req = request(SeedanceModel::Seedance20, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), MicroUsd(120_000));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(120_000));
     }
 
     #[test]
     fn fast_is_60k_micros_per_second() {
       let req = request(SeedanceModel::Seedance2Fast, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), MicroUsd(60_000));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(60_000));
     }
 
     #[test]
     fn mini_is_30k_micros_per_second() {
       let req = request(SeedanceModel::Seedance20Mini, 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), MicroUsd(30_000));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(30_000));
     }
 
     #[test]
     fn custom_falls_back_to_flagship_rate() {
       let req = request(SeedanceModel::Custom("seedance-30".to_string()), 1, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), MicroUsd(120_000));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(120_000));
     }
   }
 
@@ -95,7 +126,7 @@ mod tests {
     fn five_second_seedance20_is_600k_micros() {
       // $0.12/sec × 5s = $0.60 = 600_000 micros.
       let req = request(SeedanceModel::Seedance20, 5, VideoResolution::P1080);
-      assert_eq!(req.cost_micros(), MicroUsd(600_000));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(600_000));
     }
 
     #[test]
@@ -109,7 +140,7 @@ mod tests {
         for duration in 4u32..=15 {
           let req = request(model.clone(), duration, VideoResolution::P720);
           assert_eq!(
-            req.cost_micros(),
+            req.estimate_cost().amount.micros(),
             MicroUsd(rate * duration as i64),
             "model={} duration={duration}",
             model.as_str()
@@ -121,7 +152,7 @@ mod tests {
     #[test]
     fn zero_duration_is_zero_cost() {
       let req = request(SeedanceModel::Seedance20, 0, VideoResolution::P720);
-      assert_eq!(req.cost_micros(), MicroUsd(0));
+      assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(0));
     }
   }
 
@@ -140,7 +171,7 @@ mod tests {
       ] {
         let req = request(SeedanceModel::Seedance20, 6, resolution);
         // Same as 720p at the same duration — resolution does not (yet) move the bill.
-        assert_eq!(req.cost_micros(), MicroUsd(120_000 * 6), "resolution={resolution:?}");
+        assert_eq!(req.estimate_cost().amount.micros(), MicroUsd(120_000 * 6), "resolution={resolution:?}");
       }
     }
   }
@@ -153,7 +184,7 @@ mod tests {
     #[test]
     fn cost_is_independent_of_aspect_ratio() {
       let mut req = request(SeedanceModel::Seedance2Fast, 5, VideoResolution::P720);
-      let base = req.cost_micros();
+      let base = req.estimate_cost().amount.micros();
       for ar in [
         VideoAspectRatio::Landscape16x9,
         VideoAspectRatio::Portrait9x16,
@@ -161,19 +192,19 @@ mod tests {
         VideoAspectRatio::Cinematic21x9,
       ] {
         req.inputs.aspect_ratio = Some(ar);
-        assert_eq!(req.cost_micros(), base, "{ar:?}");
+        assert_eq!(req.estimate_cost().amount.micros(), base, "{ar:?}");
       }
       req.inputs.aspect_ratio = None;
-      assert_eq!(req.cost_micros(), base);
+      assert_eq!(req.estimate_cost().amount.micros(), base);
     }
 
     #[test]
     fn cost_is_independent_of_image_urls_and_callback() {
       let mut req = request(SeedanceModel::Seedance20Mini, 8, VideoResolution::P720);
-      let base = req.cost_micros();
+      let base = req.estimate_cost().amount.micros();
       req.inputs.image_urls = vec!["https://example.com/frame.png".to_string()];
       req.callback_url = Some("https://example.com/webhook".to_string());
-      assert_eq!(req.cost_micros(), base);
+      assert_eq!(req.estimate_cost().amount.micros(), base);
     }
   }
 
@@ -184,9 +215,9 @@ mod tests {
 
     #[test]
     fn flagship_at_least_as_expensive_as_fast_at_least_as_expensive_as_mini() {
-      let mini = request(SeedanceModel::Seedance20Mini, 5, VideoResolution::P720).cost_micros();
-      let fast = request(SeedanceModel::Seedance2Fast, 5, VideoResolution::P720).cost_micros();
-      let flagship = request(SeedanceModel::Seedance20, 5, VideoResolution::P720).cost_micros();
+      let mini = request(SeedanceModel::Seedance20Mini, 5, VideoResolution::P720).estimate_cost().amount.micros();
+      let fast = request(SeedanceModel::Seedance2Fast, 5, VideoResolution::P720).estimate_cost().amount.micros();
+      let flagship = request(SeedanceModel::Seedance20, 5, VideoResolution::P720).estimate_cost().amount.micros();
       assert!(mini <= fast, "mini ({mini:?}) should be <= fast ({fast:?})");
       assert!(fast <= flagship, "fast ({fast:?}) should be <= flagship ({flagship:?})");
     }

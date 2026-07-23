@@ -1,5 +1,5 @@
 //! Pricing quotes in USD micros for ANY routed request. Amounts are DELEGATED to the
-//! provider client's `CostCalculator` (router never re-derives prices — the artcraft_router
+//! provider client's `BetterCostEstimator` (router never re-derives prices — the artcraft_router
 //! convention), then labeled with how trustworthy they are.
 
 use serde::Serialize;

@@ -37,7 +37,7 @@ pub struct ChatGemini35FlashLiteArgs<'a> {
 }
 
 /// The material part of a Gemini 3.5 Flash-Lite request — drives both the wire body and the
-/// [`client_core::CostCalculator`] estimate (see `cost.rs`).
+/// [`client_core::BetterCostEstimator`] estimate (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct Gemini35FlashLiteRequest {
   /// The conversation so far (at least one turn). A single user turn is sent

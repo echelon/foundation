@@ -3,9 +3,8 @@
 //! Deliberately lean — the cross-cutting pieces live here ONCE so the per-service client
 //! crates don't each re-declare them:
 //!   - [`http_client`]          — the reqwest factory with our provider-call timeouts.
-//!   - [`cost`]                 — the pricing vocabulary: [`BetterCostEstimator`] (the
-//!                                current interface: certainty + components + rate card)
-//!                                and the legacy [`CostCalculator`] it is replacing.
+//!   - [`cost`]                 — the pricing vocabulary: [`BetterCostEstimator`]
+//!                                (certainty + component breakdown + renderable rate card).
 //!
 //! Everything else — errors, credentials, endpoint bindings, typed enums, and each client's
 //! own success/response types — is provider-specific and lives in the `{service}_client`
@@ -18,7 +17,6 @@ pub mod cost;
 pub use cost::better_cost_estimator::BetterCostEstimator;
 pub use cost::cost_amount::CostAmount;
 pub use cost::cost_breakdown::CostBreakdown;
-pub use cost::cost_calculator::CostCalculator;
 pub use cost::cost_certainty::CostCertainty;
 pub use cost::cost_component::CostComponent;
 pub use cost::cost_formula::CostFormula;

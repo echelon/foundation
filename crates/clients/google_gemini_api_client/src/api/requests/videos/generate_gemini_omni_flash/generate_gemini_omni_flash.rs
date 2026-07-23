@@ -45,7 +45,7 @@ pub struct GenerateGeminiOmniFlashArgs<'a> {
 }
 
 /// The material part of an Omni request — drives both the wire body and the
-/// [`client_core::CostCalculator`] estimate (see `cost.rs`).
+/// [`client_core::BetterCostEstimator`] estimate (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct GeminiOmniFlashRequest {
   /// The direction — subject, camera work, edits. Negative guidance goes in

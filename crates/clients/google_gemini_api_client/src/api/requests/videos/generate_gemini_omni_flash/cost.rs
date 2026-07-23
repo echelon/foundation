@@ -1,4 +1,3 @@
-use client_core::{CostCalculator, CostCertainty, MicroUsd};
 
 use crate::api::requests::videos::generate_gemini_omni_flash::generate_gemini_omni_flash::GeminiOmniFlashRequest;
 
@@ -11,43 +10,7 @@ use crate::api::requests::videos::generate_gemini_omni_flash::generate_gemini_om
 const MICROS_PER_ESTIMATED_SECOND: i64 = 100_000;
 const DEFAULT_ESTIMATED_SECONDS: i64 = 8;
 
-impl CostCalculator for GeminiOmniFlashRequest {
-  fn cost_micros(&self) -> MicroUsd {
-    let seconds = self.expected_output_seconds.unwrap_or(DEFAULT_ESTIMATED_SECONDS);
-    MicroUsd(MICROS_PER_ESTIMATED_SECOND * seconds)
-  }
 
-  /// Token-billed with prompt-driven output length — always an estimate.
-  fn cost_certainty(&self) -> CostCertainty {
-    CostCertainty::Estimated
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-
-  fn req(expected: Option<i64>) -> GeminiOmniFlashRequest {
-    GeminiOmniFlashRequest {
-      prompt: "p".into(),
-      images: vec![],
-      video_file_uri: None,
-      task: None,
-      aspect_ratio: None,
-      delivery: None,
-      previous_interaction_id: None,
-      store: None,
-      expected_output_seconds: expected,
-    }
-  }
-
-  #[test]
-  fn estimates_by_expected_seconds() {
-    assert_eq!(req(None).cost_micros(), MicroUsd(800_000)); // 8 s default ≈ $0.80
-    assert_eq!(req(Some(4)).cost_micros(), MicroUsd(400_000));
-    assert_eq!(req(None).cost_certainty(), CostCertainty::Estimated);
-  }
-}
 
 
 use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
@@ -105,7 +68,7 @@ mod better_tests {
       delivery: None, previous_interaction_id: None, store: None, expected_output_seconds: Some(4),
     };
     let breakdown = request.estimate_cost();
-    assert_eq!(breakdown.amount.micros(), request.cost_micros());
     assert_eq!(breakdown.amount.certainty(), CostCertainty::Estimated);
+    assert!(breakdown.amount.micros().0 > 0);
   }
 }

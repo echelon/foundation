@@ -8,7 +8,7 @@
 //!     [`image::adjustments::ParamAdjustment`], the api_any.md `param_adjustments`) and
 //!     fan out `n` into N provider-native requests (OpenAI's image tool has no `n`);
 //!   - [`pricing::PriceQuote`] — USD-micros pricing for ANY request, delegated to the
-//!     provider client's own `CostCalculator` (never re-derived), with certainty labeling
+//!     provider client's own `BetterCostEstimator` (never re-derived), with certainty labeling
 //!     (exact / estimated / post-billed);
 //!   - [`input_strategy::InputStrategy`] — whether a provider takes our public URLs
 //!     (OpenAI: yes) or needs assets uploaded to it first (Kinovi-style, future);

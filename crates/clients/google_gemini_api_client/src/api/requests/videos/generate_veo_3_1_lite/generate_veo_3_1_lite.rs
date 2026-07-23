@@ -33,7 +33,7 @@ pub struct GenerateVeo31LiteArgs<'a> {
 }
 
 /// The material part of a Veo 3.1 Lite request — drives both the wire body and the
-/// [`client_core::CostCalculator`] price (see `cost.rs`).
+/// [`client_core::BetterCostEstimator`] price (see `cost.rs`).
 #[derive(Clone, Debug, Serialize)]
 pub struct Veo31LiteRequest {
   /// Text prompt (max ~1,024 tokens). Dialogue in quotes and SFX descriptions

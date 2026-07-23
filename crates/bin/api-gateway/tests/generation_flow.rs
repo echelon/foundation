@@ -227,7 +227,7 @@ async fn cost_twins_quote_micros_and_record_adjustments() {
   assert_eq!(resp.status(), StatusCode::OK);
   let quote = body_json(resp).await;
   assert_eq!(quote["certainty"], "estimated");
-  // gpt-image-2 high = 211_000 micros per slice (client CostCalculator), 2 slices.
+  // gpt-image-2 high = 211_000 micros per slice (client BetterCostEstimator), 2 slices.
   assert_eq!(quote["amount_micros"], 422_000);
   assert_eq!(quote["line_items"].as_array().unwrap().len(), 2);
   assert!(quote["display"].as_str().unwrap().starts_with('$'));
