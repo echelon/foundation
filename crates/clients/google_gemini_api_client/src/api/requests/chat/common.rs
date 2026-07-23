@@ -6,7 +6,7 @@
 use client_core::Micros;
 
 use crate::api::requests::interactions::common::{
-  GenerationConfigWire, InputItem, InteractionRequestBody, InteractionSuccess,
+  GenerationConfigWire, InputItem, InteractionRequestBody, InteractionSuccess, InteractionUsage,
 };
 use crate::api::types::chat_types::gemini_chat_message::GeminiChatMessage;
 use crate::api::types::chat_types::gemini_chat_tool::GeminiChatTool;
@@ -32,6 +32,7 @@ pub(crate) struct ChatKnobs<'a> {
   pub tools: &'a [GeminiChatTool],
   pub response_json_schema: Option<&'a serde_json::Value>,
   pub previous_interaction_id: Option<&'a str>,
+  pub store: Option<bool>,
 }
 
 pub(crate) fn build_chat_body(
@@ -73,7 +74,7 @@ pub(crate) fn build_chat_body(
       response_json_schema: knobs.response_json_schema.cloned(),
     }),
     previous_interaction_id: knobs.previous_interaction_id.map(str::to_string),
-    store: None,
+    store: knobs.store,
     background: background.then_some(true),
   })
 }
@@ -86,6 +87,9 @@ pub struct ChatSuccess {
   /// Pass back as `previous_interaction_id` to continue the conversation
   /// server-side.
   pub interaction_id: Option<String>,
+  /// Provider-reported token usage (thinking bills as output) — the
+  /// authoritative numbers behind the pre-call estimate.
+  pub usage: Option<InteractionUsage>,
 }
 
 /// Map a COMPLETED interaction's items into chat output (used after a
@@ -93,7 +97,7 @@ pub struct ChatSuccess {
 pub fn chat_success_from_interaction(interaction: InteractionSuccess) -> Result<ChatSuccess, GoogleGeminiError> {
   match interaction.joined_text() {
     Some(text) if !text.is_empty() => {
-      Ok(ChatSuccess { text, interaction_id: interaction.interaction_id })
+      Ok(ChatSuccess { text, interaction_id: interaction.interaction_id, usage: interaction.usage })
     }
     _ => Err(
       GoogleGeminiGenericApiError::EmptyResponse {

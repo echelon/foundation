@@ -42,6 +42,7 @@ mod tests {
       tools: vec![],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     }
   }
 
@@ -60,5 +61,83 @@ mod tests {
       req("hi", None).cost_micros(),
       req("hi", Some(DEFAULT_ASSUMED_OUTPUT_TOKENS as u32)).cost_micros()
     );
+  }
+}
+
+
+use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+
+use crate::api::requests::chat::common::DEFAULT_ASSUMED_OUTPUT_TOKENS as ASSUMED_OUT;
+
+impl BetterCostEstimator for Gemini35FlashLiteRequest {
+  fn estimate_cost(&self) -> CostBreakdown {
+    let mut input_tokens: u64 = self.messages.iter().map(|m| m.estimated_tokens()).sum();
+    input_tokens += self.system_instruction.as_deref().map(|s| (s.len() as u64).div_ceil(4)).unwrap_or(0);
+    let output_tokens = self.max_output_tokens.map(u64::from).unwrap_or(ASSUMED_OUT);
+    CostBreakdown::from_components(
+      CostFormula {
+        display: "input_tokens × rate + output_tokens × rate (thinking bills as output)",
+        rates: vec![
+          RateRow {
+            dimension: "tokens",
+            value: "input".to_string(),
+            unit: CostUnit::PerMillionInputTokens,
+            price_micros: MICROS_PER_MTOK_IN,
+          },
+          RateRow {
+            dimension: "tokens",
+            value: "output".to_string(),
+            unit: CostUnit::PerMillionOutputTokens,
+            price_micros: MICROS_PER_MTOK_OUT,
+          },
+        ],
+      },
+      vec![
+        CostComponent::new(
+          "Input tokens (~4 chars/token estimate)",
+          CostUnit::PerMillionInputTokens,
+          MICROS_PER_MTOK_IN,
+          CostQuantity::Estimated(input_tokens as f64),
+        ),
+        CostComponent::new(
+          if self.max_output_tokens.is_some() { "Output tokens (at max_output_tokens cap)" } else { "Output tokens (assumed default)" },
+          CostUnit::PerMillionOutputTokens,
+          MICROS_PER_MTOK_OUT,
+          CostQuantity::Estimated(output_tokens as f64),
+        )
+        .with_note("thinking tokens bill as output; response usage is authoritative"),
+      ],
+      true,
+    )
+  }
+}
+
+#[cfg(test)]
+mod better_tests {
+  use super::*;
+  use crate::api::types::chat_types::gemini_chat_message::GeminiChatMessage;
+  use client_core::CostCertainty;
+
+  #[test]
+  fn components_sum_close_to_legacy() {
+    let request = Gemini35FlashLiteRequest {
+      messages: vec![GeminiChatMessage::user("hello world")],
+      system_instruction: None,
+      temperature: None,
+      top_p: None,
+      max_output_tokens: Some(1000),
+      thinking_level: None,
+      tools: vec![],
+      response_json_schema: None,
+      previous_interaction_id: None,
+      store: None,
+    };
+    let breakdown = request.estimate_cost();
+    assert_eq!(breakdown.amount.certainty(), CostCertainty::Estimated);
+    assert_eq!(breakdown.components.len(), 2);
+    // Same rates & token counts as the legacy estimator — totals may differ by
+    // ≤1 micro from rounding order.
+    let diff = (breakdown.amount.micros().0 - request.cost_micros().0).abs();
+    assert!(diff <= 1, "diff {diff}");
   }
 }

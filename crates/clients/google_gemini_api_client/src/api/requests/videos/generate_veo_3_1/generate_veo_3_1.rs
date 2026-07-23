@@ -9,7 +9,8 @@
 
 use serde::Serialize;
 
-use crate::api::requests::videos::common::{build_veo_body, run_predict_long_running};
+use crate::api::requests::videos::common::{build_veo_body, run_predict_long_running, VeoBodyParts};
+use crate::api::types::video_types::veo_person_generation::VeoPersonGeneration;
 use crate::api::types::video_types::veo_aspect_ratio::VeoAspectRatio;
 use crate::api::types::video_types::veo_duration::VeoDuration;
 use crate::api::types::video_types::veo_image_input::VeoImageInput;
@@ -47,6 +48,24 @@ pub struct Veo31Request {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub image: Option<VeoImageInput>,
 
+  /// Final interpolation frame (requires `image`). Not yet live-validated.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub last_frame: Option<VeoImageInput>,
+
+  /// Style/asset reference images (≤ 3; requires an 8-second duration).
+  /// Not yet live-validated.
+  #[serde(skip_serializing_if = "Vec::is_empty", default)]
+  pub reference_images: Vec<VeoImageInput>,
+
+  /// A previous Veo result URI to EXTEND. Not yet live-validated.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub video_uri: Option<String>,
+
+  /// People policy — Google constrains the allowed value by task (see the
+  /// enum docs).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub person_generation: Option<VeoPersonGeneration>,
+
   /// 16:9 (default) or 9:16.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub aspect_ratio: Option<VeoAspectRatio>,
@@ -64,14 +83,18 @@ pub struct Veo31Request {
 /// Start a Veo 3.1 generation. Returns the operation name to poll.
 pub async fn generate_veo_3_1(args: GenerateVeo31Args<'_>) -> Result<VeoOperationName, GoogleGeminiError> {
   let GenerateVeo31Args { api_key, request } = args;
-  let body = build_veo_body(
-    &request.prompt,
-    request.image.as_ref(),
-    request.aspect_ratio.map(|a| a.as_str()),
-    request.resolution.map(|r| r.as_str()),
-    request.duration.map(|d| d.seconds()),
-    request.negative_prompt.as_deref(),
-  );
+  let body = build_veo_body(VeoBodyParts {
+    prompt: &request.prompt,
+    image: request.image.as_ref(),
+    last_frame: request.last_frame.as_ref(),
+    reference_images: &request.reference_images,
+    video_uri: request.video_uri.as_deref(),
+    aspect_ratio: request.aspect_ratio.map(|a| a.as_str()),
+    resolution: request.resolution.map(|r| r.as_str()),
+    duration_seconds: request.duration.map(|d| d.seconds()),
+    negative_prompt: request.negative_prompt.as_deref(),
+    person_generation: request.person_generation.map(|p| p.as_str()),
+  });
   run_predict_long_running(api_key, VEO_3_1_MODEL_ID, &body).await
 }
 
@@ -89,18 +112,26 @@ mod tests {
       prompt: "a hummingbird in slow motion".to_string(),
       negative_prompt: Some("blurry".to_string()),
       image: None,
+      last_frame: None,
+      reference_images: vec![],
+      video_uri: None,
+      person_generation: None,
       aspect_ratio: Some(VeoAspectRatio::Landscape16x9),
       resolution: Some(VeoResolution::P1080),
       duration: Some(VeoDuration::S8),
     };
-    let body = build_veo_body(
-      &request.prompt,
-      request.image.as_ref(),
-      request.aspect_ratio.map(|a| a.as_str()),
-      request.resolution.map(|r| r.as_str()),
-      request.duration.map(|d| d.seconds()),
-      request.negative_prompt.as_deref(),
-    );
+    let body = build_veo_body(VeoBodyParts {
+      prompt: &request.prompt,
+      image: request.image.as_ref(),
+      last_frame: None,
+      reference_images: &[],
+      video_uri: None,
+      aspect_ratio: request.aspect_ratio.map(|a| a.as_str()),
+      resolution: request.resolution.map(|r| r.as_str()),
+      duration_seconds: request.duration.map(|d| d.seconds()),
+      negative_prompt: request.negative_prompt.as_deref(),
+      person_generation: None,
+    });
     assert_eq!(
       serde_json::to_value(&body).unwrap(),
       json!({
@@ -118,17 +149,21 @@ mod tests {
   /// Image-to-video conditioning rides as `fileUri` (Files API) — never data: URLs.
   #[test]
   fn image_to_video_wire_shape_uses_file_uri() {
-    let body = build_veo_body(
-      "animate this",
-      Some(&VeoImageInput::FileUri {
+    let body = build_veo_body(VeoBodyParts {
+      prompt: "animate this",
+      image: Some(&VeoImageInput::FileUri {
         uri: "https://generativelanguage.googleapis.com/v1beta/files/xyz".to_string(),
         mime: "image/png".to_string(),
       }),
-      None,
-      None,
-      None,
-      None,
-    );
+      last_frame: None,
+      reference_images: &[],
+      video_uri: None,
+      aspect_ratio: None,
+      resolution: None,
+      duration_seconds: None,
+      negative_prompt: None,
+      person_generation: Some("allow_adult"),
+    });
     assert_eq!(
       serde_json::to_value(&body).unwrap(),
       json!({
@@ -137,7 +172,7 @@ mod tests {
           "image": { "fileUri": "https://generativelanguage.googleapis.com/v1beta/files/xyz",
                      "mimeType": "image/png" }
         }],
-        "parameters": {}
+        "parameters": { "personGeneration": "allow_adult" }
       })
     );
   }
@@ -158,6 +193,10 @@ mod tests {
       prompt: "A paper boat drifting down a rain gutter, cinematic close-up".to_string(),
       negative_prompt: None,
       image: None,
+      last_frame: None,
+      reference_images: vec![],
+      video_uri: None,
+      person_generation: None,
       aspect_ratio: None,
       resolution: Some(VeoResolution::P720),
       duration: Some(VeoDuration::S4),

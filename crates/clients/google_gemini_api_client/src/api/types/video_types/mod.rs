@@ -9,4 +9,5 @@ pub mod veo_aspect_ratio;
 pub mod veo_duration;
 pub mod veo_image_input;
 pub mod veo_lite_resolution;
+pub mod veo_person_generation;
 pub mod veo_resolution;

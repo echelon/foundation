@@ -23,6 +23,23 @@
 //! Input images: the Gemini API does NOT fetch public HTTP URLs. Prefer the
 //! free Files API (`api::requests::files::upload_image_file`, ~48 h retention)
 //! and pass `file_data` references; inline base64 exists as a fallback only.
+//!
+//! # Connection model (per binding, live-verified)
+//!
+//! | Binding                        | Mode  | Handle → poll                                     |
+//! |--------------------------------|-------|---------------------------------------------------|
+//! | `generate_nano_banana*` (×4)   | SYNC  | none — connection held ~5–40 s (no async offered) |
+//! | `generate_veo_3_1{,_fast,_lite}` | ASYNC | `VeoOperationName` → `poll_video_operation` (~10 s) |
+//! | `generate_gemini_omni_flash`   | ASYNC | `InteractionHandle` → `get_interaction` (~5 s)     |
+//! | `generate_lyria_3_{clip,pro}`  | ASYNC | `InteractionHandle` → `get_interaction` (~5 s)     |
+//! | `chat_gemini_3_6_flash`        | ASYNC | `InteractionHandle` → `get_interaction` (~3 s)     |
+//! | `chat_gemini_3_5_flash_lite`   | SYNC  | none — Google gates it out of background mode      |
+//! | files upload/get/download      | SYNC  | fast administrative calls                          |
+//!
+//! Every async handle is a durable server-side resource: safe across process
+//! restarts, and the natural value for a dispatcher's `provider_job_id`.
+//! Responses carry provider-reported token usage where the API returns it —
+//! the authoritative numbers behind every `Estimated` cost.
 
 #[cfg(test)]
 pub(crate) mod test_utils;

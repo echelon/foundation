@@ -30,7 +30,7 @@ mod tests {
   use super::*;
 
   fn req(res: Option<VeoResolution>, dur: Option<VeoDuration>) -> Veo31Request {
-    Veo31Request { prompt: "p".into(), negative_prompt: None, image: None, aspect_ratio: None, resolution: res, duration: dur }
+    Veo31Request { prompt: "p".into(), negative_prompt: None, image: None, last_frame: None, reference_images: vec![], video_uri: None, person_generation: None, aspect_ratio: None, resolution: res, duration: dur }
   }
 
   #[test]
@@ -39,5 +39,61 @@ mod tests {
     assert_eq!(req(Some(VeoResolution::P1080), Some(VeoDuration::S4)).cost_micros(), Micros(1_600_000));
     assert_eq!(req(Some(VeoResolution::K4), Some(VeoDuration::S8)).cost_micros(), Micros(4_800_000));
     assert_eq!(req(None, None).cost_certainty(), CostCertainty::Exact);
+  }
+}
+
+
+use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+
+impl BetterCostEstimator for Veo31Request {
+  fn estimate_cost(&self) -> CostBreakdown {
+    let per_second: i64 = match self.resolution.unwrap_or(VeoResolution::P720) {
+      VeoResolution::P720 | VeoResolution::P1080 => 400_000,
+      VeoResolution::K4 => 600_000,
+    };
+    let resolution = self.resolution.unwrap_or(VeoResolution::P720);
+    let seconds = self.duration.unwrap_or(VeoDuration::S8).seconds();
+    CostBreakdown::from_components(
+      CostFormula {
+        display: "seconds × rate(resolution); billed only on successful generation",
+        rates: [("720p", 400_000), ("1080p", 400_000), ("4k", 600_000)]
+          .iter()
+          .map(|(value, price)| RateRow {
+            dimension: "resolution",
+            value: value.to_string(),
+            unit: CostUnit::PerVideoSecond,
+            price_micros: *price,
+          })
+          .collect(),
+      },
+      vec![
+        CostComponent::new(
+          format!("Video output ({}s @ {})", seconds, resolution.as_str()),
+          CostUnit::PerVideoSecond,
+          per_second,
+          CostQuantity::Exact(seconds as f64),
+        )
+        .with_note("audio included; safety-blocked generations are not charged"),
+      ],
+      false,
+    )
+  }
+}
+
+#[cfg(test)]
+mod better_tests {
+  use super::*;
+  use client_core::CostCertainty;
+
+  #[test]
+  fn matches_legacy_and_is_exact() {
+    let request = Veo31Request {
+      prompt: "p".into(), negative_prompt: None, image: None, last_frame: None, reference_images: vec![],
+      video_uri: None, person_generation: None, aspect_ratio: None, resolution: None, duration: None,
+    };
+    let breakdown = request.estimate_cost();
+    assert_eq!(breakdown.amount.micros(), request.cost_micros());
+    assert_eq!(breakdown.amount.certainty(), CostCertainty::Exact);
+    assert_eq!(breakdown.components[0].quantity, CostQuantity::Exact(8.0));
   }
 }

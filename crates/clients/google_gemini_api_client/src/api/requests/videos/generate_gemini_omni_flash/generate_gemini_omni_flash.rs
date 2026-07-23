@@ -20,7 +20,7 @@ use serde::Serialize;
 
 use crate::api::requests::interactions::common::{
   run_background_interaction, GenerationConfigWire, InputItem, InteractionRequestBody, InteractionSuccess,
-  ResponseFormatWire, VideoConfigWire,
+  InteractionUsage, ResponseFormatWire, VideoConfigWire,
 };
 use crate::api::types::image_types::image_input::ImageInput;
 use crate::api::types::video_types::omni_aspect_ratio::OmniAspectRatio;
@@ -108,6 +108,9 @@ pub struct GenerateOmniVideoSuccess {
   pub text: Option<String>,
   /// Pass back as `previous_interaction_id` for conversational edits.
   pub interaction_id: Option<String>,
+  /// Provider-reported token usage — the authoritative basis of Omni's
+  /// token-billed cost (the pre-call number is only an estimate).
+  pub usage: Option<InteractionUsage>,
 }
 
 /// Start a background video generation/edit. Returns the interaction handle
@@ -147,7 +150,7 @@ pub fn omni_video_success_from_interaction(
       .into(),
     );
   }
-  Ok(GenerateOmniVideoSuccess { videos, text, interaction_id: interaction.interaction_id })
+  Ok(GenerateOmniVideoSuccess { videos, text, interaction_id: interaction.interaction_id, usage: interaction.usage })
 }
 
 pub(crate) fn build_body(request: &GeminiOmniFlashRequest) -> InteractionRequestBody {

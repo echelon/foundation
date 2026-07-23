@@ -123,6 +123,7 @@ mod tests {
     assert!(!success.images.is_empty(), "expected at least one image");
     assert!(success.images[0].mime.starts_with("image/"));
     assert!(success.images[0].bytes.len() > 1_000, "suspiciously small image");
+    assert!(success.usage.is_some(), "expected usageMetadata to parse");
     Ok(())
   }
 }

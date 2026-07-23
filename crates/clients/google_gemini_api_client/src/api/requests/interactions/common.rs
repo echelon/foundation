@@ -159,6 +159,14 @@ pub(crate) struct InteractionResponseBody {
   #[serde(default, alias = "output", alias = "outputs")]
   content: Vec<ContentItemIn>,
   pub(crate) error: Option<InteractionErrorIn>,
+  usage: Option<InteractionUsageIn>,
+}
+
+#[derive(Deserialize, Debug)]
+struct InteractionUsageIn {
+  total_tokens: Option<i64>,
+  total_input_tokens: Option<i64>,
+  total_output_tokens: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -205,13 +213,24 @@ pub struct InteractionItem {
   pub text: Option<String>,
 }
 
+/// Token usage as the Interactions API reported it — the AUTHORITATIVE
+/// numbers for reconciling estimated (token-billed) costs post-call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct InteractionUsage {
+  pub total_tokens: Option<i64>,
+  pub total_input_tokens: Option<i64>,
+  pub total_output_tokens: Option<i64>,
+}
+
 /// A completed interaction.
 #[derive(Clone, Debug)]
 pub struct InteractionSuccess {
   /// Pass back as `previous_interaction_id` for stateful/conversational edits.
   pub interaction_id: Option<String>,
-  /// Every content item across all steps, in order.
+  /// Every model_output content item, in order.
   pub items: Vec<InteractionItem>,
+  /// Provider-reported token usage, when present.
+  pub usage: Option<InteractionUsage>,
 }
 
 impl InteractionSuccess {
@@ -231,6 +250,11 @@ impl InteractionSuccess {
 /// (and legacy top-level content) count — completed background interactions
 /// echo the caller's `user_input` step, which must never leak into results.
 pub(crate) fn items_from_body(parsed: InteractionResponseBody) -> Result<InteractionSuccess, GoogleGeminiError> {
+  let usage = parsed.usage.as_ref().map(|u| InteractionUsage {
+    total_tokens: u.total_tokens,
+    total_input_tokens: u.total_input_tokens,
+    total_output_tokens: u.total_output_tokens,
+  });
   let mut items = Vec::new();
   let step_content = parsed
     .steps
@@ -255,7 +279,7 @@ pub(crate) fn items_from_body(parsed: InteractionResponseBody) -> Result<Interac
       text: item.text,
     });
   }
-  Ok(InteractionSuccess { interaction_id: parsed.id, items })
+  Ok(InteractionSuccess { interaction_id: parsed.id, items, usage })
 }
 
 /// The handle a background start returns — poll it with

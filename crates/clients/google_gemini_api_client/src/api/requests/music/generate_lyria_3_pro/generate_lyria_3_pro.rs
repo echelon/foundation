@@ -52,6 +52,14 @@ pub struct Lyria3ProRequest {
 /// Start a background music generation. Returns the interaction handle to poll.
 pub async fn generate_lyria_3_pro(args: GenerateLyria3ProArgs<'_>) -> Result<InteractionHandle, GoogleGeminiError> {
   let GenerateLyria3ProArgs { api_key, request } = args;
+  if request.images.len() > 10 {
+    return Err(
+      crate::error::google_gemini_client_error::GoogleGeminiClientError::InvalidRequest(
+        "Lyria accepts at most 10 inspiration images".to_string(),
+      )
+      .into(),
+    );
+  }
   let body = build_body(&request);
   run_background_interaction(api_key, &body).await
 }

@@ -40,6 +40,24 @@ pub(crate) struct VeoInstance {
   pub prompt: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub image: Option<VeoImageWire>,
+  #[serde(rename = "lastFrame", skip_serializing_if = "Option::is_none")]
+  pub last_frame: Option<VeoImageWire>,
+  #[serde(rename = "referenceImages", skip_serializing_if = "Option::is_none")]
+  pub reference_images: Option<Vec<VeoReferenceImageWire>>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub video: Option<VeoVideoWire>,
+}
+
+#[derive(Serialize, Debug)]
+pub(crate) struct VeoReferenceImageWire {
+  pub image: VeoImageWire,
+  #[serde(rename = "referenceType")]
+  pub reference_type: &'static str, // always "asset"
+}
+
+#[derive(Serialize, Debug)]
+pub(crate) struct VeoVideoWire {
+  pub uri: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -62,6 +80,8 @@ pub(crate) struct VeoParametersWire {
   pub duration_seconds: Option<i64>,
   #[serde(rename = "negativePrompt", skip_serializing_if = "Option::is_none")]
   pub negative_prompt: Option<String>,
+  #[serde(rename = "personGeneration", skip_serializing_if = "Option::is_none")]
+  pub person_generation: Option<String>,
 }
 
 // ── Shared public types ──
@@ -78,15 +98,24 @@ struct StartResponseBody {
 
 /// Assemble the exact outbound body — separate from the send so shape tests
 /// can assert it byte-for-byte.
-pub(crate) fn build_veo_body(
-  prompt: &str,
-  image: Option<&VeoImageInput>,
-  aspect_ratio: Option<&str>,
-  resolution: Option<&str>,
-  duration_seconds: Option<i64>,
-  negative_prompt: Option<&str>,
-) -> PredictLongRunningBody {
-  let image = image.map(|i| match i {
+/// Everything a Veo start-body can carry (named fields per the args-struct
+/// rule — the positional run was outgrowing itself).
+pub(crate) struct VeoBodyParts<'a> {
+  pub prompt: &'a str,
+  pub image: Option<&'a VeoImageInput>,
+  pub last_frame: Option<&'a VeoImageInput>,
+  pub reference_images: &'a [VeoImageInput],
+  /// A previous Veo generation to EXTEND (its result URI).
+  pub video_uri: Option<&'a str>,
+  pub aspect_ratio: Option<&'a str>,
+  pub resolution: Option<&'a str>,
+  pub duration_seconds: Option<i64>,
+  pub negative_prompt: Option<&'a str>,
+  pub person_generation: Option<&'a str>,
+}
+
+pub(crate) fn image_wire(input: &VeoImageInput) -> VeoImageWire {
+  match input {
     VeoImageInput::FileUri { uri, mime } => VeoImageWire {
       bytes_base64_encoded: None,
       file_uri: Some(uri.clone()),
@@ -97,14 +126,35 @@ pub(crate) fn build_veo_body(
       file_uri: None,
       mime_type: mime.clone(),
     },
-  });
+  }
+}
+
+pub(crate) fn build_veo_body(parts: VeoBodyParts<'_>) -> PredictLongRunningBody {
+  let reference_images = if parts.reference_images.is_empty() {
+    None
+  } else {
+    Some(
+      parts
+        .reference_images
+        .iter()
+        .map(|r| VeoReferenceImageWire { image: image_wire(r), reference_type: "asset" })
+        .collect(),
+    )
+  };
   PredictLongRunningBody {
-    instances: vec![VeoInstance { prompt: prompt.to_string(), image }],
+    instances: vec![VeoInstance {
+      prompt: parts.prompt.to_string(),
+      image: parts.image.map(image_wire),
+      last_frame: parts.last_frame.map(image_wire),
+      reference_images,
+      video: parts.video_uri.map(|uri| VeoVideoWire { uri: uri.to_string() }),
+    }],
     parameters: VeoParametersWire {
-      aspect_ratio: aspect_ratio.map(str::to_string),
-      resolution: resolution.map(str::to_string),
-      duration_seconds,
-      negative_prompt: negative_prompt.map(str::to_string),
+      aspect_ratio: parts.aspect_ratio.map(str::to_string),
+      resolution: parts.resolution.map(str::to_string),
+      duration_seconds: parts.duration_seconds,
+      negative_prompt: parts.negative_prompt.map(str::to_string),
+      person_generation: parts.person_generation.map(str::to_string),
     },
   }
 }

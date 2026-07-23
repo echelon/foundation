@@ -73,6 +73,11 @@ pub struct Gemini35FlashLiteRequest {
   /// Continue a stored server-side conversation.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub previous_interaction_id: Option<String>,
+
+  /// `false` opts out of server-side storage (disables continuation; also
+  /// incompatible with background mode — rejected client-side there).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub store: Option<bool>,
 }
 
 /// Run a chat completion (synchronous — see module docs). Returns the reply.
@@ -90,6 +95,7 @@ pub async fn chat_gemini_3_5_flash_lite(args: ChatGemini35FlashLiteArgs<'_>) -> 
       tools: &request.tools,
       response_json_schema: request.response_json_schema.as_ref(),
       previous_interaction_id: request.previous_interaction_id.as_deref(),
+      store: request.store,
     },
     false,
   )?;
@@ -115,6 +121,7 @@ mod tests {
       tools: &request.tools,
       response_json_schema: request.response_json_schema.as_ref(),
       previous_interaction_id: request.previous_interaction_id.as_deref(),
+      store: request.store,
     }
   }
 
@@ -131,6 +138,7 @@ mod tests {
       tools: vec![],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let body = build_chat_body(GEMINI_3_5_FLASH_LITE_MODEL_ID, &knobs_of(&request), false).unwrap();
     assert_eq!(
@@ -161,6 +169,7 @@ mod tests {
       tools: vec![GeminiChatTool::GoogleSearch],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let body = build_chat_body(GEMINI_3_5_FLASH_LITE_MODEL_ID, &knobs_of(&request), false).unwrap();
     assert_eq!(
@@ -194,9 +203,11 @@ mod tests {
       tools: vec![],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let chat = chat_gemini_3_5_flash_lite(ChatGemini35FlashLiteArgs { api_key: &api_key, request }).await?;
     assert!(chat.text.to_lowercase().contains("pineapple"), "unexpected reply: {}", chat.text);
+    assert!(chat.usage.is_some(), "expected interaction usage to parse");
     Ok(())
   }
 }

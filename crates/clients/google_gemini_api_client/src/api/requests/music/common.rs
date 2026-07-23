@@ -1,6 +1,6 @@
 //! Shared response mapping for the Lyria music bindings.
 
-use crate::api::requests::interactions::common::InteractionSuccess;
+use crate::api::requests::interactions::common::{InteractionSuccess, InteractionUsage};
 use crate::error::google_gemini_error::GoogleGeminiError;
 use crate::error::google_gemini_generic_api_error::GoogleGeminiGenericApiError;
 
@@ -22,6 +22,8 @@ pub struct GenerateMusicSuccess {
   pub lyrics: Option<String>,
   /// Pass back as `previous_interaction_id` for follow-up edits.
   pub interaction_id: Option<String>,
+  /// Provider-reported token usage, when present.
+  pub usage: Option<InteractionUsage>,
 }
 
 /// Map a COMPLETED interaction's items into music output (used after a
@@ -49,5 +51,5 @@ pub fn music_success_from_interaction(
       .into(),
     );
   }
-  Ok(GenerateMusicSuccess { audio, lyrics, interaction_id: interaction.interaction_id })
+  Ok(GenerateMusicSuccess { audio, lyrics, interaction_id: interaction.interaction_id, usage: interaction.usage })
 }

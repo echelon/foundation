@@ -72,6 +72,11 @@ pub struct Gemini36FlashRequest {
   /// Continue a stored server-side conversation.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub previous_interaction_id: Option<String>,
+
+  /// `false` opts out of server-side storage (disables continuation; also
+  /// incompatible with background mode — rejected client-side there).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub store: Option<bool>,
 }
 
 /// Start a background chat completion. Returns the interaction handle to poll.
@@ -89,6 +94,7 @@ pub async fn chat_gemini_3_6_flash(args: ChatGemini36FlashArgs<'_>) -> Result<In
       tools: &request.tools,
       response_json_schema: request.response_json_schema.as_ref(),
       previous_interaction_id: request.previous_interaction_id.as_deref(),
+      store: request.store,
     },
     true,
   )?;
@@ -113,6 +119,7 @@ mod tests {
       tools: &request.tools,
       response_json_schema: request.response_json_schema.as_ref(),
       previous_interaction_id: request.previous_interaction_id.as_deref(),
+      store: request.store,
     }
   }
 
@@ -129,6 +136,7 @@ mod tests {
       tools: vec![],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let body = build_chat_body(GEMINI_3_6_FLASH_MODEL_ID, &knobs_of(&request), true).unwrap();
     assert_eq!(
@@ -160,6 +168,7 @@ mod tests {
       tools: vec![GeminiChatTool::GoogleSearch],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let body = build_chat_body(GEMINI_3_6_FLASH_MODEL_ID, &knobs_of(&request), true).unwrap();
     assert_eq!(
@@ -198,6 +207,7 @@ mod tests {
       tools: vec![],
       response_json_schema: None,
       previous_interaction_id: None,
+      store: None,
     };
     let handle = chat_gemini_3_6_flash(ChatGemini36FlashArgs { api_key: &api_key, request }).await?;
     for _ in 0..30 {

@@ -48,3 +48,64 @@ mod tests {
     assert_eq!(req(None).cost_certainty(), CostCertainty::Estimated);
   }
 }
+
+
+use client_core::{BetterCostEstimator, CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+
+impl BetterCostEstimator for GeminiOmniFlashRequest {
+  fn estimate_cost(&self) -> CostBreakdown {
+    let seconds = self.expected_output_seconds.unwrap_or(DEFAULT_ESTIMATED_SECONDS);
+    CostBreakdown::from_components(
+      CostFormula {
+        display: "output video tokens × $17.50/1M (≈ $0.10 per 720p second; length is prompt-driven)",
+        rates: vec![
+          RateRow {
+            dimension: "output",
+            value: "video (≈ per 720p second)".to_string(),
+            unit: CostUnit::PerVideoSecond,
+            price_micros: MICROS_PER_ESTIMATED_SECOND,
+          },
+          RateRow {
+            dimension: "output",
+            value: "video tokens".to_string(),
+            unit: CostUnit::PerMillionOutputTokens,
+            price_micros: 17_500_000,
+          },
+          RateRow {
+            dimension: "output",
+            value: "text tokens".to_string(),
+            unit: CostUnit::PerMillionOutputTokens,
+            price_micros: 9_000_000,
+          },
+        ],
+      },
+      vec![
+        CostComponent::new(
+          format!("Video output (~{seconds}s @ ~720p)"),
+          CostUnit::PerVideoSecond,
+          MICROS_PER_ESTIMATED_SECOND,
+          CostQuantity::Estimated(seconds as f64),
+        )
+        .with_note("token-billed; output length is prompt-driven — provider usage is authoritative"),
+      ],
+      true,
+    )
+  }
+}
+
+#[cfg(test)]
+mod better_tests {
+  use super::*;
+  use client_core::CostCertainty;
+
+  #[test]
+  fn matches_legacy_and_is_estimated() {
+    let request = GeminiOmniFlashRequest {
+      prompt: "p".into(), images: vec![], video_file_uri: None, task: None, aspect_ratio: None,
+      delivery: None, previous_interaction_id: None, store: None, expected_output_seconds: Some(4),
+    };
+    let breakdown = request.estimate_cost();
+    assert_eq!(breakdown.amount.micros(), request.cost_micros());
+    assert_eq!(breakdown.amount.certainty(), CostCertainty::Estimated);
+  }
+}

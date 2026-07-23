@@ -90,6 +90,18 @@ pub(crate) struct ImageConfig {
 #[derive(Deserialize, Debug)]
 pub(crate) struct GenerateContentResponseBody {
   pub candidates: Option<Vec<Candidate>>,
+  #[serde(rename = "usageMetadata")]
+  pub usage_metadata: Option<UsageMetadataIn>,
+}
+
+#[derive(Deserialize, Debug)]
+pub(crate) struct UsageMetadataIn {
+  #[serde(rename = "promptTokenCount")]
+  pub prompt_token_count: Option<i64>,
+  #[serde(rename = "candidatesTokenCount")]
+  pub candidates_token_count: Option<i64>,
+  #[serde(rename = "totalTokenCount")]
+  pub total_token_count: Option<i64>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -129,6 +141,17 @@ pub struct GeneratedImage {
   pub bytes: Vec<u8>,
 }
 
+/// Token usage as the provider reported it — the AUTHORITATIVE numbers for
+/// reconciling estimated costs after the call.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct GeminiTokenUsage {
+  pub prompt_tokens: Option<i64>,
+  /// Output tokens (Gemini's `candidatesTokenCount`; thinking tokens included
+  /// where the model thinks).
+  pub output_tokens: Option<i64>,
+  pub total_tokens: Option<i64>,
+}
+
 /// The outcome of one image generation call.
 #[derive(Debug, Clone)]
 pub struct GenerateImageSuccess {
@@ -136,6 +159,8 @@ pub struct GenerateImageSuccess {
   pub images: Vec<GeneratedImage>,
   /// The `finishReason` reported per candidate (e.g. `"STOP"`), in order.
   pub finish_reasons: Vec<Option<String>>,
+  /// Provider-reported token usage, when present.
+  pub usage: Option<GeminiTokenUsage>,
 }
 
 /// Build the exact outbound body for a generate call — separate from the send
@@ -202,6 +227,11 @@ pub(crate) async fn run_generate_content(
   let parsed: GenerateContentResponseBody = serde_json::from_str(&response_body)
     .map_err(|e| GoogleGeminiGenericApiError::SerdeResponseParseErrorWithBody(e, response_body))?;
 
+  let usage = parsed.usage_metadata.map(|u| GeminiTokenUsage {
+    prompt_tokens: u.prompt_token_count,
+    output_tokens: u.candidates_token_count,
+    total_tokens: u.total_token_count,
+  });
   let mut images = Vec::new();
   let mut finish_reasons = Vec::new();
   for candidate in parsed.candidates.unwrap_or_default() {
@@ -223,5 +253,5 @@ pub(crate) async fn run_generate_content(
       .into(),
     );
   }
-  Ok(GenerateImageSuccess { images, finish_reasons })
+  Ok(GenerateImageSuccess { images, finish_reasons, usage })
 }
