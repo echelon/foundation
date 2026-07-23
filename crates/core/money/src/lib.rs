@@ -10,7 +10,3 @@ pub mod units;
 
 pub use units::micro_usd::MicroUsd;
 pub use units::nano_usd::NanoUsd;
-
-/// Transitional alias for the pre-rename type name — new code writes
-/// [`MicroUsd`]; this dies once nothing spells `Micros` anymore.
-pub use units::micro_usd::MicroUsd as Micros;
