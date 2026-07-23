@@ -81,8 +81,8 @@ fn to_poll_result(body: RecordInfoResponseBody) -> PollResult {
 
   let error = body.error.map(|e| PollError {
     code: e.code.map(|c| match c {
-      serde_json::Value::String(s) => s,
-      other => other.to_string(),
+      crate::api::requests::video::poll_task::request_types::KinoviErrorCode::Text(s) => s,
+      crate::api::requests::video::poll_task::request_types::KinoviErrorCode::Number(n) => n.to_string(),
     }),
     message: e.message,
   });

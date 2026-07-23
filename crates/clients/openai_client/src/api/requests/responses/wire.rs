@@ -4,6 +4,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use client_core::JsonSchemaDef;
+
 use crate::api::types::chat_types::chat_role::ChatRole;
 use crate::api::types::chat_types::reasoning_effort::ReasoningEffort;
 use crate::api::types::image_types::image_action::ImageAction;
@@ -63,7 +65,7 @@ pub(crate) struct JsonSchemaFormatWire {
   #[serde(rename = "type")]
   pub kind: &'static str, // always "json_schema"
   pub name: String,
-  pub schema: serde_json::Value,
+  pub schema: JsonSchemaDef,
   pub strict: bool,
 }
 

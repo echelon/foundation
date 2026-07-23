@@ -13,6 +13,7 @@
 
 pub mod app;
 pub mod auth;
+pub mod audit_data;
 pub mod authz;
 pub mod avatar_links;
 pub mod business_names;

@@ -41,7 +41,7 @@ pub async fn update_business_name(
       event: AuditEvent::BusinessNameChanged,
       target_type: None,
       target_id: None,
-      data: Some(serde_json::json!({ "from": before.business_name, "to": account.business_name })),
+      data: Some(crate::audit_data::AuditData { from: before.business_name.clone(), to: account.business_name.clone(), ..Default::default() }.value()),
       ip,
     },
   )

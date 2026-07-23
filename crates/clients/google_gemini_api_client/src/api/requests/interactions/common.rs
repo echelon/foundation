@@ -139,7 +139,7 @@ pub(crate) struct GenerationConfigWire {
   pub thinking_level: Option<crate::api::types::chat_types::thinking_level::ThinkingLevel>,
   /// Structured output: a JSON Schema the response must conform to.
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub response_json_schema: Option<serde_json::Value>,
+  pub response_json_schema: Option<client_core::JsonSchemaDef>,
 }
 
 #[derive(Serialize, Debug)]

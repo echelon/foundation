@@ -46,10 +46,19 @@ pub(crate) struct RecordInfoOutput {
   pub last_frame_image: Option<String>,
 }
 
+/// Kinovi's error `code` arrives as a number OR a string depending on the
+/// failure path — a typed union, never a bare `serde_json::Value`.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub(crate) enum KinoviErrorCode {
+  Number(i64),
+  Text(String),
+}
+
 #[derive(Deserialize, Debug)]
 pub(crate) struct RecordInfoError {
   #[serde(default)]
-  pub code: Option<serde_json::Value>,
+  pub code: Option<KinoviErrorCode>,
 
   #[serde(default)]
   pub message: String,

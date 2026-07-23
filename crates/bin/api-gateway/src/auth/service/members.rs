@@ -43,7 +43,7 @@ pub async fn remove_member(
 
   let mut tx = pool.begin().await?;
   members::delete_membership(&mut *tx, account_id, target_user_id).await?;
-  let data = serde_json::json!({ "account_id": account_id, "role": target.role });
+  let data = crate::audit_data::AuditData { account_id: Some(account_id.clone()), role: Some(target.role), ..Default::default() }.value();
   user_audit_logs::create_user_audit_log(
     &mut *tx,
     user_audit_logs::NewUserAuditLog {
@@ -66,7 +66,7 @@ pub async fn remove_member(
       event: AuditEvent::MemberRemoved,
       target_type: None,
       target_id: None,
-      data: Some(serde_json::json!({ "role": target.role })),
+      data: Some(crate::audit_data::AuditData { role: Some(target.role), ..Default::default() }.value()),
       ip,
     },
   )

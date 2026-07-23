@@ -270,7 +270,7 @@ pub struct CostResponse {
   pub display: String,
   pub line_items: Vec<CostLineItem>,
   /// Params the router pruned/coerced to fit the model.
-  pub param_adjustments: serde_json::Value,
+  pub param_adjustments: Vec<crate::generation::job_response::ParamAdjustmentBody>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -303,6 +303,7 @@ pub fn cost_response(params: &StoredImageParams) -> ApiResult<CostResponse> {
       .map(|li| CostLineItem { label: li.label.clone(), amount_micros: li.amount_micros })
       .collect(),
     param_adjustments: serde_json::to_value(&built.adjustments)
+      .and_then(serde_json::from_value)
       .map_err(|e| ApiError::Internal(e.to_string()))?,
   })
 }

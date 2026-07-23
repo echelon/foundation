@@ -108,8 +108,11 @@ mod tests {
     req.previous_response_id = Some("resp_prior".to_string());
     req.response_json_schema = Some(JsonSchemaFormat {
       name: "date_extraction".to_string(),
-      schema: serde_json::json!({ "type": "object", "properties": { "date": { "type": "string" } },
-                                  "required": ["date"], "additionalProperties": false }),
+      schema: client_core::JsonSchemaDef::new(serde_json::json!({
+        "type": "object", "properties": { "date": { "type": "string" } },
+        "required": ["date"], "additionalProperties": false
+      }))
+      .unwrap(),
       strict: true,
     });
     let body = serde_json::to_value(build_chat_body(&ChatModel::Gpt5_4Nano, &knobs(&req)).unwrap()).unwrap();
@@ -216,12 +219,13 @@ mod live_new_params {
     req.reasoning_effort = Some(ReasoningEffort::Low);
     req.response_json_schema = Some(JsonSchemaFormat {
       name: "date_extraction".to_string(),
-      schema: serde_json::json!({
+      schema: client_core::JsonSchemaDef::new(serde_json::json!({
         "type": "object",
         "properties": { "date": { "type": "string" } },
         "required": ["date"],
         "additionalProperties": false
-      }),
+      }))
+      .unwrap(),
       strict: true,
     });
     let started = chat_gpt_5_4_nano(ChatGpt5_4NanoArgs { api_key: &key, request: req })

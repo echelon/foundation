@@ -28,7 +28,7 @@ pub(crate) struct ChatKnobs<'a> {
   pub max_output_tokens: Option<u32>,
   pub thinking_level: Option<ThinkingLevel>,
   pub tools: &'a [GeminiChatTool],
-  pub response_json_schema: Option<&'a serde_json::Value>,
+  pub response_json_schema: Option<&'a client_core::JsonSchemaDef>,
   pub previous_interaction_id: Option<&'a str>,
   pub store: Option<bool>,
 }

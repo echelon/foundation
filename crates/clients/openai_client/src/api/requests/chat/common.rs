@@ -1,7 +1,7 @@
 //! Shared chat plumbing: every LLM binding builds a background `/v1/responses` body from
 //! its messages, and shares one token-based cost estimator.
 
-use client_core::{CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, RateRow};
+use client_core::{CostBreakdown, CostComponent, CostFormula, CostQuantity, CostUnit, JsonSchemaDef, RateRow};
 
 use crate::api::requests::responses::create_response::{create_background_response, StartedResponse};
 use crate::api::requests::responses::wire::{
@@ -24,8 +24,9 @@ pub(crate) const DEFAULT_ASSUMED_OUTPUT_TOKENS: u64 = 512;
 pub struct JsonSchemaFormat {
   /// Schema name (shown in refusals/logs).
   pub name: String,
-  /// The JSON Schema itself.
-  pub schema: serde_json::Value,
+  /// The JSON Schema itself (the one sanctioned opaque-JSON boundary —
+  /// validated at construction, never a bare `serde_json::Value`).
+  pub schema: JsonSchemaDef,
   /// Enforce the schema exactly (recommended).
   pub strict: bool,
 }

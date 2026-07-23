@@ -11,6 +11,26 @@ use ids::JobId;
 
 use crate::state::AppState;
 
+/// One router param adjustment, typed (mirrors `foundation_router`'s
+/// `ParamAdjustment`; request/response structs never carry bare json).
+#[derive(Debug, Clone, Serialize, serde::Deserialize, ToSchema)]
+pub struct ParamAdjustmentBody {
+  /// Which request param was touched.
+  pub param: String,
+  pub action: ParamAdjustmentAction,
+  /// Human-readable what/why.
+  pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ParamAdjustmentAction {
+  /// The param was dropped (model doesn't support it).
+  Pruned,
+  /// The value was changed to the nearest supported one.
+  Coerced,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct JobOutputBody {
   pub index: i32,
@@ -58,7 +78,7 @@ pub struct JobBody {
   /// Estimated total price in USD micros (billing is stubbed this iteration).
   pub estimated_micros: i64,
   /// Param adjustments the router made (api_any.md) — pruned/coerced params.
-  pub param_adjustments: serde_json::Value,
+  pub param_adjustments: Vec<ParamAdjustmentBody>,
   pub created_at: chrono::DateTime<chrono::Utc>,
   pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -143,7 +163,7 @@ pub fn job_body(state: &AppState, job: &Job, slices: &[JobSlice], outputs: &[Out
     failure_code: job.failure_code.clone(),
     failure_message: job.failure_message.clone(),
     estimated_micros: estimated,
-    param_adjustments: job.param_adjustments.clone(),
+    param_adjustments: serde_json::from_value(job.param_adjustments.clone()).unwrap_or_default(),
     created_at: job.created_at,
     completed_at: job.completed_at,
   }

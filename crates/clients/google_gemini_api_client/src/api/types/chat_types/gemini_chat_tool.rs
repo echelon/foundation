@@ -11,8 +11,9 @@ pub enum GeminiChatTool {
   CodeExecution,
   /// Let the model fetch URLs mentioned in the prompt.
   UrlContext,
-  /// A caller-executed function (JSON-Schema parameters).
-  Function { name: String, description: String, parameters: serde_json::Value },
+  /// A caller-executed function (JSON-Schema parameters — the one sanctioned
+  /// opaque-JSON boundary, validated at construction).
+  Function { name: String, description: String, parameters: client_core::JsonSchemaDef },
 }
 
 impl Serialize for GeminiChatTool {

@@ -67,7 +67,7 @@ pub async fn create_api_key(
       event: AuditEvent::ApiKeyCreated,
       target_type: Some("api_key"),
       target_id: Some(api_key.id.as_str()),
-      data: Some(serde_json::json!({ "title": args.title, "key_prefix": key_prefix })),
+      data: Some(crate::audit_data::AuditData { title: Some(args.title.to_string()), key_prefix: Some(key_prefix.to_string()), ..Default::default() }.value()),
       ip: args.ip,
     },
   )

@@ -124,7 +124,7 @@ pub async fn link_sso(pool: &db::PgPool, user: &User, args: SsoLoginArgs<'_>, ip
       event: AuditEvent::SsoConnected,
       target_type: Some("sso_connection"),
       target_id: Some(conn.id.as_str()),
-      data: Some(serde_json::json!({ "provider": args.provider })),
+      data: Some(crate::audit_data::AuditData { provider: Some(args.provider.to_string()), ..Default::default() }.value()),
       ip,
     },
   )
@@ -167,7 +167,7 @@ pub async fn unlink_sso(
       event: AuditEvent::SsoDisconnected,
       target_type: Some("sso_connection"),
       target_id: Some(sso_id.as_str()),
-      data: Some(serde_json::json!({ "provider": conn.provider })),
+      data: Some(crate::audit_data::AuditData { provider: Some(conn.provider.to_string()), ..Default::default() }.value()),
       ip,
     },
   )

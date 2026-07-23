@@ -7,5 +7,7 @@ publish.workspace = true
 
 [dependencies]
 reqwest.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 money.workspace = true
 tracing.workspace = true

@@ -45,9 +45,9 @@ pub struct UserAuditLogItem {
   pub actor_user_id: Option<UserId>,
   pub target_type: Option<String>,
   pub target_id: Option<String>,
-  /// Event-specific payload (freeform).
-  #[schema(value_type = Option<Object>)]
-  pub data: Option<serde_json::Value>,
+  /// Event-specific payload — the typed union of everything we write
+  /// ([`crate::audit_data::AuditData`]).
+  pub data: Option<crate::audit_data::AuditData>,
   pub is_org_visible: bool,
   pub ip: Option<String>,
   pub created_at: DateTime<Utc>,
@@ -61,7 +61,7 @@ impl From<UserAuditLog> for UserAuditLogItem {
       actor_user_id: r.actor_user_id,
       target_type: r.target_type,
       target_id: r.target_id,
-      data: r.data,
+      data: r.data.and_then(crate::audit_data::AuditData::parse),
       is_org_visible: r.is_org_visible,
       ip: r.ip,
       created_at: r.created_at,
@@ -81,9 +81,9 @@ pub struct AccountAuditLogItem {
   pub user_id: Option<UserId>,
   pub target_type: Option<String>,
   pub target_id: Option<String>,
-  /// Event-specific payload (freeform).
-  #[schema(value_type = Option<Object>)]
-  pub data: Option<serde_json::Value>,
+  /// Event-specific payload — the typed union of everything we write
+  /// ([`crate::audit_data::AuditData`]).
+  pub data: Option<crate::audit_data::AuditData>,
   pub ip: Option<String>,
   pub created_at: DateTime<Utc>,
 }
@@ -97,7 +97,7 @@ impl From<AccountAuditLog> for AccountAuditLogItem {
       user_id: r.user_id,
       target_type: r.target_type,
       target_id: r.target_id,
-      data: r.data,
+      data: r.data.and_then(crate::audit_data::AuditData::parse),
       ip: r.ip,
       created_at: r.created_at,
     }

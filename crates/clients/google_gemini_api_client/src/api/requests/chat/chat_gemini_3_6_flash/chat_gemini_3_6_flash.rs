@@ -67,7 +67,7 @@ pub struct Gemini36FlashRequest {
 
   /// Structured output: a JSON Schema the response must conform to.
   #[serde(skip_serializing_if = "Option::is_none")]
-  pub response_json_schema: Option<serde_json::Value>,
+  pub response_json_schema: Option<client_core::JsonSchemaDef>,
 
   /// Continue a stored server-side conversation.
   #[serde(skip_serializing_if = "Option::is_none")]

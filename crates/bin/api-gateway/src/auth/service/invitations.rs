@@ -60,7 +60,7 @@ pub async fn create_invitation(
         event: AuditEvent::InvitationRevoked,
         target_type: Some("invitation"),
         target_id: Some(old_id.as_str()),
-        data: Some(serde_json::json!({ "email": email_canon, "superseded": true })),
+        data: Some(crate::audit_data::AuditData { email: Some(email_canon.clone()), superseded: Some(true), ..Default::default() }.value()),
         ip: None,
       },
     )
@@ -103,7 +103,7 @@ pub async fn create_invitation(
       event: AuditEvent::InvitationSent,
       target_type: Some("invitation"),
       target_id: Some(invitation.id.as_str()),
-      data: Some(serde_json::json!({ "email": email_canon, "role": role })),
+      data: Some(crate::audit_data::AuditData { email: Some(email_canon.clone()), role: Some(role), ..Default::default() }.value()),
       ip: None,
     },
   )
@@ -179,7 +179,7 @@ pub async fn cancel_invitation(
       event: AuditEvent::InvitationRevoked,
       target_type: Some("invitation"),
       target_id: Some(invitation_id.as_str()),
-      data: Some(serde_json::json!({ "email": inv.email })),
+      data: Some(crate::audit_data::AuditData { email: Some(inv.email.clone()), ..Default::default() }.value()),
       ip,
     },
   )
@@ -222,7 +222,7 @@ pub(crate) async fn accept_open_invitation(
       &mut **tx,
       user_id,
       AuditEvent::MemberAdded,
-      Some(serde_json::json!({ "account_id": inv.account_id, "role": inv.role })),
+      Some(crate::audit_data::AuditData { account_id: Some(inv.account_id.clone()), role: Some(inv.role), ..Default::default() }.value()),
       ip,
     )
     .await?;
@@ -235,7 +235,7 @@ pub(crate) async fn accept_open_invitation(
         event: AuditEvent::MemberAdded,
         target_type: None,
         target_id: None,
-        data: Some(serde_json::json!({ "role": inv.role })),
+        data: Some(crate::audit_data::AuditData { role: Some(inv.role), ..Default::default() }.value()),
         ip,
       },
     )

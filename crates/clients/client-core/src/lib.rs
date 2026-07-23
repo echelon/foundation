@@ -13,6 +13,7 @@
 use std::time::Duration;
 
 pub mod cost;
+pub mod json_schema;
 
 pub use cost::cost_calculator::CostCalculator;
 pub use cost::cost_amount::CostAmount;
@@ -23,6 +24,7 @@ pub use cost::cost_formula::CostFormula;
 pub use cost::cost_quantity::CostQuantity;
 pub use cost::cost_unit::CostUnit;
 pub use cost::rate_row::RateRow;
+pub use json_schema::JsonSchemaDef;
 pub use money::MicroUsd;
 
 /// Build a reqwest client with our provider-call defaults (connect + total timeouts).
