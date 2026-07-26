@@ -1432,6 +1432,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "kling_client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "client_core",
+ "money",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "test_data",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

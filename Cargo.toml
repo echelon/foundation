@@ -18,6 +18,7 @@ members = [
   # ── provider clients (pure HTTP) ──
   "crates/clients/client-core",
   "crates/clients/kinovi_client",
+  "crates/clients/kling_client",
   "crates/clients/openai_client",
   "crates/clients/google_gemini_api_client",
   "crates/clients/anthropic_client",
@@ -90,6 +91,7 @@ test_data = { path = "crates/testing/test_data" }
 foundation_router = { path = "crates/router" }
 google_gemini_dispatch = { path = "crates/workers/google-gemini-dispatch" }
 kinovi_client = { path = "crates/clients/kinovi_client" }
+kling_client = { path = "crates/clients/kling_client" }
 openai_client = { path = "crates/clients/openai_client" }
 google_gemini_api_client = { path = "crates/clients/google_gemini_api_client" }
 anthropic_client = { path = "crates/clients/anthropic_client" }
