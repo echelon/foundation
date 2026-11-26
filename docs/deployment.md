@@ -29,7 +29,7 @@ The default process runs the API and workers together. Set `TOKENCRAFT_PROCESS_R
 
 Deploy a gateway that supports migration overlap on the current schema before applying a newer migration. Each process checks the version, success flag, and checksum of every migration embedded in its binary. A newer binary becomes ready once its migrations are applied. An older binary can stay ready only if every later applied migration declares compatibility with its schema version.
 
-Add the declaration in the same transaction as the additive migration. The first migration to use overlap creates the compatibility table. For example, a future migration 70 reviewed against schema-69 binaries would include:
+Add the declaration in the same transaction as the additive migration. The first migration to use overlap creates the compatibility table. For example, a future migration 71 reviewed against schema-70 binaries would include:
 
 ```sql
 CREATE TABLE public.gateway_schema_compatibility (
@@ -40,7 +40,7 @@ CREATE TABLE public.gateway_schema_compatibility (
 
 INSERT INTO public.gateway_schema_compatibility
     (migration_version, oldest_gateway_schema)
-VALUES (70, 69);
+VALUES (71, 70);
 ```
 
 Later compatible migrations add their own rows. Keep the table writable only by trusted migration operators and readable by gateway roles. Verify the oldest supported API and worker against the changed schema, including writes and in-flight requests, before declaring compatibility. For a breaking change, drain the affected binaries before applying it or use separate additive and cleanup migrations. Missing declarations, unsuccessful migrations, and mismatched embedded checksums all fail readiness.
@@ -77,7 +77,7 @@ Run the image on your private ingress network. Supply the [hosted configuration]
 
 Use the same image with `--entrypoint admin-cli` and the argument `migrate` as a one-off job with the verified database connection. Then run the API and worker roles from that image. The [Compose quickstart](setup.md#start-with-docker-compose) provides local synthetic inference with its own disposable state.
 
-The **Container smoke** workflow builds both targets on pull requests, version tags, and manual runs. It verifies the Linux image architecture, source revision, release profile, and matching package versions. A version tag must match the package version, for example `v0.1.0`. The workflow applies migrations with the gateway image and checks request completion and usage with separate API and worker containers using restricted PostgreSQL credentials. It also exercises the demo's bundled connector, persistence across container recreation, and the optional console mount. Version tags and manual runs reload the archived gateway image and verify its image ID before upload. In the extracted CI artifact, run `sha256sum -c SHA256SUMS`, then load the tarball with `docker load -i tokencraft-gateway-0.1.0-linux-amd64.tar.gz` using the file's actual version.
+The **Container smoke** workflow builds both targets on pull requests, pushes to `main`, version tags, and manual runs. It verifies the Linux image architecture, source revision, release profile, and matching package versions. A version tag must match the package version, for example `v0.1.0`. The workflow applies migrations with the gateway image and starts two API replicas and a separate worker using restricted PostgreSQL credentials. It checks that the replicas share the organization quota, accepted requests replay across replicas, and the worker completes the original request and records its usage once. It also exercises the demo's bundled connector, persistence across container recreation, and the optional console mount. Version tags and manual runs reload the archived gateway image and verify its image ID before upload. In the extracted CI artifact, run `sha256sum -c SHA256SUMS`, then load the tarball with `docker load -i tokencraft-gateway-0.1.0-linux-amd64.tar.gz` using the file's actual version.
 
 ## Refresh reviewed rates
 

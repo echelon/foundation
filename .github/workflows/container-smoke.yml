@@ -3,6 +3,7 @@ name: Container smoke
 "on":
   pull_request:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -69,7 +70,7 @@ jobs:
             exit "$status"
           }
           trap cleanup EXIT
-          "${runtime[@]}" up --detach --no-build api worker
+          "${runtime[@]}" up --detach --no-build api api-peer worker
           test "$("${runtime[@]}" exec -T api id -u)" = 65532
           test "$("${runtime[@]}" exec -T api id -g)" = 65532
           "${runtime[@]}" run --rm --no-deps -T probe
@@ -107,7 +108,7 @@ jobs:
           curl --noproxy '*' -fsS http://localhost:3000/catalog/artcraft-v1.json \
             | cmp -s catalog/artcraft-v1.json -
       - name: Archive the versioned gateway image
-        if: github.event_name != 'pull_request'
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           PACKAGE_VERSION: ${{ steps.image_metadata.outputs.version }}
@@ -126,7 +127,7 @@ jobs:
           test "$(docker image inspect --format '{{.Id}}' "$release_image")" = "$TESTED_GATEWAY_ID"
           sha256sum "$filename" > SHA256SUMS
       - uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull_request'
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
         with:
           name: tokencraft-gateway-linux-amd64
           path: ${{ runner.temp }}/container/

@@ -56,15 +56,21 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  api:
+  api: &api
     <<: *gateway
-    environment:
+    environment: &api-environment
       <<: *gateway-environment
       TOKENCRAFT_PROCESS_ROLE: api
       API_GATEWAY_PORT: "4000"
     depends_on:
       grant-runtime:
         condition: service_completed_successfully
+
+  api-peer:
+    <<: *api
+    environment:
+      <<: *api-environment
+      API_GATEWAY_PORT: "4002"
 
   worker:
     <<: *gateway
@@ -83,6 +89,8 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    environment:
+      TOKENCRAFT_RUNTIME_APP_PASSWORD: "${TOKENCRAFT_RUNTIME_APP_PASSWORD:?Set the fixture runtime password}"
     tmpfs:
       - /tmp:mode=1777,size=16m
     volumes:

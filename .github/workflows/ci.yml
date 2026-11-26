@@ -19,6 +19,10 @@ jobs:
           pg_bindir="$(pg_config --bindir)"
           test -x "$pg_bindir/initdb"
           test -x "$pg_bindir/pg_ctl"
+      - name: Verify capacity policy and PostgreSQL quota
+        run: |
+          python3 -B -m unittest discover -s deploy/autoscaling -p test_policy.py
+          python3 -B deploy/autoscaling/verify_postgres.py --pg-bin-dir "$(pg_config --bindir)"
       - name: Test the launcher, provider mappings, shared enums, and Rust SDK
         run: cargo test --locked -p tokencraft -p provider_mapping -p enums -p tokencraft_sdk
       - name: Check gateway contracts and run the bundled connector
