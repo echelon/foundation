@@ -2,6 +2,8 @@
 
 Use the [OpenAPI 3.1 snapshot](../contracts/openapi.json) for HTTP clients and the [connector primitive registry](../crates/core/provider-mapping/schemas/v1.json) for provider mappings. A running gateway serves these contracts at `GET /openapi.json` and `GET /v1/schemas/primitives`. The OpenAPI catalog operations distinguish public offers and model quotes from project-scoped quotes.
 
+Open `/docs/api` in the console for individual operation pages. The [API schema walkthrough](api-schema.md) explains the shared conventions from quote through delivery.
+
 ## Manage project webhooks
 
 When the operator configures webhook destinations, organization owners and administrators use their session cookie and the `account_id` query parameter to manage subscriptions and inspect deliveries. List the project's destination IDs, then create a subscription using one of those IDs and an optional client reference. Save the signing secret from creation or rotation in the receiver's secret store. The list response contains subscription metadata. [Webhook deployment](deployment.md#run-behind-an-https-ingress)

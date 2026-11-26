@@ -4,8 +4,9 @@ import { Link, useParams } from "react-router-dom";
 import { CodeTabs } from "@/components/CodeBlock";
 import { API_BASE_URL } from "@/lib/api";
 import { MODEL_BY_SLUG } from "@/lib/catalog";
-import { commonFields, modelContract, modelsFor, primitiveById, primitives, scopedMediaExample, type GenerationField } from "@/lib/generation-contract";
+import { modelContract, modelsFor, primitiveById, primitives, scopedMediaExample, type GenerationField } from "@/lib/generation-contract";
 import { demoEnabled } from "@/lib/gateway";
+import { apiReferencePath } from "./api-reference-path";
 import "./docs.css";
 
 export default function GenerationReference() {
@@ -24,14 +25,10 @@ export default function GenerationReference() {
     return () => { document.title = previous; };
   }, [title]);
 
-  const available = model ? Boolean(referenced) : contract?.status === "available";
-  const endpoint = model ? `/v1/models/${model}/generate` : `/v1/${id}`;
-  const example = referenced?.example ?? contract?.example;
-  const projectExample = demoEnabled && !model ? scopedMediaExample(id) : undefined;
-  const fields = referenced?.fields ?? contract?.fields;
+  const projectExample = !model ? scopedMediaExample(id) : undefined;
   const list = !model && id ? modelsFor(id) : [];
-  const shared = commonFields.filter(({ name }) => model ? name !== "model" : available || name === "model");
   const rules = referenced?.profile.rules ?? contract?.rules;
+  const wirePath = text ? "/v1/chat/completions" : id && ["image", "video", "audio", "3d"].includes(id) ? "/v1/" + id : undefined;
 
   return (
     <article className="docs-schema" aria-labelledby="schema-title">
@@ -40,10 +37,11 @@ export default function GenerationReference() {
         {model && id && <Link to={`/docs/primitives/${id}`}>{contract?.label} primitive</Link>}
       </nav>
       <header className="docs-schema-header">
-        <p className="docs-schema-status">{available || projectExample ? "Generation API" : text ? "Text API" : contract ? "Schema preview" : "API reference"}</p>
+        <p className="docs-schema-status">{model ? "Model capabilities" : text ? "Text API" : projectExample ? "Generation API" : "Schema preview"}</p>
         <h1 id="schema-title">{title}</h1>
         {contract && <p>{referenced?.profile.detail ?? contract.summary}</p>}
-        {(available || (!model && contract)) && <p className="docs-schema-endpoint"><span>POST</span> <code>{endpoint}</code></p>}
+        {wirePath && <p className="docs-schema-endpoint"><span>POST</span> <code>{wirePath}</code></p>}
+        {wirePath && <div className="docs-links"><Link to={apiReferencePath("POST", wirePath)}>Gateway request and response schema <ArrowRight size={15} aria-hidden /></Link></div>}
       </header>
       {text ? (
         <>
@@ -66,34 +64,24 @@ export default function GenerationReference() {
         <>
           {projectExample && <section aria-labelledby="schema-project">
             <h2 id="schema-project">Project key requests</h2>
-            <p>With the local launcher, send a project bearer key with <code>requests:submit</code>. Preview the estimate with this body.</p>
+            <p>Send a project bearer key with <code>requests:submit</code> and choose a model alias available in your gateway. Preview the estimate with this body.</p>
             <CodeTabs tabs={[{ label: "JSON", lang: "json", code: JSON.stringify({ ...projectExample, dry_run: true }, null, 2) }]} />
             <p>To submit, remove <code>dry_run</code> and supply an <code>Idempotency-Key</code>. Poll <code>Location</code> with <code>requests:read</code>. Include a <code>quote_id</code> from the preview to require the same estimate.</p>
           </section>}
-          {!available && !projectExample && <p className="docs-schema-notice" role="note">{model
-            ? "This catalog model has no connected generation adapter. Refer to the primitive for the shared request fields."
-            : "The gateway validates this request shape and returns 501 until an offer is connected. No job is created."}</p>}
-          {(!projectExample || available) && (!model || referenced) && fields && (
+          {model && <p className="docs-schema-notice" role="note">Use the gateway’s scoped catalog to verify which aliases and capabilities are active in your project.</p>}
+          {!wirePath && !model && <p className="docs-schema-notice" role="note">Capability preview. Consult the API reference for the currently registered generation routes.</p>}
+          {referenced && (
             <>
               <section aria-labelledby="schema-fields">
-                <h2 id="schema-fields">{projectExample ? "Account request fields" : "Request fields"}</h2>
-                <FieldTable fields={[...fields, ...shared]} />
+                <h2 id="schema-fields">Reference preset capabilities</h2>
+                <FieldTable fields={referenced.fields} />
               </section>
               <section aria-labelledby="schema-constraints">
                 <h2 id="schema-constraints">Constraints</h2>
                 <ul className="docs-schema-rules">{rules?.map((rule) => <li key={rule}>{rule}</li>)}</ul>
               </section>
-              {example && <section aria-labelledby="schema-example">
-                <h2 id="schema-example">Example request</h2>
-                <CodeTabs tabs={[{ label: "JSON", lang: "json", code: JSON.stringify(example, null, 2) }]} />
-              </section>}
             </>
           )}
-          {available && <section aria-labelledby="schema-result">
-            <h2 id="schema-result">Job response</h2>
-            <p>A successful submission returns <code>201 Created</code>. Poll the <code>Location</code> with the same account. The job records its selected model, estimated total or upper estimate in <code>estimated_max_micros</code>, status, and output URLs as they become available.</p>
-            <p className="mt-3">For a pinned model, settings outside its capabilities are dropped before pricing. Each dropped field appears in <code>param_adjustments</code> with <code>action: pruned</code>. When choosing a model automatically, TokenCraft looks for one that supports the requested settings.</p>
-          </section>}
           {list.length > 0 && <section aria-labelledby="schema-models">
             <h2 id="schema-models">Model schemas</h2>
             <div className="docs-schema-models">{list.map(({ slug, label }) => (
@@ -103,7 +91,7 @@ export default function GenerationReference() {
           <footer className="docs-schema-footer">
             {model && id && <Link to={`/docs/primitives/${id}`}>{contract.label} schema</Link>}
             {catalogModel && <Link to={`/models/${catalogModel.slug}#api`}>Model catalog page</Link>}
-            <a href={`${API_BASE_URL}/v1/schemas/generation`}>Schema registry (JSON)</a>
+            <a href={API_BASE_URL.replace(/\/$/, "") + "/v1/schemas/primitives"}>Connector primitive registry (JSON)</a>
           </footer>
         </>
       ) : <p>Use the generation guide to find a primitive or model schema.</p>}

@@ -17,6 +17,7 @@ const RoutingComparison = lazy(() => import("@/surfaces/comparison/ComparisonPag
 const CompareModelsPage = lazy(() => import("@/surfaces/models/CompareModelsPage"));
 const LegalDraft = legalDraftsEnabled ? lazy(() => import("@/surfaces/marketing/LegalDraft")) : null;
 const Docs = lazy(() => import("@/surfaces/marketing/Docs"));
+const ApiReference = lazy(() => import("@/surfaces/marketing/ApiReference"));
 const GenerationReference = lazy(() => import("@/surfaces/marketing/GenerationReference"));
 const Catalog = lazy(() => import("@/surfaces/models/Catalog"));
 const ModelPage = lazy(() => import("@/surfaces/models/ModelPage"));
@@ -105,6 +106,8 @@ export default function App() {
           </>
         )}
         <Route path="/docs" element={<Docs />} />
+        <Route path="/docs/api" element={<ApiReference />} />
+        <Route path="/docs/api/:method/*" element={<ApiReference />} />
         <Route path="/docs/primitives/:primitive" element={<GenerationReference />} />
         <Route path="/docs/models/:model" element={<GenerationReference />} />
         <Route path="/models" element={<Catalog />} />

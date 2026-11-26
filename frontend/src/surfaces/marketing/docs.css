@@ -532,7 +532,7 @@ a.docs-endpoint-link:hover code { text-decoration: underline; text-underline-off
 .docs-schema-table td { color: hsl(var(--muted)); overflow-wrap: anywhere; }
 .docs-schema-table small { display: block; margin-top: .25rem; color: hsl(var(--muted)); font-weight: 500; }
 .docs-schema-values { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
-.docs-schema-values code { padding: .12rem .3rem; border-radius: .2rem; background: hsl(var(--surface2)); }
+.docs-schema-values code { padding: .12rem .3rem; border-radius: .2rem; background: hsl(var(--surface-2)); }
 .docs-schema-rules { display: grid; gap: .4rem; list-style: disc; padding-left: 1.15rem; }
 .docs-schema-models { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .6rem; }
 .docs-schema-models a { justify-content: space-between; padding: .7rem .8rem; border: 1px solid hsl(var(--border)); border-radius: .45rem; }
@@ -540,4 +540,71 @@ a.docs-endpoint-link:hover code { text-decoration: underline; text-underline-off
 @media (max-width: 38rem) {
   .docs-schema-table th, .docs-schema-table td { padding: .55rem .45rem; }
   .docs-schema-table :where(code, th) { overflow-wrap: anywhere; }
+}
+
+.api-reference-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: .8rem;
+}
+.api-reference-filters label { display: grid; gap: .3rem; font-size: .875rem; font-weight: 600; }
+.api-reference-filters :is(input, select) {
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: .45rem;
+  padding: .55rem .7rem;
+  background: hsl(var(--surface));
+  color: hsl(var(--fg));
+  font: inherit;
+  font-weight: 400;
+}
+.api-reference-count { margin-top: .7rem; font-size: .875rem; }
+.api-reference-list { border-top: 1px solid hsl(var(--border)); }
+.api-reference-list li { border-bottom: 1px solid hsl(var(--border)); }
+.api-reference-list a { display: grid; gap: .32rem; padding: .65rem .15rem; }
+.api-endpoint { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: .45rem; overflow-wrap: anywhere; }
+.api-reference-list .api-operation-summary { color: hsl(var(--muted)); font-size: .875rem; }
+.api-reference-description { margin-top: .7rem; white-space: pre-line; }
+.api-reference h3 { font-weight: 700; }
+.api-reference h4 { font-size: .88rem; font-weight: 650; }
+.api-reference h3 small { margin-left: .45rem; color: hsl(var(--muted)); font-weight: 500; }
+.api-request-body { margin-top: 1.25rem; }
+.api-schema-details {
+  margin-block: .55rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: .45rem;
+  min-width: 0;
+}
+.api-schema-details summary { padding: .45rem .65rem; font-size: .875rem; cursor: pointer; overflow-wrap: anywhere; }
+.api-schema-details summary > span { margin-inline-start: .5rem; }
+.api-schema-details > div { padding: 0 .65rem .65rem; }
+.api-schema-media { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.05rem; margin-top: .6rem; }
+.api-schema-shape > p { font-size: .88rem; }
+.api-schema-shape p + p { margin-top: .3rem; }
+.api-schema-fields { margin-block: .5rem; border-top: 1px solid hsl(var(--border)); }
+.api-schema-fields > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: .35rem .8rem;
+  padding-block: .5rem;
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: .875rem;
+  overflow-wrap: anywhere;
+}
+.api-schema-fields dt { font-weight: 600; }
+.api-schema-fields dt span { display: block; color: hsl(var(--muted)); font-size: .75rem; font-weight: 400; }
+.api-schema-fields dd { min-width: 0; }
+.api-schema-union { margin-top: .55rem; }
+.api-schema-example { margin-block: .55rem; }
+.api-schema-example pre {
+  margin-top: .3rem;
+  overflow-x: auto;
+  padding: .65rem;
+  border-radius: .45rem;
+  background: hsl(var(--surface));
+  font-size: .85rem;
+}
+@media (max-width: 520px) {
+  .api-reference-filters, .api-schema-fields > div { grid-template-columns: minmax(0, 1fr); }
+  .api-schema-fields dt span { display: inline; margin-inline-start: .45rem; }
 }

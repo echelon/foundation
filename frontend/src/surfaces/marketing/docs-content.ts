@@ -1,5 +1,5 @@
-import { connectionCheckPath } from "@/lib/onboarding";
 import { referenceCatalogUrl } from "./referenceCatalog";
+import { apiReferencePath } from "./api-reference-path";
 
 type Endpoint = readonly [method: "GET" | "POST" | "PUT", path: string, summary: string, doc?: string];
 export type DocsLink = { label: string; href: string; external?: boolean };
@@ -19,15 +19,14 @@ export const docsTitle = "TokenCraft documentation";
 export const docsDescription = "Get an API key, verify your connection, and integrate TokenCraft into your app or coding agent.";
 
 const gateway: Endpoint[] = [
-  ["GET", "/v1/models", "List catalog models, including modality and price unit.", "/models"],
-  ["GET", "/v1/models/{model}", "Read a model by catalog slug."],
-  ["POST", "/v1/image", "Generate or edit an image. Optionally pin a model.", "/docs/primitives/image"],
-  ["POST", "/v1/video", "Generate a video from text or a starting image. Optionally pin a model.", "/docs/primitives/video"],
-  ["POST", "/v1/models/{model}/generate", "Use a specific model with the field types from its primitive.", "/models"],
-  ["GET", "/v1/schemas/generation", "Read the versioned primitive and model capabilities as JSON."],
-  ["GET", "/v1/jobs", "List recent generation jobs for the authenticated account."],
-  ["GET", "/v1/jobs/{id}", "Read the selected model, status, estimate, and output URLs."],
-  ["GET", "/v1/jobs/{id}/status", "Poll an existing generation job."],
+  ["GET", "/v1/catalog/models", "List public model aliases and capabilities."],
+  ["GET", "/v1/catalog/models/scoped", "List public models and offers shared with your project."],
+  ["POST", "/v1/image", "Preview or submit text-to-image work."],
+  ["POST", "/v1/video", "Preview or submit text-to-video work."],
+  ["POST", "/v1/audio", "Preview or submit audio work."],
+  ["POST", "/v1/3d", "Preview or submit 3D mesh work."],
+  ["GET", "/v1/schemas/primitives", "Read the versioned connector primitive registry."],
+  ["GET", "/v1/model-requests/{id}", "Poll the generated request and read its selected model."],
 ];
 
 export function endpointId(method: string, path: string) {
@@ -39,7 +38,7 @@ function shellQuote(value: string) {
 }
 
 export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: boolean; keyPath: string }) {
-  const connectionPath = connectionCheckPath(demo);
+  const connectionPath = "/v1/requests";
   const authorization = 'Authorization: Bearer $TOKENCRAFT_API_KEY';
   const connection: Snippet = {
     label: "Shell",
@@ -58,7 +57,7 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
           id: "get-api-key", title: "Create an API key",
           paragraphs: [demo
             ? "Create an account with a disposable email or sign in. Choose Create API key to issue a 30-day project key for fixture requests. This key works against your local gateway and requires no provider credentials."
-            : "Sign in, select your organization, and choose Create API key to issue a server-side organization key."],
+            : "Use a project credential issued by the operator of your TokenCraft gateway."],
           keywords: ["create key", "get a key", "api key", "access token", "sign up", "credentials", "connect"],
           links: [{ label: "Get an API key", href: keyPath }],
         },
@@ -86,8 +85,7 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
           id: "bearer-auth", title: "Send a bearer token",
           paragraphs: [
             "Send `Authorization: Bearer $TOKENCRAFT_API_KEY` from your server or trusted local process.",
-            demo ? "Use a project key for local fixture image, video, and chat requests. Direct generation at `/v1/image` and `/v1/video` uses an organization key."
-              : "Organization keys identify the account. Send the key only to the configured gateway origin.",
+            "Use a project key with `requests:submit` for media generation and `requests:read` to poll it. Compatible chat needs both scopes. Check each endpoint for its accepted credentials.",
           ],
           keywords: ["authenticate", "authentication", "bearer", "authorization", "http header", "project scope", "permissions", "client ref"],
           links: demo
@@ -117,7 +115,7 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
       id: "model-and-job-guide", title: "Models and generation", group: "Build", topics: [
         {
           id: "discover-models", title: "Choose a primitive or a model",
-          paragraphs: ["Start with the kind of output you need. Image and video accept the full set of fields supported across their registered models. Omit `model` to let TokenCraft select the lowest eligible estimate, or use the catalog slug to pin a model. A model-specific route takes the slug in the URL. Each model schema lists the settings it can apply."],
+          paragraphs: ["Start with the output you need and discover the model aliases and capabilities in your gateway’s scoped catalog. Use an alias in the `model` field to pin a model. Omit it on a media endpoint to inherit the configured selection policy."],
           keywords: ["model", "list models", "browse", "discover", "slug", "available models"],
           links: [
             { label: "Image schema", href: "/docs/primitives/image" }, { label: "Video schema", href: "/docs/primitives/video" },
@@ -129,9 +127,9 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
         {
           id: "estimate-generation", title: "Submit directly and follow the job",
           paragraphs: [
-            "Send a `task` and its inputs to `POST /v1/image`, `POST /v1/video`, or `POST /v1/models/{model}/generate`. TokenCraft checks capabilities and estimates cost during admission. Set `max_estimated_cost_micros` to limit the estimate for the complete job.",
-            "When you pin a model, TokenCraft drops settings the model does not support. The job records each drop in `param_adjustments` with `action: pruned`. You can also see the warnings in its dashboard details.",
-            "A successful request returns `201 Created`. Save its ID and poll the `Location` for status and output URLs. The routed estimate is available as `estimated_max_micros`. The optional `dry_run: true` validates and saves a canceled job without dispatching it.",
+            "Send a supported `task` and its inputs to the media endpoint. TokenCraft checks the fields and matches the workload to eligible offers. Set `max_estimated_cost_micros` to cap the estimate in whole micro-USD.",
+            "Use `dry_run: true` for a quote preview. It returns a `200` comparison without creating a job. Unknown fields or incompatible task settings are rejected. Review the selected model and any allowed adjustments in the quote.",
+            "To submit, omit `dry_run` and send a stable `Idempotency-Key`. For a reviewed estimate, include the preview’s `quote_id` and use its concrete model if the Advisor selected one. A new request returns `202`. Poll `Location` for status.",
           ],
           keywords: ["generate", "image generation", "video generation", "estimate cost", "poll job", "first generation", "price", "how much", "dropped fields", "warnings", "request debugging"],
           example: { label: "Shell", lang: "bash", code: [
@@ -180,7 +178,25 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
           id: "openapi-reference", title: "OpenAPI contract",
           paragraphs: ["Use the gateway's OpenAPI JSON to inspect request and response schemas or generate clients. Native quote and request routes require a configured provider catalog."],
           keywords: ["openapi", "schema", "swagger", "generate client", "download api contract"],
-          links: [{ label: "Open OpenAPI JSON", href: baseUrl.replace(/\/$/, "") + "/openapi.json", external: true }],
+          links: [
+            { label: "Browse all endpoint schemas", href: "/docs/api" },
+            { label: "Open OpenAPI JSON", href: baseUrl.replace(/\/$/, "") + "/openapi.json", external: true },
+          ],
+        },
+        {
+          id: "api-conventions", title: "API conventions",
+          paragraphs: [
+            "Use a scoped project bearer key for application requests or the session cookie for authorized account operations. Credentials bind the allowed scope. API and worker replicas can change while the durable request ID and home cell ownership stay the same.",
+            "Discover the configured model and workload first. A scoped quote records eligible offers, estimates, adjustments, and expiry. Native submission uses the quoted input and an `Idempotency-Key`. A new admission returns `202`. An identical replay returns `200` with the original receipt. Read `Location` for status and wait for a terminal outcome before downloading artifacts.",
+            "Parse error codes before retrying. Native gateway errors contain `error.code` and `error.message`. A `429 submission_rate_limit` includes a delay in seconds in `Retry-After`. Retry with the same intent and key. Compatible text endpoints and MCP have their own wire envelopes. Read each operation’s money units and cursor rules.",
+          ],
+          links: [
+            { label: "Scoped quote schema", href: apiReferencePath("POST", "/v1/quotes/scoped") },
+            { label: "Submit request schema", href: apiReferencePath("POST", "/v1/requests") },
+            { label: "Request status schema", href: apiReferencePath("GET", "/v1/requests/{id}") },
+            { label: "Webhook management schemas", href: apiReferencePath("GET", "/v1/projects/{project}/webhooks") },
+            { label: "Organization submission limits", href: apiReferencePath("GET", "/v1/rate-limits") },
+          ],
         },
       ],
     },
@@ -203,11 +219,11 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
     {
       id: "optional-estimates", title: "Optional cost inspection", group: "Advanced", topics: [
         { id: "legacy-cost-endpoints", title: "Estimate operations", paragraphs: [
-          "These operations return estimates without starting work and accept the legacy generation fields. A direct generation call handles eligibility and pricing during admission.",
+          "Public quotes estimate the active public catalog. Scoped quotes apply the caller’s project policy and carry an expiry. A media dry run quotes that primitive using its own request fields.",
         ], endpoints: [
-          ["POST", "/v1/models/{model}/generate/cost", "Inspect an estimate for a specific model using the compatibility payload."],
-          ["POST", "/v1/any/image/cost", "Estimate a legacy image request."],
-          ["POST", "/v1/any/video/cost", "Estimate a legacy video request."],
+          ["POST", "/v1/quotes", "Compare eligible public offers for a workload."],
+          ["POST", "/v1/quotes/scoped", "Compare offers using an authorized project’s policy."],
+          ["POST", "/v1/catalog/quotes/scoped", "Quote in the model-oriented response format."],
         ] },
       ],
     },
@@ -430,8 +446,8 @@ const fixtureReference: Topic[] = [
   {
     id: "project-reference", title: "Projects and deliveries", paragraphs: [], endpoints: [
       ["GET", "/v1/projects", "List projects available to your signed-in account."],
-      ["GET", "/v1/projects/{id}/webhooks", "List subscriptions as a project administrator with the webhook sidecar enabled."],
-      ["GET", "/v1/projects/{id}/webhook-deliveries", "Inspect terminal-event deliveries and retry progress."],
+      ["GET", "/v1/projects/{project}/webhooks", "List subscriptions as a project administrator with webhooks enabled."],
+      ["GET", "/v1/projects/{project}/webhook-deliveries", "Inspect terminal-event deliveries and retry progress."],
     ],
   },
 ];

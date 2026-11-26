@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth";
 import { demoEnabled } from "@/lib/gateway";
 import { entryPath, getStartedPath } from "@/lib/onboarding";
 import { answerDocsQuestion, type DocsReply } from "./docs-assistant";
+import { apiReferencePath } from "./api-reference-path";
 import { buildDocs, docsDescription, docsMarkdown, docsTitle, endpointId, type Docs as DocsData, type DocsLink, type DocsSection, type Snippet, type Topic } from "./docs-content";
 import "./docs.css";
 
@@ -226,9 +227,8 @@ function EndpointTable({ topic }: { topic: Topic }) {
             return (
               <tr id={id} key={id}>
                 <th scope="row">
-                  {doc
-                    ? <Link className="docs-endpoint-link" to={doc} aria-label={`Documentation for ${method} ${path}`}>{label}<ArrowRight size={13} aria-hidden /></Link>
-                    : <span className="docs-endpoint-link">{label}</span>}
+                  <Link className="docs-endpoint-link" to={doc ?? apiReferencePath(method, path)}
+                    aria-label={`Documentation for ${method} ${path}`}>{label}<ArrowRight size={13} aria-hidden /></Link>
                 </th>
                 <td>{summary}</td>
               </tr>

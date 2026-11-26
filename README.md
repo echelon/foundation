@@ -8,6 +8,8 @@ The [ArtCraft reference catalog](catalog/artcraft-v1.json) describes supported p
 
 [Open the interactive design source](frontend/public/design/index.html). The console build serves it at `/design/`, with shareable links such as `/design/#overview/caller`. The diagrams identify observed code and proposed hosted architecture.
 
+Follow the [API schema walkthrough](docs/api-schema.md) and use the console’s `/docs/api` for a searchable reference with one page per operation.
+
 Build the browser console from `frontend/` with `npm ci` and `npm run build`. For Vercel, use `frontend` as the project root. The Vite build includes the design page and the application routes.
 
 ## Quickstart
