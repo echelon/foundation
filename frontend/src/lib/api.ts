@@ -5,7 +5,8 @@
  * Decided ONCE at startup, from Vite env:
  *   npm run dev        → local api-gateway  (http://localhost:4000)
  *   npm run dev:prod   → production server  (https://api.foundation.ai)
- * An explicit VITE_API_BASE_URL overrides both (e.g. a staging box).
+ * An explicit VITE_API_BASE_URL overrides both. Set it to "/" when a proxy serves
+ * the console and gateway under the same origin.
  *
  * All requests send credentials (the `foundation_session` HttpOnly cookie);
  * the gateway's CORS layer allows the dev origins.
@@ -16,7 +17,7 @@ const LOCAL_API_URL = "http://localhost:4000";
 
 function resolveApiBaseUrl(): string {
   const explicit = import.meta.env.VITE_API_BASE_URL;
-  if (explicit) return explicit.replace(/\/+$/, "");
+  if (explicit) return new URL(explicit, window.location.origin).href.replace(/\/+$/, "");
   if (import.meta.env.VITE_TOKENCRAFT_PACKAGED === "true") {
     const port = Number(document.querySelector<HTMLMetaElement>('meta[name="tokencraft-api-port"]')?.content);
     if (!Number.isInteger(port) || port < 1024 || port > 65535) {
