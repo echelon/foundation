@@ -46,14 +46,10 @@ export default function Projects({ view = "settings" }: { view?: ProjectView }) 
       ) : (
         <div className="space-y-4" key={`${scope.account_id}:${project.id}`}>
           <nav aria-label="Project settings" className="flex flex-wrap gap-2 text-sm">
-            <a className="rounded-lg border border-border bg-surface px-3 py-1.5 font-medium hover:text-brand" href="#project-providers">Provider exclusions</a>
             <a className="rounded-lg border border-border bg-surface px-3 py-1.5 font-medium hover:text-brand" href="#project-keys">API keys</a>
             <a className="rounded-lg border border-border bg-surface px-3 py-1.5 font-medium hover:text-brand" href="#project-controls">Routing and access</a>
+            <a className="rounded-lg border border-border bg-surface px-3 py-1.5 font-medium hover:text-brand" href="#project-providers">Provider exclusions</a>
           </nav>
-
-          <section id="project-providers" aria-labelledby="project-providers-title" className="min-w-0 scroll-mt-20 rounded-2xl border border-border bg-surface p-4 sm:p-5">
-            <ProjectProviderAccess scope={scope} onSaved={() => setRoutingVersion((value) => value + 1)} />
-          </section>
 
           <section id="project-keys" aria-labelledby="project-keys-title" className="min-w-0 scroll-mt-20 space-y-3 rounded-2xl border border-border bg-surface p-4 sm:p-5">
             <h2 id="project-keys-title" className="font-display text-xl font-semibold">API keys</h2>
@@ -79,6 +75,10 @@ export default function Projects({ view = "settings" }: { view?: ProjectView }) 
                 <ProjectWebhooks scope={scope} />
               </ProjectDisclosure>
             </div>
+          </section>
+
+          <section id="project-providers" aria-labelledby="project-providers-title" className="min-w-0 scroll-mt-20 rounded-2xl border border-border bg-surface p-4 sm:p-5">
+            <ProjectProviderAccess scope={scope} onSaved={() => setRoutingVersion((value) => value + 1)} />
           </section>
         </div>
       )}
