@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "offers": [
+    {
+      "id": "local_chat_sample",
+      "provider": "self_hosted",
+      "model": "local_chat_sample",
+      "adapter": "openai_compatible_chat",
+      "local_binding": "local-chat",
+      "upstream_model": "local-chat",
+      "pricing": {
+        "kind": "text",
+        "usd_nanos_per_1000_input_tokens": 0,
+        "usd_nanos_per_1000_output_tokens": 0
+      }
+    }
+  ]
+}

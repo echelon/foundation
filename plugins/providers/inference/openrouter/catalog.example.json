@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "offers": [
+    {
+      "id": "openrouter_sample",
+      "provider": "openrouter",
+      "model": "openrouter_sample",
+      "adapter": "openai_compatible_chat",
+      "upstream_model": "openai/gpt-4.1-mini",
+      "local_binding": "openrouter",
+      "pricing": {
+        "kind": "text",
+        "usd_nanos_per_1000_input_tokens": 0,
+        "usd_nanos_per_1000_output_tokens": 0
+      }
+    }
+  ]
+}

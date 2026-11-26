@@ -27,6 +27,7 @@ The launcher starts a private PostgreSQL cluster, applies migrations, starts the
 - [Start from a native package](docs/setup.md#start-from-a-native-package)
 - [Start with your own catalog and provider bindings](docs/setup.md#start-with-a-reviewed-catalog)
 - [Back up and restore dev state](docs/setup.md#back-up-and-restore-dev-state)
+- [Run the fal, Kinovi, and OpenRouter plugins or configure your own compute](plugins/providers/README.md)
 - [Configure a provider](docs/provider-connectors.md)
 - [Prepare offers from the ArtCraft catalog](docs/provider-connectors.md#prepare-offers-from-the-artcraft-catalog)
 - [OpenAPI and connector schema contracts](docs/api-contracts.md)

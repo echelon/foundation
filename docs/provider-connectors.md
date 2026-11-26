@@ -4,6 +4,8 @@ The headless gateway owns project keys, catalog offers and quotes, routing, budg
 
 ## Attach an implementation
 
+Start with the [provider directory](../plugins/providers/README.md) for the fal, Kinovi, and OpenRouter plugins or [configure a cell's compute endpoints](../plugins/providers/compute/README.md).
+
 Start with the [Rust example](setup.md) to exercise a complete request before configuring an upstream.
 
 Use the [mapping guide](provider-mapping.md) to draft translations from provider docs, preview both directions, and apply a reviewed mapping inside your connector.

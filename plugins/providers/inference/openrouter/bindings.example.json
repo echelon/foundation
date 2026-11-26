@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "name": "openrouter",
+      "endpoint": "http://127.0.0.1:4022/v1/chat/completions",
+      "key_env": "TOKENCRAFT_LOCAL_CHAT_KEY_OPENROUTER"
+    }
+  ]
+}
