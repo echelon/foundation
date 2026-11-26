@@ -12,7 +12,7 @@ import { buildDocs, docsDescription, docsMarkdown, docsTitle, endpointId, type D
 import "./docs.css";
 
 type ManualCopy = (value: string) => void;
-const groups = ["Get started", "Build", "Reference", "Advanced"];
+const groups = ["Get started", "Build", "Reference", "Advanced", "Operate"];
 
 export default function Docs() {
   const { user } = useAuth();
@@ -73,6 +73,12 @@ export default function Docs() {
         <header className="docs-intro">
           <h1 id="docs-title">{docsTitle}</h1>
           <p>{docsDescription}</p>
+          <nav className="docs-links" aria-label="Documentation shortcuts">
+            <Hotlink link={{ label: "API reference", href: "/docs/api" }} />
+            <Hotlink link={{ label: "Generation schemas", href: "#model-and-job-guide" }} />
+            <Hotlink link={{ label: "Operator guides", href: "#operator-guides" }} />
+            <a className="docs-hotlink" href="/design/">Backend design<ArrowUpRight size={15} aria-hidden /></a>
+          </nav>
         </header>
 
         {docs.sections.map((section) => (

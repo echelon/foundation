@@ -14,7 +14,7 @@
     },
     {
       "source": "/openapi.json",
-      "destination": "https://tokencraft-demo.onrender.com/openapi.json"
+      "destination": "/docs/openapi.json"
     },
     {
       "source": "/design",

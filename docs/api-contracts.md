@@ -4,6 +4,8 @@ Use the [OpenAPI 3.1 snapshot](../contracts/openapi.json) for HTTP clients and t
 
 Open `/docs/api` in the console for individual operation pages. The [API schema walkthrough](api-schema.md) explains the shared conventions from quote through delivery.
 
+The hosted console publishes its release contract at `/openapi.json` and `/docs/openapi.json`. Both URLs serve the same checked-in snapshot used by the reference. Fetch `/openapi.json` from the gateway origin to inspect the contract from the running server.
+
 ## Manage project webhooks
 
 When the operator configures webhook destinations, organization owners and administrators use their session cookie and the `account_id` query parameter to manage subscriptions and inspect deliveries. List the project's destination IDs, then create a subscription using one of those IDs and an optional client reference. Save the signing secret from creation or rotation in the receiver's secret store. The list response contains subscription metadata. [Webhook deployment](deployment.md#run-behind-an-https-ingress)

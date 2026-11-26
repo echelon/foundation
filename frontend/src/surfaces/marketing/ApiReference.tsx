@@ -6,8 +6,8 @@ import { methods, type Content, type Parameter, type ResponseSchema, type Schema
 import "./docs.css";
 
 const sourceUrl = "https://github.com/storytold/tokencraft/blob/912c9d3ec7117966e84950e8acf2b97a303a77d0/";
-const liveContract = API_BASE_URL.replace(/\/$/, "") + "/openapi.json";
-const consoleLinks = { guide: "/docs", design: "/design/#api-schema/caller", contract: liveContract };
+const contractUrl = import.meta.env.DEV ? API_BASE_URL.replace(/\/$/, "") + "/openapi.json" : "/docs/openapi.json";
+const consoleLinks = { guide: "/docs", design: "/design/#api-schema/caller", contract: contractUrl };
 type ReferenceLinks = typeof consoleLinks;
 const keywords: [string, string][] = [
   ["minimum", "Min"], ["maximum", "Max"], ["exclusiveMinimum", "Above"], ["exclusiveMaximum", "Below"],

@@ -18,6 +18,9 @@ export type DocsSection = { id: string; title: string; group: string; topics: To
 export const docsTitle = "TokenCraft documentation";
 export const docsDescription = "Get an API key, verify your connection, and integrate TokenCraft into your app or coding agent.";
 
+const repositoryDocs = "https://github.com/storytold/tokencraft/blob/main/";
+const sourceGuide = (label: string, path: string): DocsLink => ({ label, href: repositoryDocs + path, external: true });
+
 const gateway: Endpoint[] = [
   ["GET", "/v1/catalog/models", "List public model aliases and capabilities."],
   ["GET", "/v1/catalog/models/scoped", "List public models and offers shared with your project."],
@@ -39,6 +42,7 @@ function shellQuote(value: string) {
 
 export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: boolean; keyPath: string }) {
   const connectionPath = "/v1/requests";
+  const contractUrl = import.meta.env.DEV ? baseUrl.replace(/\/$/, "") + "/openapi.json" : "/docs/openapi.json";
   const authorization = 'Authorization: Bearer $TOKENCRAFT_API_KEY';
   const connection: Snippet = {
     label: "Shell",
@@ -176,11 +180,12 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
         { id: "model-job-reference", title: "Catalog, generation, and jobs", paragraphs: [], endpoints: gateway },
         {
           id: "openapi-reference", title: "OpenAPI contract",
-          paragraphs: ["Use the gateway's OpenAPI JSON to inspect request and response schemas or generate clients. Native quote and request routes require a configured provider catalog."],
+          paragraphs: ["Browse the complete operation reference or download the OpenAPI contract for this console release. Check the gateway you target for the routes and providers it enables."],
           keywords: ["openapi", "schema", "swagger", "generate client", "download api contract"],
           links: [
             { label: "Browse all endpoint schemas", href: "/docs/api" },
-            { label: "Open OpenAPI JSON", href: baseUrl.replace(/\/$/, "") + "/openapi.json", external: true },
+            { label: "Open OpenAPI JSON", href: contractUrl, external: true },
+            sourceGuide("Contract versioning and exports", "docs/api-contracts.md"),
           ],
         },
         {
@@ -274,6 +279,44 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
     },
     ...(demo ? fixtureSections() : []),
     ...(demo ? [{ id: "request-endpoints", title: "Local provider operations", group: "Advanced", topics: fixtureReference }] : []),
+    {
+      id: "operator-guides", title: "Operator guides", group: "Operate", topics: [
+        {
+          id: "self-hosting", title: "Self-host and deploy", paragraphs: [],
+          links: [
+            sourceGuide("Install and run TokenCraft", "docs/setup.md"),
+            sourceGuide("Deployment, migration, and rollout", "docs/deployment.md"),
+            sourceGuide("Cell autoscaling and rate limits", "docs/capacity.md"),
+          ],
+        },
+        {
+          id: "provider-guides", title: "Providers and compute", paragraphs: [],
+          links: [
+            sourceGuide("Provider plugins and compute setup", "plugins/providers/README.md"),
+            sourceGuide("Configure inference and model catalogs", "docs/provider-connectors.md"),
+            sourceGuide("Map primitives to provider APIs", "docs/provider-mapping.md"),
+          ],
+        },
+        {
+          id: "data-guides", title: "Diagnostics and data", paragraphs: [],
+          links: [
+            sourceGuide("Request diagnostics and traces", "docs/request-diagnostics.md"),
+            sourceGuide("Export project data", "docs/customer-data.md"),
+            sourceGuide("Archive and restore events", "docs/event-archives.md"),
+            sourceGuide("Retain and retrieve request content", "docs/chat-history.md"),
+          ],
+        },
+        {
+          id: "implementation-guides", title: "Architecture and SDKs", paragraphs: [],
+          links: [
+            { label: "Interactive backend design", href: "/design/", external: true },
+            sourceGuide("API schema walkthrough", "docs/api-schema.md"),
+            sourceGuide("Rust SDK", "sdk/rust/README.md"),
+            sourceGuide("TypeScript SDK", "sdk/typescript/README.md"),
+          ],
+        },
+      ],
+    },
   ];
 
   return { baseUrl, sections };
