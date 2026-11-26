@@ -7,86 +7,25 @@
 //! background job would have written and exercises everything else for real — the genuinely
 //! unreachable parts are documented in `untested.md`.
 
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use common::{app_and_pool, body_json, delete, get, post, post_empty, put, session_cookie, unique_email};
+
+use axum::http::StatusCode;
 use axum::Router;
 use serde_json::{json, Value};
 use tower::ServiceExt; // oneshot
 
-use api_gateway::auth::token::JwtKeys;
-use api_gateway::AppState;
 use db_queries::{user_avatar_files, user_avatars};
 use enums::AvatarFileSource;
-
-async fn app_and_pool() -> (Router, db::PgPool) {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None, // email sends record + skip (no provider call, no mock)
-    bucket: None,         // R2 off — upload endpoint untestable here (see untested.md)
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  (api_gateway::build_router(state), pool)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn req(method: &str, uri: &str, body: Option<Value>, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method(method).uri(uri);
-  if body.is_some() {
-    b = b.header("content-type", "application/json");
-  }
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  let body = match body {
-    Some(v) => Body::from(serde_json::to_vec(&v).unwrap()),
-    None => Body::empty(),
-  };
-  b.body(body).unwrap()
-}
-
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if !token.is_empty() {
-        return Some(format!("foundation_session={token}"));
-      }
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 /// Sign up a fresh user through the real endpoint; returns (cookie, user_id).
 async fn signup(app: &Router) -> (String, ids::UserId) {
   let resp = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       "/v1/auth/signup",
-      Some(json!({ "email": unique_email(), "password": "hunter2hunter2" })),
+      json!({ "email": unique_email(), "password": "hunter2hunter2" }),
       None,
     ))
     .await
@@ -99,7 +38,7 @@ async fn signup(app: &Router) -> (String, ids::UserId) {
 }
 
 async fn me_avatar(app: &Router, cookie: &str) -> Value {
-  let resp = app.clone().oneshot(req("GET", "/v1/auth/me", None, Some(cookie))).await.unwrap();
+  let resp = app.clone().oneshot(get("/v1/auth/me", Some(cookie))).await.unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
   body_json(resp).await["user"]["avatar"].clone()
 }
@@ -166,7 +105,7 @@ async fn changing_gravatar_full_flow() {
   // The user asks for a refresh (the CHANGE) → checked goes pending, old mirror still shows.
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/avatar/gravatar/refresh", None, Some(&cookie)))
+    .oneshot(post_empty("/v1/auth/avatar/gravatar/refresh", Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -193,7 +132,7 @@ async fn dismissing_gravatar_full_flow() {
   // Dismiss = choose the monogram; the mirror stays available.
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "letter" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "letter" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -206,7 +145,7 @@ async fn dismissing_gravatar_full_flow() {
   // Re-enable by choosing it again.
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "gravatar" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "gravatar" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(body_json(resp).await["avatar"]["source"], "gravatar");
@@ -214,7 +153,7 @@ async fn dismissing_gravatar_full_flow() {
   // Remove the mirror entirely → monogram, and it stays gone (no auto re-poll).
   let resp = app
     .clone()
-    .oneshot(req("DELETE", "/v1/auth/avatar/gravatar", None, Some(&cookie)))
+    .oneshot(delete("/v1/auth/avatar/gravatar", Some(&cookie)))
     .await
     .unwrap();
   let avatar = body_json(resp).await["avatar"].clone();
@@ -225,7 +164,7 @@ async fn dismissing_gravatar_full_flow() {
   // Unknown enum value is rejected by serde at the boundary (422).
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "banana" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "banana" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
@@ -243,7 +182,7 @@ async fn uploaded_avatar_choice_and_dismissal_full_flow() {
   // Preferring "custom" with no upload is a 400.
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "custom" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "custom" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -261,19 +200,19 @@ async fn uploaded_avatar_choice_and_dismissal_full_flow() {
   // The user can choose the gravatar OVER the upload — and switch back.
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "gravatar" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "gravatar" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(body_json(resp).await["avatar"]["source"], "gravatar");
   let resp = app
     .clone()
-    .oneshot(req("PUT", "/v1/auth/avatar/preference", Some(json!({ "source": "custom" })), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/preference", json!({ "source": "custom" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(body_json(resp).await["avatar"]["source"], "custom");
 
   // Dismiss the upload → falls back to the gravatar (auto-pick), pointer cleared.
-  let resp = app.clone().oneshot(req("DELETE", "/v1/auth/avatar", None, Some(&cookie))).await.unwrap();
+  let resp = app.clone().oneshot(delete("/v1/auth/avatar", Some(&cookie))).await.unwrap();
   let avatar = body_json(resp).await["avatar"].clone();
   assert_eq!(avatar["has_custom"], false);
   assert_eq!(avatar["source"], "gravatar", "auto-pick falls back to the mirrored gravatar");
@@ -289,10 +228,9 @@ async fn changing_email_full_flow() {
   let new_email = unique_email();
   let resp = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       "/v1/auth/email",
-      Some(json!({ "new_email": new_email, "current_password": "hunter2hunter2" })),
+      json!({ "new_email": new_email, "current_password": "hunter2hunter2" }),
       Some(&cookie),
     ))
     .await
@@ -300,7 +238,7 @@ async fn changing_email_full_flow() {
   assert_eq!(resp.status(), StatusCode::OK);
 
   // /me reflects the new address, unverified.
-  let resp = app.clone().oneshot(req("GET", "/v1/auth/me", None, Some(&cookie))).await.unwrap();
+  let resp = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
   let user = body_json(resp).await["user"].clone();
   assert_eq!(user["email"], new_email);
   assert_eq!(user["email_verified"], false);
@@ -326,10 +264,9 @@ async fn changing_email_full_flow() {
   // Wrong password is a 401 and changes nothing.
   let resp = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       "/v1/auth/email",
-      Some(json!({ "new_email": unique_email(), "current_password": "wrong" })),
+      json!({ "new_email": unique_email(), "current_password": "wrong" }),
       Some(&cookie),
     ))
     .await
@@ -349,7 +286,7 @@ async fn send_verification_email_full_flow() {
   // Request the verification email.
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/email/verification", None, Some(&cookie)))
+    .oneshot(post_empty("/v1/auth/email/verification", Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -387,13 +324,13 @@ async fn send_verification_email_full_flow() {
   // Confirm — PUBLIC endpoint, no cookie: the token is the proof.
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/email/verification/confirm", Some(json!({ "token": token })), None))
+    .oneshot(post("/v1/auth/email/verification/confirm", json!({ "token": token }), None))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
 
   // Verified now, with the ORG-VISIBLE audit event.
-  let resp = app.clone().oneshot(req("GET", "/v1/auth/me", None, Some(&cookie))).await.unwrap();
+  let resp = app.clone().oneshot(get("/v1/auth/me", Some(&cookie))).await.unwrap();
   assert_eq!(body_json(resp).await["user"]["email_verified"], true);
   let (event_count, org_visible): (i64, bool) = sqlx::query_as(
     "SELECT count(*), bool_and(is_org_visible) FROM user_audit_logs WHERE user_id = $1 AND event = 'email_verified'",
@@ -408,7 +345,7 @@ async fn send_verification_email_full_flow() {
   // Re-requesting while verified is a 400.
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/email/verification", None, Some(&cookie)))
+    .oneshot(post_empty("/v1/auth/email/verification", Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);

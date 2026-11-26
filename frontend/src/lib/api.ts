@@ -17,6 +17,13 @@ const LOCAL_API_URL = "http://localhost:4000";
 function resolveApiBaseUrl(): string {
   const explicit = import.meta.env.VITE_API_BASE_URL;
   if (explicit) return explicit.replace(/\/+$/, "");
+  if (import.meta.env.VITE_TOKENCRAFT_PACKAGED === "true") {
+    const port = Number(document.querySelector<HTMLMetaElement>('meta[name="tokencraft-api-port"]')?.content);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error("Start the packaged console with the TokenCraft launcher.");
+    }
+    return `http://localhost:${port}`;
+  }
   return import.meta.env.VITE_API_TARGET === "production" ? PRODUCTION_API_URL : LOCAL_API_URL;
 }
 

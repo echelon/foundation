@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("bucket client: {e}"))?,
     ),
     None => {
-      tracing::warn!("R2 storage not configured — gravatar task probes existence only, no mirroring");
+      tracing::info!("Object storage not configured — Gravatar imports are disabled");
       None
     }
   };

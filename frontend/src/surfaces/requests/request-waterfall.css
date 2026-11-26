@@ -1,0 +1,268 @@
+.tc-request-debugger {
+  --trace-green: #166448;
+  --trace-warning: #894b08;
+  --trace-error: #a42a3c;
+  --trace-blue: #3764a6;
+  --trace-line: hsl(var(--border) / 0.85);
+  container-type: inline-size;
+  min-width: 0;
+  overflow: clip;
+  border: 1px solid var(--trace-line);
+  border-radius: 0.75rem;
+  background: hsl(var(--surface));
+}
+
+.dark .tc-request-debugger {
+  --trace-green: #89d5a9;
+  --trace-warning: #f2ba75;
+  --trace-error: #ffa4b1;
+  --trace-blue: #a0c0ed;
+}
+
+.tc-debug-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--trace-line);
+}
+
+.tc-debug-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+}
+
+.tc-debug-timeline,
+.tc-debug-inspector {
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.tc-debug-inspector {
+  border-inline-start: 1px solid var(--trace-line);
+  background: hsl(var(--surface-2) / 0.45);
+}
+
+.tc-debug-controls {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tc-debug-controls input {
+  width: 100%;
+  min-width: 0;
+  accent-color: hsl(var(--brand));
+}
+
+.tc-debug-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.8fr) minmax(0, 1fr) 4rem;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding-inline: 0.4rem;
+  border: 1px solid transparent;
+  text-align: left;
+}
+
+.tc-debug-axis {
+  margin-bottom: 0.25rem;
+  color: hsl(var(--muted));
+  font-size: 0.68rem;
+}
+
+.tc-debug-axis .tc-debug-track {
+  height: 1rem;
+  background: none;
+  border: 0;
+}
+
+.tc-debug-axis .tc-debug-track > span { position: absolute; white-space: nowrap; }
+.tc-debug-axis .tc-debug-track > :first-child { inset-inline-start: 0; }
+.tc-debug-axis .tc-debug-track > :nth-child(2) { left: 50%; transform: translateX(-50%); }
+.tc-debug-axis .tc-debug-track > :last-child { inset-inline-end: 0; }
+
+.tc-debug-axis > :last-child {
+  text-align: end;
+}
+
+.tc-debug-step {
+  min-height: 2.1rem;
+  border-radius: 0.4rem;
+}
+
+.tc-debug-step:hover,
+.tc-debug-step[data-active="true"] {
+  background: hsl(var(--surface-2) / 0.65);
+}
+
+.tc-debug-step[aria-pressed="true"] {
+  border-color: hsl(var(--brand) / 0.45);
+  background: hsl(var(--brand) / 0.1);
+}
+
+.tc-request-debugger [data-tone="ok"] { --trace-tone: var(--trace-green); }
+.tc-request-debugger [data-tone="active"] { --trace-tone: var(--trace-blue); }
+.tc-request-debugger [data-tone="warning"] { --trace-tone: var(--trace-warning); }
+.tc-request-debugger [data-tone="error"] { --trace-tone: var(--trace-error); }
+.tc-request-debugger [data-tone="neutral"] { --trace-tone: hsl(var(--muted)); }
+
+.tc-debug-tone,
+.tc-debug-step-name svg {
+  color: var(--trace-tone);
+}
+
+.tc-debug-step-name {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-wrap: anywhere;
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.tc-debug-track {
+  position: relative;
+  height: 1.75rem;
+  border-inline-end: 1px solid var(--trace-line);
+  background-image: repeating-linear-gradient(to right, var(--trace-line) 0 1px, transparent 1px 25%);
+}
+
+.tc-debug-bar,
+.tc-debug-point,
+.tc-debug-playhead {
+  position: absolute;
+  pointer-events: none;
+}
+
+.tc-debug-bar {
+  top: calc(50% - 4px);
+  inset-inline-start: min(var(--trace-start), calc(100% - 3px));
+  display: block;
+  width: max(3px, var(--trace-width));
+  height: 8px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--trace-tone) 24%, transparent);
+}
+
+.tc-debug-bar > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--trace-tone);
+  transform: scaleX(var(--trace-progress));
+  transform-origin: left;
+}
+
+.tc-debug-bar[data-open="true"] > span {
+  background: repeating-linear-gradient(135deg, var(--trace-tone) 0 2px, transparent 2px 5px);
+}
+
+.tc-debug-point {
+  top: calc(50% - 3px);
+  inset-inline-start: clamp(3px, var(--trace-start), calc(100% - 3px));
+  width: 6px;
+  height: 6px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--trace-tone);
+}
+
+.tc-debug-point[data-future="true"] { opacity: 0.25; }
+
+.tc-debug-playhead {
+  inset-block: 0;
+  inset-inline-start: var(--trace-head);
+  width: 1px;
+  background: hsl(var(--brand));
+}
+
+.tc-debug-elapsed {
+  color: hsl(var(--muted));
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  text-align: end;
+  white-space: nowrap;
+}
+
+.tc-debug-tabs {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.65rem;
+  border-bottom: 1px solid var(--trace-line);
+}
+
+.tc-debug-tabs button {
+  padding-block: 0.3rem;
+  border-bottom: 2px solid transparent;
+  color: hsl(var(--muted));
+  font-size: 0.75rem;
+}
+
+.tc-debug-tabs button[aria-pressed="true"] {
+  border-color: hsl(var(--brand));
+  color: hsl(var(--brand));
+  font-weight: 650;
+}
+
+.tc-debug-logs li,
+.tc-debug-fields > div {
+  padding-block: 0.45rem;
+  overflow-wrap: anywhere;
+}
+
+.tc-debug-logs li + li,
+.tc-debug-fields > div + div {
+  border-top: 1px solid var(--trace-line);
+}
+
+.tc-debug-fields > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.tc-debug-fields dt { color: hsl(var(--muted)); }
+.tc-debug-fields dd { font-family: ui-monospace, monospace; }
+
+.tc-debug-footer {
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--trace-line);
+}
+
+.tc-debug-analysis {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+  padding-block: 0.65rem;
+  border-top: 1px solid var(--trace-line);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tc-debug-step { transition: background-color 130ms ease, border-color 130ms ease; }
+}
+
+@media (pointer: coarse) {
+  .tc-debug-step, .tc-debug-tabs button { min-height: 44px; }
+}
+
+@container (max-width: 580px) {
+  .tc-debug-main { grid-template-columns: minmax(0, 1fr); }
+  .tc-debug-inspector {
+    border-inline-start: 0;
+    border-top: 1px solid var(--trace-line);
+  }
+}
+
+@container (max-width: 350px) {
+  .tc-debug-timeline { padding-inline: 0.5rem; }
+  .tc-debug-row { grid-template-columns: minmax(84px, 0.8fr) minmax(0, 1fr) 3.15rem; }
+  .tc-debug-axis .tc-debug-track span:nth-child(2) { display: none; }
+}

@@ -1,0 +1,93 @@
+# TokenCraft Rust SDK
+
+Use `tokencraft_sdk` in a Craft backend or another trusted Rust process. For a local checkout, add the SDK as a path dependency.
+
+```toml
+[dependencies]
+tokencraft_sdk = { path = "/path/to/tokencraft/sdk/rust" }
+```
+
+Build a `TokenCraftClient` with the gateway base URL and a project key from your secret configuration. The client selects a scoped quote when a key is configured. `catalog()` and `quote_public()` are available for public comparison.
+
+```rust
+use tokencraft_sdk::{QuoteInput, SubmitOptions, TokenCraftClient, WaitOptions, Workload};
+
+let client = TokenCraftClient::new(&base_url, Some(&api_key))?;
+let quote = client.quote(&QuoteInput {
+    model: "example_image".into(),
+    workload: Workload::Image {
+        count: 1,
+        aspect_ratio: "4:3".into(),
+        max_relative_error_bps: None,
+    },
+    provider: None,
+    max_total_usd_nanos: None,
+}).await?;
+let receipt = client.submit(&quote, SubmitOptions::new(job_key)).await?;
+let trace = client.wait(&receipt.id, WaitOptions::default()).await?;
+```
+
+Persist the quote and stable job key before submitting. After an interrupted submission, send the same quote and options with that key to recover the receipt. `wait` returns when the request reaches a terminal status or needs reconciliation. A timeout carries the durable request ID when available. Dropping a polling future stops local polling. Use `cancel(id)` to request gateway cancellation explicitly.
+
+Use `get(id)` and `events(id)` to inspect the request, `result(id)` for a stored chat result, and `list` and `usage` for client filters and cursor pagination. The usage report preserves aggregated nano-USD amounts as decimal strings.
+
+For a quote that selects an image offer, set `SubmitOptions::image_prompt` and call `image_result(id)` after success. When an image includes `artifact`, pass the saved reference to `download_artifact` with `ArtifactLocation::Warm` to verify the downloaded bytes. The trace's `upstream.accepted_at` and `upstream.queue_state` show acknowledgment and queue progress. [Example connector walkthrough](../../docs/setup.md)
+
+The audio, video, and mesh verification examples require `TOKENCRAFT_MODEL` to name a compatible model in the deployment’s catalog. Set `TOKENCRAFT_API_KEY` to a scoped project key and `TOKENCRAFT_BASE_URL` to your gateway when it differs from `http://localhost:4000`.
+
+## Reopen a request from a second process
+
+Set `TOKENCRAFT_API_KEY` to a project key with `requests:submit` and `requests:read`. Set `TOKENCRAFT_BASE_URL` to your local fixture gateway if it differs from `http://localhost:4000`.
+
+```sh
+cargo run --quiet --locked -p tokencraft_sdk --example restart -- quote > quote.json
+cargo run --quiet --locked -p tokencraft_sdk --example restart -- submit quote.json craft-job-42 > receipt.json
+request_id=$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' < receipt.json)
+cargo run --quiet --locked -p tokencraft_sdk --example restart -- wait "$request_id"
+```
+
+## Verify a terminal webhook
+
+Give `verify_webhook` the actual HTTP header map and original body bytes. The verifier accepts the current key or overlapping keys during rotation. It verifies the HMAC, replay window, and event envelope. Deduplicate the verified event ID in durable storage before applying downstream side effects.
+
+```rust
+use tokencraft_sdk::{verify_webhook, WebhookOptions};
+
+let event = verify_webhook(&headers, &raw_body, &[&signing_secret], WebhookOptions::default())?;
+handle_event_once(&event.id, &event)?;
+```
+
+`cargo test --locked -p tokencraft_sdk` runs the loopback HTTP and webhook tests. The restart example uses the disposable gateway described in the [demo guide](../../demo/README.md).
+
+## Inspect a request
+
+After submission, retain the request ID. Use a key with `requests:read`.
+
+```rust
+let trace = client.trace(request_id).await?;
+let baseline = client.trace_baseline(request_id).await?;
+let otlp_json = serde_json::to_string(&client.trace_otlp(request_id).await?)?;
+```
+
+The catalog's custom provider IDs are available through `Provider::as_str()`. Use `Provider::Custom` when passing a custom provider to a quote. See the [diagnostics endpoints](../../docs/request-diagnostics.md).
+
+## Read retained history
+
+Use `content_metadata` to check dates, phase, and any restore progress without fetching input or output. Read warm input and results with `warm_content`. Use `retrieve_content` to read an available archive. Each operation uses the project's `requests:read` scope and the API key's client restriction.
+
+```rust
+use tokencraft_sdk::{ArtifactLocation, ContentPhase, RetainedResult};
+
+let metadata = client.content_metadata(&request_id).await?;
+if metadata.phase == ContentPhase::Archived {
+    let retained = client.retrieve_content(&request_id).await?;
+    if let Some(RetainedResult::Images(output)) = retained.result {
+        if let Some(artifact) = output.images.first().and_then(|image| image.artifact.as_ref()) {
+            let file = client.download_artifact(&request_id, artifact, ArtifactLocation::Archived).await?;
+            std::fs::write("output.png", file.bytes)?;
+        }
+    }
+}
+```
+
+A cold object can return HTTP 409 with `archive_retrieval_required`. A project administrator can start a restore in Requests. Call `content_metadata` again to check its progress. Artifact downloads read from the configured gateway and verify the saved byte length and SHA-256. [Retention and restore guide](../../docs/chat-history.md)

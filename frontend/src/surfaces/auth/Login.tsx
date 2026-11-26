@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Input, Label } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { isConnectDestination } from "@/lib/onboarding";
 import { safeRedirectPath } from "@/lib/redirect";
 import { AuthCard, Divider, SsoRow } from "./AuthCard";
 
@@ -40,7 +41,7 @@ export default function Login() {
   return (
     <AuthCard
       title="Welcome back"
-      subtitle="Sign in to your Foundation account."
+      subtitle={isConnectDestination(from) ? "Sign in to get your API key." : "Sign in to your TokenCraft account."}
       footer={
         <>
           New here?{" "}
@@ -53,32 +54,36 @@ export default function Login() {
       <SsoRow onSignedIn={() => navigate(from, { replace: true })} destination={from} />
       <Divider />
       <form className="space-y-4" onSubmit={submit}>
-        <div>
-          <Label>Email</Label>
+        <label className="block space-y-1.5 text-sm font-medium">
+          <span>Email</span>
           <Input
             type="email"
             placeholder="you@company.com"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
+        </label>
         <div>
-          <Label hint="">Password</Label>
-          <Input
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+          <label className="block space-y-1.5 text-sm font-medium">
+            <span>Password</span>
+            <Input
+              type="password"
+              placeholder="••••••••"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </label>
           <div className="mt-1.5 text-right">
             <Link to="/reset" className="text-xs text-muted hover:text-fg">
               Forgot password?
             </Link>
           </div>
         </div>
-        {error && <p className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500">{error}</p>}
+        {error && <p role="alert" className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Signing in…" : "Sign in"}
         </Button>

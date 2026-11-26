@@ -49,4 +49,3 @@ pub struct AuthOutcome {
   pub session: Session,
   pub token: String,
 }
-

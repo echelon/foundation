@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, type ApiAccount } from "./api";
 import { useAuth } from "./auth";
+import { errorMessage } from "./gateway";
 
 /**
  * Organization scope for the dashboard, driven by the URL.
@@ -59,6 +60,7 @@ type OrgContextValue = {
   withScope: (rest: string) => string;
   reload: () => Promise<void>;
   loading: boolean;
+  error?: string;
 };
 
 const OrgCtx = createContext<OrgContextValue>({
@@ -70,46 +72,52 @@ const OrgCtx = createContext<OrgContextValue>({
   loading: true,
 });
 
-export function OrgProvider({ children }: { children: ReactNode }) {
+export function OrgProvider({ children, explicitScope = false, accountInQuery = false }: {
+  children: ReactNode; explicitScope?: boolean; accountInQuery?: boolean;
+}) {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [accounts, setAccounts] = useState<ApiAccount[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>();
 
   const reload = useCallback(async () => {
     if (!user) return;
+    setLoading(true);
+    setError(undefined);
     try {
       const r = await api.listAccounts();
       setAccounts(r.accounts);
-    } catch {
+    } catch (cause) {
       setAccounts([]);
+      setError(errorMessage(cause));
     } finally {
       setLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    setLoading(true);
     void reload();
   }, [reload]);
 
-  const urlAccountId = accountIdInPath(location.pathname);
+  const urlAccountId = accountInQuery ? new URLSearchParams(location.search).get("account_id") : accountIdInPath(location.pathname);
 
   // Resolve the scope: the URL wins, then an in-session selection, then the cookie, then the
   // oldest membership (the signup-created account).
   const current = useMemo(() => {
     if (accounts.length === 0) return null;
     const byId = (id: string | null) => (id ? accounts.find((a) => a.account_id === id) : undefined);
+    if (accountInQuery && urlAccountId) return byId(urlAccountId) ?? null;
     return byId(urlAccountId) ?? byId(selectedId) ?? byId(readLastAccount()) ?? accounts[0];
-  }, [accounts, urlAccountId, selectedId]);
+  }, [accounts, accountInQuery, urlAccountId, selectedId]);
 
-  const multi = accounts.length > 1;
+  const showScope = explicitScope || accounts.length > 1;
 
   const withScope = useCallback(
-    (rest: string) => (multi && current ? `/dashboard/${current.account_id}${rest}` : `/dashboard${rest}`),
-    [multi, current],
+    (rest: string) => (showScope && current ? `/dashboard/${current.account_id}${rest}` : `/dashboard${rest}`),
+    [showScope, current],
   );
 
   // Remember the scope whenever it resolves.
@@ -119,28 +127,37 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
   // Canonicalize the URL once memberships are known:
   //   - multi-org + unscoped account page → inject the remembered scope,
-  //   - single-org + scoped page → drop the id (single-org URLs stay clean),
+  //   - single-org + scoped page → drop the id unless stable account links are enabled,
   //   - an id we're not a member of → back to the scope that matters.
   useEffect(() => {
     if (loading || !current) return;
     const rest = scopedRest(location.pathname);
     if (rest === null) return; // user-scoped page — no account in these URLs
-    const canonical = multi ? `/dashboard/${current.account_id}${rest}` : `/dashboard${rest}`;
-    if (location.pathname !== canonical) navigate(canonical + location.search, { replace: true });
-  }, [loading, current, multi, location.pathname, location.search, navigate]);
+    const canonical = showScope ? `/dashboard/${current.account_id}${rest}` : `/dashboard${rest}`;
+    if (location.pathname !== canonical) navigate(canonical + location.search + location.hash, { replace: true });
+  }, [loading, current, showScope, location.pathname, location.search, location.hash, navigate]);
 
   const select = useCallback(
     (accountId: string) => {
       setSelectedId(accountId);
       rememberLastAccount(accountId);
+      if (accountInQuery) {
+        const params = new URLSearchParams(location.search);
+        params.set("account_id", accountId);
+        params.delete("project_id");
+        params.delete("request_id");
+        params.delete("webhook_subscription_id");
+        navigate({ search: params.toString() });
+        return;
+      }
       // On an account-scoped page, jump to the same page under the new scope.
       const rest = scopedRest(location.pathname);
       if (rest !== null) navigate(`/dashboard/${accountId}${rest}`);
     },
-    [location.pathname, navigate],
+    [accountInQuery, location.pathname, location.search, navigate],
   );
 
-  return <OrgCtx.Provider value={{ accounts, current, select, withScope, reload, loading }}>{children}</OrgCtx.Provider>;
+  return <OrgCtx.Provider value={{ accounts, current, select, withScope, reload, loading, error }}>{children}</OrgCtx.Provider>;
 }
 
 export const useOrg = () => useContext(OrgCtx);

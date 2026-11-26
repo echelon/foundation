@@ -19,7 +19,8 @@ export function RequireAuth() {
     );
   }
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    const redirectTo = location.pathname + location.search + location.hash;
+    return <Navigate to={`/login?${new URLSearchParams({ redirect_to: redirectTo })}`} replace />;
   }
   return <Outlet />;
 }

@@ -1,137 +1,209 @@
-import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { LayoutGrid, Rows3, Search, TrendingDown, TrendingUp } from "lucide-react";
-import { Badge, Container, Input } from "@/components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { Compass, LayoutGrid, Rows3, Search, TrendingDown, TrendingUp, X } from "lucide-react";
+import { Badge, Button, Container, Input, Select } from "@/components/ui";
 import { Sparkline } from "@/components/Sparkline";
 import { ModelCard } from "@/components/ModelCard";
 import { ModelIcon } from "@/components/ModelArt";
 import { MODELS, MODALITY_LABEL, PROVIDERS, priceLabel, type Modality } from "@/lib/catalog";
 import { SORTS, rankModels, sortMetric, type RankedModel, type SortKey } from "@/lib/model-stats";
 import { cn } from "@/lib/cn";
+import { ModelAdvisor } from "./ModelAdvisor";
+import "./catalog.css";
 
-const MODALITIES: (Modality | "all")[] = ["all", "image", "video", "3d", "world", "chat"];
+const MODALITIES = ["all", "image", "video", "3d", "world", "chat"] as const;
+const focusRing = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+
+function normalizeSearch(value: string) {
+  return value.toLowerCase().replace(/[_\p{Pd}]+/gu, " ").trim();
+}
 
 export default function Catalog() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
-  const activeModality = (params.get("modality") as Modality | null) ?? "all";
+  const activeModality = MODALITIES.find((modality) => modality === params.get("modality")) ?? "all";
   const [query, setQuery] = useState("");
   const [provider, setProvider] = useState<string>("all");
   const [sort, setSort] = useState<SortKey>("generations");
   const [view, setView] = useState<"grid" | "table">("grid");
+  const searchInput = useRef<HTMLInputElement>(null);
+  const advisorButton = useRef<HTMLButtonElement>(null);
+  const advisorOpen = location.hash === "#advisor";
 
   const ranked = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = MODELS.filter((m) => {
-      if (activeModality !== "all" && m.modality !== activeModality) return false;
-      if (provider !== "all" && m.provider !== provider) return false;
-      if (q && !`${m.name} ${m.provider} ${m.tags.join(" ")} ${m.tagline}`.toLowerCase().includes(q)) return false;
-      return true;
+    const terms = normalizeSearch(query).split(/\s+/).filter(Boolean);
+    const filtered = MODELS.filter((model) => {
+      if (activeModality !== "all" && model.modality !== activeModality) return false;
+      if (provider !== "all" && model.provider !== provider) return false;
+      if (!terms.length) return true;
+      const searchText = normalizeSearch([
+        model.name, model.slug, model.provider, MODALITY_LABEL[model.modality], model.tagline, ...model.tags,
+      ].join(" "));
+      return terms.every((term) => searchText.includes(term));
     });
     return rankModels(filtered, sort);
   }, [activeModality, provider, query, sort]);
 
-  const setModality = (m: Modality | "all") => {
+  useEffect(() => {
+    if (advisorOpen) return;
+    function focusSearch(event: KeyboardEvent) {
+      if (event.defaultPrevented || event.isComposing || event.altKey || event.shiftKey) return;
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      searchInput.current?.focus();
+      searchInput.current?.select();
+    }
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, [advisorOpen]);
+
+  function setModality(modality: Modality | "all") {
     const next = new URLSearchParams(params);
-    if (m === "all") next.delete("modality");
-    else next.set("modality", m);
+    if (modality === "all") next.delete("modality");
+    else next.set("modality", modality);
     setParams(next, { replace: true });
-  };
+  }
+
+  function setAdvisorOpen(open: boolean) {
+    navigate({ pathname: location.pathname, search: location.search, hash: open ? "#advisor" : "" }, { replace: true });
+    if (!open) advisorButton.current?.focus({ preventScroll: true });
+  }
+
+  function clearSearch() {
+    setQuery("");
+    searchInput.current?.focus();
+  }
+
+  function resetSearchAndFilters() {
+    setModality("all");
+    setProvider("all");
+    clearSearch();
+  }
+
+  const shortcut = /Macintosh/.test(navigator.userAgent) ? "⌘ K" : "Ctrl K";
 
   return (
-    <Container className="py-12">
-      <div className="mb-8">
-        <h1 className="font-display text-4xl font-extrabold tracking-tight">Model catalog</h1>
-        <p className="mt-2 text-muted">
-          {MODELS.length} models across image, video, 3D, world, and language — ranked by live usage.
-        </p>
-      </div>
-
-      {/* ── Modality tabs ── */}
-      <div className="mb-4 flex flex-wrap gap-1.5">
-        {MODALITIES.map((m) => (
-          <button
-            key={m}
-            onClick={() => setModality(m)}
-            className={cn(
-              "rounded-lg px-3 py-1.5 text-sm font-medium transition",
-              activeModality === m ? "brand-gradient text-white shadow-glow" : "bg-surface2 text-muted hover:text-fg",
-            )}
-          >
-            {m === "all" ? "All" : MODALITY_LABEL[m]}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Controls: search · provider · sort · view ── */}
-      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input placeholder="Search models…" value={query} onChange={(e) => setQuery(e.target.value)} className="w-52 pl-9" />
+    <>
+      <section className="catalog-banner border-b border-border" aria-labelledby="catalog-title">
+        <Container className="pb-6 pt-7 sm:py-11">
+          <div className="motion-safe:animate-fade-up">
+            <h1 id="catalog-title" className="font-display text-4xl font-extrabold tracking-tight sm:text-5xl">Model catalog</h1>
+            <p className="mt-2 text-sm leading-6 text-muted sm:text-base">Explore {MODELS.length} models and compare their capabilities, creators, and prices.</p>
+            <div className="mt-6 flex flex-col items-end gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+              <div role="search" className="group relative w-full min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted group-focus-within:text-brand motion-safe:transition-colors" aria-hidden="true" />
+                <Input
+                  ref={searchInput}
+                  type="search"
+                  aria-label="Search models"
+                  aria-keyshortcuts="Control+K Meta+K"
+                  placeholder="Search name, creator, or capability"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className={cn("catalog-search-input h-14 rounded-xl bg-surface pl-12 text-base shadow-sm focus:border-brand/70 motion-reduce:transition-none sm:pr-20", query && "pr-12")}
+                />
+                {query ? (
+                  <Button type="button" variant="ghost" aria-label="Clear search" onClick={clearSearch} className="absolute right-1.5 top-1/2 h-11 w-11 -translate-y-1/2 rounded-lg p-0 motion-reduce:transition-none">
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                ) : (
+                  <kbd aria-hidden="true" className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded-md border border-border bg-bg px-2 py-0.5 font-mono text-xs text-muted sm:block">
+                    {shortcut}
+                  </kbd>
+                )}
+              </div>
+              <Button
+                ref={advisorButton}
+                type="button"
+                variant="outline"
+                aria-haspopup="dialog"
+                onClick={() => setAdvisorOpen(true)}
+                className="group h-11 shrink-0 rounded-xl px-4 hover:bg-surface2/70 motion-reduce:transition-none"
+              >
+                <Compass className="h-4 w-4 text-brand motion-safe:transition-transform motion-safe:group-hover:rotate-12" aria-hidden="true" />
+                Model Advisor
+              </Button>
+            </div>
           </div>
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            className="h-10 rounded-lg border border-border bg-bg px-3 text-sm text-fg outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
-          >
-            <option value="all">All providers</option>
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
+        </Container>
+      </section>
+
+      <Container className="pb-12 pt-5 sm:pt-6">
+        <div className="flex flex-col gap-3 border-b border-border pb-4 lg:flex-row lg:items-center lg:justify-between">
+          <div role="group" aria-label="Model categories" className="flex flex-wrap gap-1.5">
+            {MODALITIES.map((modality) => (
+              <button
+                key={modality}
+                type="button"
+                aria-pressed={activeModality === modality}
+                onClick={() => setModality(modality)}
+                className={cn(
+                  "min-h-9 rounded-lg border px-3 text-sm font-medium motion-safe:transition-colors", focusRing,
+                  activeModality === modality ? "border-brand/25 bg-brand/10 text-brand" : "border-transparent text-muted hover:bg-surface2 hover:text-fg",
+                )}
+              >
+                {modality === "all" ? "All models" : MODALITY_LABEL[modality]}
+              </button>
             ))}
-          </select>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-2 sm:flex">
+            <Select aria-label="Model creator" value={provider} onChange={(event) => setProvider(event.target.value)} className="h-9 truncate rounded-lg bg-surface motion-reduce:transition-none">
+              <option value="all">All creators</option>
+              {PROVIDERS.map((creator) => <option key={creator} value={creator}>{creator}</option>)}
+            </Select>
+            <Select aria-label="Rank by" value={sort} onChange={(event) => setSort(event.target.value as SortKey)} className="h-9 truncate rounded-lg bg-surface motion-reduce:transition-none">
+              {SORTS.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+            </Select>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted">Rank by</label>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="h-10 rounded-lg border border-border bg-bg px-3 text-sm font-medium text-fg outline-none focus:border-brand focus:ring-2 focus:ring-brand/25"
-          >
-            {SORTS.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <div className="inline-flex rounded-lg border border-border bg-surface p-1">
-            <ViewButton active={view === "grid"} onClick={() => setView("grid")} icon={LayoutGrid} label="Gallery" />
+        <div className="flex min-h-16 items-center justify-between gap-3">
+          <p role="status" className="text-sm text-muted">
+            <span className="font-semibold tabular-nums text-fg">{ranked.length}</span> {ranked.length === 1 ? "model" : "models"}
+          </p>
+          <div role="group" aria-label="Catalog view" className="inline-flex gap-0.5 rounded-lg border border-border bg-surface p-0.5">
+            <ViewButton active={view === "grid"} onClick={() => setView("grid")} icon={LayoutGrid} label="Grid" />
             <ViewButton active={view === "table"} onClick={() => setView("table")} icon={Rows3} label="Table" />
           </div>
         </div>
-      </div>
 
-      {/* ── Results ── */}
-      {!ranked.length ? (
-        <div className="rounded-2xl border border-dashed border-border py-20 text-center text-muted">No models match your filters.</div>
-      ) : view === "grid" ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {ranked.map((rm) => (
-            <ModelCard key={rm.model.slug} model={rm.model} rank={rm.rank} stats={rm.stats} metric={sortMetric(rm, sort)} />
-          ))}
-        </div>
-      ) : (
-        <TableView ranked={ranked} sort={sort} />
-      )}
+        {!ranked.length ? (
+          <div className="grid justify-items-center rounded-xl border border-dashed border-border bg-surface/60 px-5 py-12 text-center motion-safe:animate-fade-up">
+            <Search className="h-5 w-5 text-brand" aria-hidden="true" />
+            <h2 className="mt-3 font-display text-lg font-bold">No models found</h2>
+            <p className="mt-1 text-sm text-muted">Try a different search or reset your filters.</p>
+            <Button type="button" variant="outline" onClick={resetSearchAndFilters} className="mt-4 rounded-lg motion-reduce:transition-none">
+              Reset search and filters
+            </Button>
+          </div>
+        ) : view === "grid" ? (
+          <div className="grid gap-4 motion-safe:animate-fade-up sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {ranked.map((entry) => (
+              <ModelCard key={entry.model.slug} model={entry.model} rank={entry.rank} stats={entry.stats} metric={sortMetric(entry, sort)} />
+            ))}
+          </div>
+        ) : (
+          <TableView ranked={ranked} sort={sort} />
+        )}
 
-      <p className="mt-6 text-xs text-muted">
-        Usage figures are a mock of the hot catalog data (<code className="rounded bg-surface2 px-1 py-0.5">catalog_stats.json</code>) —
-        volume, price-weighted value, and ranks that the real index serves from a single cached payload.
-      </p>
-    </Container>
+        <p className="mt-6 text-xs text-muted">Catalog usage and rankings are based on sample data.</p>
+      </Container>
+      {advisorOpen && <ModelAdvisor onClose={() => setAdvisorOpen(false)} />}
+    </>
   );
 }
 
 function ViewButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: typeof LayoutGrid; label: string }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-label={label}
-      className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition", active ? "bg-surface2 text-fg" : "text-muted hover:text-fg")}
+      aria-pressed={active}
+      className={cn("flex min-h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium motion-safe:transition-colors", focusRing, active ? "bg-surface2 text-fg" : "text-muted hover:bg-surface2/60 hover:text-fg")}
     >
-      <Icon className="h-4 w-4" />
+      <Icon className="h-4 w-4" aria-hidden="true" />
       <span className="hidden sm:inline">{label}</span>
     </button>
   );
@@ -141,7 +213,7 @@ function TableView({ ranked, sort }: { ranked: RankedModel[]; sort: SortKey }) {
   const navigate = useNavigate();
   const metricLabel = sortMetric(ranked[0], sort).label;
   return (
-    <div className="scrollbar-thin overflow-x-auto rounded-2xl border border-border">
+    <div className="scrollbar-thin overflow-x-auto rounded-2xl border border-border bg-surface motion-safe:animate-fade-up">
       <table className="w-full text-sm">
         <thead className="border-b border-border bg-surface2/40 text-left text-muted">
           <tr>
@@ -162,8 +234,10 @@ function TableView({ ranked, sort }: { ranked: RankedModel[]; sort: SortKey }) {
             return (
               <tr
                 key={m.slug}
-                onClick={() => navigate(`/models/${m.slug}`)}
-                className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40"
+                onClick={(event) => {
+                  if (event.target instanceof Element && !event.target.closest("a")) navigate(`/models/${m.slug}`);
+                }}
+                className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-surface2/40 motion-safe:transition-colors"
               >
                 <td className="px-4 py-3 font-mono text-muted">{rm.rank}</td>
                 <td className="px-4 py-3">
@@ -171,7 +245,7 @@ function TableView({ ranked, sort }: { ranked: RankedModel[]; sort: SortKey }) {
                     <ModelIcon model={m} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="truncate font-medium text-fg">{m.name}</span>
+                        <Link to={`/models/${m.slug}`} className={cn("rounded-sm font-medium text-fg hover:text-brand", focusRing)}>{m.name}</Link>
                         {m.status === "new" && <Badge tone="green">New</Badge>}
                       </div>
                       <div className="text-xs text-muted">{m.provider}</div>

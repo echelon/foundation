@@ -1,0 +1,69 @@
+export type PrimitiveKind = "text" | "image" | "video";
+export type ValueKind = PrimitiveKind | "integer";
+export type Scalar = string | number;
+export type Bindings = Record<string, Binding>;
+export type Binding =
+  | { source: "fixed"; value: Scalar }
+  | { source: "request"; field: string }
+  | { source: "step"; step: string }
+  | { source: "template"; text: string };
+
+export type Setting = { name: string; label: string; kind: ValueKind; required: boolean };
+export type Primitive = { kind: PrimitiveKind; label: string; output: ValueKind; settings: Setting[] };
+export type WorkflowModel = {
+  id: string;
+  kind: PrimitiveKind;
+  providers: string[];
+  aspect_ratios: string[];
+  durations: number[];
+  resolutions: string[];
+  accepts_first_frame: boolean;
+};
+export type Capabilities = { primitives: Primitive[]; models: WorkflowModel[] };
+export type ProposedStep = { kind: PrimitiveKind; title: string; animated_image?: boolean };
+export type WorkflowInput = { title: string; kind: "text" | "integer"; default: Scalar | null };
+export type Step = {
+  id: string;
+  title: string;
+  kind: PrimitiveKind;
+  model: string;
+  max_usd_nanos: number;
+  settings: Bindings;
+};
+export type Graph = {
+  schema: 1;
+  title: string;
+  inputs: Record<string, WorkflowInput>;
+  nodes: Step[];
+  outputs: Record<string, string>;
+  max_usd_nanos: number;
+};
+export type WorkflowSummary = { id: string; title: string; revision: number; active_version: number | null; paused: boolean };
+export type Workflow = WorkflowSummary & { draft: Graph };
+export type Release = { version: number; draft_revision: number; published_at: string };
+export type RunStatus = "queued" | "running" | "reconciling" | "succeeded" | "failed" | "canceled" | "expired";
+export type RunSummary = { id: string; status: RunStatus; version: number | null; draft_revision: number; created_at: string };
+export type Receipt = { id: string; workflow_version: number | null; status_url: string; replayed: boolean };
+type RunOutput =
+  | { type: "text"; text: string }
+  | { type: "media"; kind: "image" | "video"; download_url: string }
+  | { type: "fixture"; kind: ValueKind };
+export type Run = {
+  id: string;
+  workflow_version: number | null;
+  draft_revision: number;
+  status: RunStatus;
+  created_at: string;
+  steps: { node: string; request: string; status: string }[];
+  error: string | null;
+  outputs?: Record<string, RunOutput>;
+};
+export type Permission = "runs:submit" | "runs:read" | "outputs:read" | "runs:cancel";
+export type AppKey = { app_id: string; key_id: string; scopes: Permission[]; name: string; prefix: string; expires_at: string; revoked_at: string | null };
+export type IssuedKey = { app_id: string; key_id: string; secret: string; expires_at: string };
+
+export const TERMINAL: ReadonlySet<RunStatus> = new Set(["succeeded", "failed", "canceled", "expired"]);
+export const statusLabel: Record<RunStatus, string> = {
+  queued: "Queued", running: "Running", reconciling: "Reconciling", succeeded: "Succeeded",
+  failed: "Failed", canceled: "Canceled", expired: "Expired",
+};

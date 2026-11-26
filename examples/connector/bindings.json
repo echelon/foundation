@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "name": "example",
+      "revision": "demo",
+      "origin": "http://127.0.0.1:4019/",
+      "token_env": "TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE"
+    }
+  ]
+}

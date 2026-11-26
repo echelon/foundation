@@ -22,6 +22,7 @@ use crate::bucket_client_error::BucketClientError;
 pub struct BucketClientBuilder {
   access_key: Option<String>,
   secret_key: Option<String>,
+  session_token: Option<String>,
   region_name: Option<String>,
   bucket_name: Option<String>,
   endpoint: Option<String>,
@@ -40,6 +41,11 @@ impl BucketClientBuilder {
 
   pub fn secret_key(mut self, secret_key: impl Into<String>) -> Self {
     self.secret_key = Some(secret_key.into());
+    self
+  }
+
+  pub fn session_token(mut self, session_token: impl Into<String>) -> Self {
+    self.session_token = Some(session_token.into());
     self
   }
 
@@ -76,7 +82,7 @@ impl BucketClientBuilder {
       access_key: Some(access_key),
       secret_key: Some(secret_key),
       security_token: None,
-      session_token: None,
+      session_token: self.session_token,
       expiration: None,
     };
 

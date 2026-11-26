@@ -1,212 +1,334 @@
+import { useEffect, useRef, useState } from "react";
+import { AudioLines, Box, Check, ChevronDown, Database, GitBranch, Github, Globe, Image, KeyRound, ListTree, MessageSquare, Pause, Play, Terminal, Video, type LucideIcon } from "lucide-react";
 import { Link } from "react-router-dom";
-import { ArrowRight, BarChart3, Boxes, Check, Globe, Image as ImageIcon, MessageSquare, Sparkles, Video, Zap } from "lucide-react";
-import { Badge, Button, Card, Container } from "@/components/ui";
-import { ModelCard } from "@/components/ModelCard";
+import { Container } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
-import { MODELS, MODALITY_LABEL, type Modality } from "@/lib/catalog";
-import { MEDIA, compact, leaderboard, type MediaKey } from "@/lib/rankings";
+import { getStartedPath } from "@/lib/onboarding";
+import "./landing.css";
 
-const MODALITIES: { modality: Modality; icon: typeof ImageIcon; blurb: string }[] = [
-  { modality: "image", icon: ImageIcon, blurb: "Photoreal, editable, up to 4K." },
-  { modality: "video", icon: Video, blurb: "Cinematic clips with camera control." },
-  { modality: "3d", icon: Boxes, blurb: "Watertight meshes with PBR textures." },
-  { modality: "world", icon: Globe, blurb: "Explorable 3D worlds as splats." },
-  { modality: "chat", icon: MessageSquare, blurb: "Frontier LLMs, one endpoint." },
+const catalogLinks = [
+  { icon: MessageSquare, title: "Language", body: "Chat, reasoning and text generation.", to: "/models?modality=chat" },
+  { icon: Image, title: "Images", body: "Create, edit and refine images.", to: "/models?modality=image" },
+  { icon: Video, title: "Video", body: "Make clips from text or images.", to: "/models?modality=video" },
+  { icon: AudioLines, title: "Audio", body: "Generate audio with the TokenCraft API.", to: "/docs/primitives/audio" },
+  { icon: Box, title: "3D meshes", body: "Generate 3D assets from prompts or images.", to: "/models?modality=3d" },
+  { icon: Globe, title: "3D worlds", body: "Explore models for spatial scenes.", to: "/models?modality=world" },
 ];
 
-const featured = ["google_nano_banana_2", "openai_gpt_image_2", "bytedance_seedance_2", "worldlabs_marble_1_1", "tencent_hunyuan3d_2_5", "anthropic_claude_opus_4_8"]
-  .map((s) => MODELS.find((m) => m.slug === s)!)
-  .filter(Boolean);
+const features = [
+  { icon: ListTree, title: "Trace every request", body: "Follow each request, investigate failures and review usage by project or client." },
+  { icon: KeyRound, title: "Scope access by project", body: "Give each app or environment an API key with its own access." },
+  { icon: Database, title: "Keep your usage data", body: "Export request and usage records or sync them to your own PostgreSQL database." },
+];
+
+type ExampleRoute = {
+  model: string;
+  provider: string;
+  price: number;
+  rating?: number;
+  unavailable?: string;
+};
+
+type RoutingExample = {
+  icon: LucideIcon;
+  label: string;
+  request: string;
+  settings: string;
+  supportsQuality: boolean;
+  routes: ExampleRoute[];
+};
+
+const routingExamples: RoutingExample[] = [
+  {
+    icon: Image,
+    label: "Image",
+    request: "Create a product image",
+    settings: "One image · 4:3 aspect ratio",
+    supportsQuality: true,
+    routes: [
+      { model: "Fast image model", provider: "Provider A", price: 0.02, rating: 7, unavailable: "4:3 unsupported" },
+      { model: "Fast image model", provider: "Provider B", price: 0.04, rating: 7 },
+      { model: "Detail image model", provider: "Provider C", price: 0.07, rating: 9 },
+    ],
+  },
+  {
+    icon: Video,
+    label: "Video",
+    request: "Animate a product shot",
+    settings: "Eight seconds · 1080p",
+    supportsQuality: true,
+    routes: [
+      { model: "Fast video model", provider: "Provider C", price: 0.24, rating: 7, unavailable: "720p maximum" },
+      { model: "Fast video model", provider: "Provider B", price: 0.40, rating: 7 },
+      { model: "Studio video model", provider: "Provider A", price: 0.56, rating: 9 },
+    ],
+  },
+  {
+    icon: MessageSquare,
+    label: "Language",
+    request: "Summarize a long brief",
+    settings: "128K context window",
+    supportsQuality: false,
+    routes: [
+      { model: "Long-context model", provider: "Provider A", price: 0.06, unavailable: "64K context limit" },
+      { model: "Long-context model", provider: "Provider C", price: 0.14 },
+      { model: "Long-context model", provider: "Provider B", price: 0.22 },
+    ],
+  },
+];
+
+const minimumRating = 8;
+const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 
 export default function Landing() {
   const { user } = useAuth();
+  const start = getStartedPath(Boolean(user));
+  const agent = getStartedPath(Boolean(user), true);
+  const page = useRef<HTMLDivElement>(null);
+  const [prismPaused, setPrismPaused] = useState(false);
+  const prismAction = prismPaused ? "Resume prism animation" : "Pause prism animation";
+  const PrismIcon = prismPaused ? Play : Pause;
+
+  useEffect(() => {
+    const root = page.current;
+    if (!root || !("IntersectionObserver" in window)) return;
+
+    const heroArt = root.querySelector(".landing-hero-art");
+    const updateTabVisibility = () => {
+      heroArt?.toggleAttribute("data-tab-hidden", document.hidden);
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === heroArt) {
+          heroArt.toggleAttribute("data-in-view", entry.isIntersecting);
+          continue;
+        }
+        if (!entry.isIntersecting) continue;
+        entry.target.setAttribute("data-visible", "");
+        observer.unobserve(entry.target);
+      }
+    }, { rootMargin: "0px 0px -6% 0px" });
+
+    if (heroArt) {
+      heroArt.setAttribute("data-motion-observed", "");
+      observer.observe(heroArt);
+      updateTabVisibility();
+      document.addEventListener("visibilitychange", updateTabVisibility);
+    }
+    root.querySelectorAll(".landing-reveal:not([data-visible])").forEach((element) => observer.observe(element));
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", updateTabVisibility);
+    };
+  }, []);
+
   return (
-    <>
-      {/* ── Hero ── */}
-      <section className="relative overflow-hidden">
-        <div className="grid-bg absolute inset-0 opacity-60" />
-        <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-[42rem] -translate-x-1/2 rounded-full brand-gradient opacity-20 blur-3xl" />
-        <Container className="relative py-24 text-center sm:py-32">
-          <Badge tone="brand" className="mx-auto mb-6">
-            <Sparkles className="h-3 w-3" /> Nano Banana 2 · GPT Image 2 · Seedance 2.0 — live
-          </Badge>
-          <h1 className="mx-auto max-w-4xl font-display text-5xl font-extrabold tracking-tight sm:text-6xl">
-            Every generative model,{" "}
-            <span className="brand-text">one clean API.</span>
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">
-            Foundation is the accessible, well-organized gateway to the best image, video, 3D, and language
-            models. Predictable pricing, a great playground, and one key for everything.
-          </p>
-          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link to="/dashboard">
-              <Button size="lg">
-                Start building <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link to="/models">
-              <Button size="lg" variant="outline">
-                Browse models
-              </Button>
-            </Link>
+    <div className="landing-page" ref={page}>
+      <section className="landing-hero" aria-labelledby="landing-title">
+        <div className="landing-hero-art" data-motion-paused={prismPaused ? "" : undefined}>
+          <img
+            className="landing-hero-image"
+            src="/brand/tokencraft-hero-centered-prism.webp"
+            alt="A centered diamond prism in a square amber-glass frame fans one beam into four copper rays."
+            width={1536}
+            height={1024}
+            fetchPriority="high"
+            onLoad={(event) => { event.currentTarget.parentElement?.setAttribute("data-loaded", ""); }}
+          />
+          <div className="landing-prism-flow" aria-hidden="true">
+            <span className="landing-prism-glow" />
+            <span className="landing-prism-halo landing-prism-halo-inlet" />
+            <span className="landing-prism-halo landing-prism-halo-outlet" />
+            <span className="landing-prism-fleck landing-prism-inlet" />
+            <span className="landing-prism-fleck landing-prism-outlet landing-prism-outlet-upper" />
+            <span className="landing-prism-fleck landing-prism-outlet landing-prism-outlet-upper-inner" />
+            <span className="landing-prism-fleck landing-prism-outlet landing-prism-outlet-lower-inner" />
+            <span className="landing-prism-fleck landing-prism-outlet landing-prism-outlet-lower" />
           </div>
-          <p className="mt-4 text-sm text-muted">No credit card to explore · pay only for what you generate</p>
+        </div>
+        <button
+          className="landing-prism-toggle"
+          type="button"
+          aria-label={prismAction}
+          title={prismAction}
+          onClick={() => setPrismPaused((paused) => !paused)}
+        >
+          <PrismIcon size={17} strokeWidth={1.85} aria-hidden />
+        </button>
+        <Container className="landing-hero-content">
+          <p className="landing-kicker">The open-source AI gateway</p>
+          <h1 id="landing-title">The right AI for <span>what you need.</span></h1>
+          <p className="landing-hero-description">
+            One integration for text, images, video, audio and 3D. TokenCraft finds the best-priced fit across connected models and providers as the lineup changes. You pay the inference cost with zero markup.
+          </p>
+          <div className="landing-actions">
+            <Link to={start} className="landing-button landing-button-primary"><KeyRound size={18} aria-hidden /> Get API key</Link>
+            <Link to="/models" className="landing-button landing-button-secondary">Explore models</Link>
+          </div>
         </Container>
       </section>
 
-      {/* ── Modalities ── */}
-      <Container className="py-16">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {MODALITIES.map(({ modality, icon: Icon, blurb }) => (
-            <Link key={modality} to={`/models?modality=${modality}`}>
-              <Card className="h-full p-5 transition hover:border-brand/50 hover:shadow-glow">
-                <div className="mb-3 grid h-10 w-10 place-items-center rounded-lg bg-brand/12 text-brand">
-                  <Icon className="h-5 w-5" />
-                </div>
-                <h3 className="font-display font-semibold">{MODALITY_LABEL[modality]}</h3>
-                <p className="mt-1 text-sm text-muted">{blurb}</p>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      </Container>
-
-      {/* ── Code sample ── */}
-      <Container className="py-16">
-        <div className="grid items-center gap-10 lg:grid-cols-2">
-          <div>
-            <h2 className="font-display text-3xl font-bold tracking-tight">One request, any model</h2>
-            <p className="mt-4 text-muted">
-              Call a model directly by its catalog slug, or hit a modality endpoint and let Foundation route to
-              the best available model. Every generate endpoint has a <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">/cost</code>{" "}
-              twin so you can price a request before you run it.
-            </p>
-            <ul className="mt-6 space-y-2 text-sm">
-              {["Model-specific & modality endpoints", "OpenAI-compatible /v1/chat/completions", "Per-request cost breakdowns", "Trace usage down to your end-users"].map((f) => (
-                <li key={f} className="flex items-center gap-2 text-fg">
-                  <Check className="h-4 w-4 text-brand" /> {f}
-                </li>
-              ))}
-            </ul>
-            <Link to="/docs" className="mt-6 inline-flex">
-              <Button variant="outline">Read the docs</Button>
-            </Link>
-          </div>
-          <Card className="overflow-hidden">
-            <div className="flex items-center gap-1.5 border-b border-border px-4 py-3">
-              <span className="h-3 w-3 rounded-full bg-rose-400/70" />
-              <span className="h-3 w-3 rounded-full bg-amber-400/70" />
-              <span className="h-3 w-3 rounded-full bg-emerald-400/70" />
-              <span className="ml-3 text-xs text-muted">generate.sh</span>
-            </div>
-            <pre className="scrollbar-thin overflow-x-auto p-5 text-[13px] leading-relaxed">
-              <code>{`curl https://api.foundation.ai/v1/any/image \\
-  -H "Authorization: Bearer $FOUNDATION_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "google_nano_banana_2",
-    "prompt": "neon-lit ramen shop, rain, cinematic",
-    "aspect_ratio": "16:9",
-    "num_images": 1,
-    "end_user": "cust_a2f_user_5512"
-  }'`}</code>
-            </pre>
-          </Card>
-        </div>
-      </Container>
-
-      {/* ── Featured models ── */}
-      <Container className="py-16">
-        <div className="mb-6 flex items-end justify-between">
-          <div>
-            <h2 className="font-display text-3xl font-bold tracking-tight">Featured models</h2>
-            <p className="mt-2 text-muted">A slice of the catalog. {MODELS.length} models and counting.</p>
-          </div>
-          <Link to="/models" className="hidden sm:block">
-            <Button variant="ghost">
-              View all <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((m) => (
-            <ModelCard key={m.slug} model={m} />
-          ))}
-        </div>
-      </Container>
-
-      {/* ── Rankings ── */}
-      <Container className="py-16">
-        <Card className="relative overflow-hidden p-8 sm:p-10">
-          <div className="pointer-events-none absolute inset-0 brand-gradient opacity-[0.06]" />
-          <div className="relative grid gap-8 lg:grid-cols-[1fr_1.1fr] lg:items-center">
+      <section id="how-routing-works" className="landing-section" aria-labelledby="landing-routing-title">
+        <Container>
+          <div className="landing-section-header landing-routing-intro landing-reveal">
             <div>
-              <Badge tone="brand" className="mb-3">
-                <BarChart3 className="h-3 w-3" /> Rankings
-              </Badge>
-              <h2 className="font-display text-3xl font-bold tracking-tight">
-                See what the whole market is <span className="brand-text">actually using</span>
-              </h2>
-              <p className="mt-3 max-w-lg text-muted">
-                Real usage across every model — image and video first-class alongside language. Ranked by market
-                share, sliced by task and content category, day by day. The generative-media index.
-              </p>
-              <Link to="/rankings" className="mt-6 inline-flex">
-                <Button size="lg">
-                  Explore rankings <ArrowRight className="h-4 w-4" />
-                </Button>
-              </Link>
+              <p className="landing-kicker">How routing works</p>
+              <h2 id="landing-routing-title" className="landing-heading">Connect once. Reach many providers.</h2>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <MiniBoard media="image" />
-              <MiniBoard media="video" />
+            <p className="landing-lede">Send requests through one API. TokenCraft checks which routes can do the job and compares what each would cost. Use a favorite model or let TokenCraft choose where automatic model routing is supported.</p>
+          </div>
+          <RoutingExplorer />
+        </Container>
+      </section>
+
+      <section className="landing-section landing-catalog" aria-labelledby="landing-catalog-title">
+        <Container>
+          <div className="landing-section-header landing-reveal">
+            <div>
+              <p className="landing-kicker">Model catalog</p>
+              <h2 id="landing-catalog-title" className="landing-heading">Many models. One place.</h2>
+              <p className="landing-lede">Browse by what you’re making, then compare model capabilities, examples and prices.</p>
+            </div>
+            <Link to="/models" className="landing-button landing-button-outline">Browse all models</Link>
+          </div>
+          <ul className="landing-catalog-grid landing-reveal">
+            {catalogLinks.map(({ icon: Icon, title, body, to }) => (
+              <li key={title}>
+                <Link to={to}>
+                  <span className="landing-icon"><Icon size={21} strokeWidth={1.65} aria-hidden /></span>
+                  <div><h3>{title}</h3><p>{body}</p></div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Container>
+      </section>
+
+      <section className="landing-open-source" aria-labelledby="landing-open-source-title">
+        <Container>
+          <div className="landing-open-source-panel landing-reveal">
+            <span className="landing-icon"><Github size={25} strokeWidth={1.65} aria-hidden /></span>
+            <div>
+              <h2 id="landing-open-source-title">The best part? It’s open source.</h2>
+              <p>Read the gateway code, see how it routes requests, and run TokenCraft on your own infrastructure.</p>
+            </div>
+            <a className="landing-button landing-button-outline" href="https://github.com/storytold/tokencraft">View on GitHub</a>
+          </div>
+        </Container>
+      </section>
+
+      <section className="landing-section landing-platform" aria-labelledby="landing-platform-title">
+        <Container>
+          <div className="landing-reveal">
+            <p className="landing-kicker">For developers</p>
+            <h2 id="landing-platform-title" className="landing-heading">Built for real workflows.</h2>
+          </div>
+          <ul className="landing-feature-grid landing-reveal">
+            {features.map(({ icon: Icon, title, body }) => (
+              <li key={title}>
+                <Icon size={23} strokeWidth={1.65} aria-hidden />
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </li>
+            ))}
+          </ul>
+          <div className="landing-cta landing-reveal">
+            <div>
+              <h3>Put TokenCraft to work.</h3>
+              <p>Get an API key for your app or connect the agent you already use.</p>
+            </div>
+            <div className="landing-actions">
+              <Link to={start} className="landing-button landing-button-solid"><KeyRound size={17} aria-hidden /> Get API key</Link>
+              <Link to={agent} className="landing-button landing-button-outline"><Terminal size={18} aria-hidden /> Use your agent</Link>
             </div>
           </div>
-        </Card>
-      </Container>
-
-      {/* ── CTA ── */}
-      <Container className="py-20">
-        <Card className="relative overflow-hidden p-12 text-center">
-          <div className="pointer-events-none absolute inset-0 brand-gradient opacity-[0.08]" />
-          <Zap className="relative mx-auto mb-4 h-8 w-8 text-brand" />
-          <h2 className="relative font-display text-3xl font-bold tracking-tight">Ship your first generation today</h2>
-          <p className="relative mx-auto mt-3 max-w-xl text-muted">
-            Spin up a key, try any model in the playground, and go to production on the same API.
-          </p>
-          <Link to={user ? "/dashboard" : "/signup"} className="relative mt-7 inline-flex">
-            <Button size="lg">
-              {user ? "Open your dashboard" : "Create an account"} <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </Card>
-      </Container>
-    </>
+        </Container>
+      </section>
+    </div>
   );
 }
 
-function MiniBoard({ media }: { media: MediaKey }) {
-  const m = MEDIA[media];
-  const rows = leaderboard(media, { period: "month" }).slice(0, 5);
+function RoutingExplorer() {
+  const [example, setExample] = useState(routingExamples[0]);
+  const [requireQuality, setRequireQuality] = useState(false);
+  const RequestIcon = example.icon;
+  const checkRating = example.supportsQuality && requireQuality;
+  const routes = example.routes.map((route) => ({
+    ...route,
+    excluded: route.unavailable ?? (checkRating && (route.rating ?? 0) < minimumRating ? "Below quality bar" : undefined),
+  })).sort((first, second) => first.price - second.price);
+  const selected = routes.find((route) => !route.excluded);
+
   return (
-    <Link to={`/rankings/${media}`} className="group block">
-      <Card className="h-full bg-surface/80 p-4 transition group-hover:border-brand/50">
-        <div className="mb-3 flex items-center justify-between">
-          <span className="font-display text-sm font-semibold">
-            {m.glyph} {m.label}
-          </span>
-          <span className="text-xs text-muted">{compact(m.monthlyVolume)}/mo</span>
+    <div className="landing-explorer landing-reveal" role="group" aria-labelledby="landing-explorer-title">
+      <div className="landing-explorer-header">
+        <div>
+          <h3 id="landing-explorer-title"><GitBranch size={18} aria-hidden /> Routing explorer</h3>
+          <p>Illustrative routes and prices</p>
         </div>
-        <ol className="space-y-1.5 text-sm">
-          {rows.map((r) => (
-            <li key={r.model.slug} className="flex items-center gap-2">
-              <span className="w-4 font-mono text-xs text-muted">{r.rank}</span>
-              <span className="flex-1 truncate text-fg">{r.model.name}</span>
-              <span className="tabular-nums text-xs text-muted">{(r.share * 100).toFixed(1)}%</span>
-            </li>
-          ))}
-        </ol>
-      </Card>
-    </Link>
+        <div className="landing-explorer-controls" role="group" aria-label="Choose an example workload">
+          {routingExamples.map((option) => {
+            const OptionIcon = option.icon;
+            return (
+              <button key={option.label} type="button" aria-pressed={example === option} aria-controls="landing-routing-example" onClick={() => setExample(option)}>
+                <OptionIcon size={16} aria-hidden /> {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div id="landing-routing-example">
+        <div className="landing-route-flow" key={example.label}>
+          <div className="landing-routing-journey">
+            <div className="landing-request">
+              <span className="landing-icon"><RequestIcon size={21} strokeWidth={1.7} aria-hidden /></span>
+              <div><p>Your request</p><strong>{example.request}</strong><p>{example.settings}</p></div>
+            </div>
+            <div className="landing-request landing-gateway-node">
+              <img src="/brand/tokencraft-mark.png" width={42} height={42} alt="" loading="lazy" />
+              <div><strong>TokenCraft</strong><p>One API across providers</p></div>
+            </div>
+          </div>
+          <div className="landing-route-candidates">
+            <p className="landing-offers-label">Model and provider options</p>
+            <ul className="landing-offers">
+              {routes.map((route) => (
+                <li key={route.provider} className={route === selected ? "landing-offer-selected" : undefined} data-excluded={Boolean(route.excluded)}>
+                  <div>
+                    <strong>{route.model}</strong>
+                    <span>{route.provider}{checkRating && route.rating !== undefined && ` · ${route.rating}/10`}</span>
+                  </div>
+                  <div className="landing-offer-result">
+                    <strong className="landing-offer-cost">{money.format(route.price)}</strong>
+                    <span>{route.excluded ?? (route === selected ? "Lowest eligible" : "Eligible")}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        <div className="landing-route-total" role="status" aria-atomic="true">
+          <Check size={20} aria-hidden />
+          {selected ? (
+            <>
+              <div><strong>Selected route</strong><p>{selected.model} · {selected.provider}</p></div>
+              <div className="landing-offer-result"><strong className="landing-offer-cost">{money.format(selected.price)} total</strong><p>Zero markup</p></div>
+            </>
+          ) : <strong>No eligible route for this request</strong>}
+        </div>
+      </div>
+      {example.supportsQuality && (
+        <details className="landing-route-quality">
+          <summary><ChevronDown size={16} aria-hidden /> Optional quality bar{requireQuality && <span>{minimumRating}/10 active</span>}</summary>
+          <p>Where supported, automatic model routing can use a minimum community rating. Try it here to see which route qualifies at {minimumRating}/10 or higher.</p>
+          <label>
+            <input type="checkbox" checked={requireQuality} onChange={(event) => setRequireQuality(event.currentTarget.checked)} aria-controls="landing-routing-example" />
+            Require a rating of at least {minimumRating}/10
+          </label>
+        </details>
+      )}
+    </div>
   );
 }

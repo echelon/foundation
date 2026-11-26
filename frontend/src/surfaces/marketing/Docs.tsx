@@ -1,177 +1,364 @@
-import { Badge, Card, Container } from "@/components/ui";
-import { MODALITY_LABEL } from "@/lib/catalog";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { ArrowRight, ArrowUpRight, BookOpen, Check, ChevronDown, Code2, Copy, Link2, List, MessageCircle, Send, Terminal, X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CodeBlock } from "@/components/CodeBlock";
+import { API_BASE_URL } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { demoEnabled } from "@/lib/gateway";
+import { entryPath, getStartedPath } from "@/lib/onboarding";
+import { answerDocsQuestion, type DocsReply } from "./docs-assistant";
+import { buildDocs, docsDescription, docsMarkdown, docsTitle, endpointId, type Docs as DocsData, type DocsLink, type DocsSection, type Snippet, type Topic } from "./docs-content";
+import "./docs.css";
 
-/** Endpoint reference — the public API surface, per the design-doc endpoint split. */
-const ENDPOINT_GROUPS: { title: string; blurb: string; rows: { method: string; path: string; desc: string }[] }[] = [
-  {
-    title: "Model-specific endpoints",
-    blurb: "Pin one exact model and version. Deterministic — you always get the model you named.",
-    rows: [
-      { method: "POST", path: "/v1/models/{model}/generate", desc: "Generate with a specific model (image, 3D, or world)." },
-      { method: "POST", path: "/v1/models/{model}/generate/{modality}", desc: "Disambiguate when a model exposes more than one output modality." },
-      { method: "POST", path: "/v1/models/{model}/generate/cost", desc: "Cost twin — same payload, returns the price, runs nothing." },
-      { method: "GET", path: "/v1/models/{model}", desc: "Public catalog read: metadata, pricing, and supported modalities." },
-    ],
-  },
-  {
-    title: "Modality endpoints",
-    blurb: "Ask for a media type and let Foundation route to the best model — or name one to pin it.",
-    rows: [
-      { method: "POST", path: "/v1/any/image", desc: "Generate an image with the best-fit or named model." },
-      { method: "POST", path: "/v1/any/video", desc: "Generate a video clip." },
-      { method: "POST", path: "/v1/any/3d", desc: "Generate a 3D mesh." },
-      { method: "POST", path: "/v1/any/world", desc: "Generate an explorable 3D world (Gaussian splat)." },
-      { method: "POST", path: "/v1/any/{media}/cost", desc: "Cost twin for any modality endpoint." },
-    ],
-  },
-  {
-    title: "Language (chat) endpoints",
-    blurb: "OpenAI-compatible — point an existing SDK at Foundation and set model to a catalog slug.",
-    rows: [
-      { method: "POST", path: "/v1/chat/completions", desc: "Chat completions across every LLM in the catalog." },
-      { method: "POST", path: "/v1/chat/completions/cost", desc: "Estimate the cost of a chat request before running it." },
-    ],
-  },
-  {
-    title: "Catalog & model-page endpoints",
-    blurb: "Everything the model pages render is public and available over the API.",
-    rows: [
-      { method: "GET", path: "/v1/models", desc: "List the full catalog with pricing, tags, and status." },
-      { method: "GET", path: "/v1/models/{model}", desc: "Full detail for one model." },
-      { method: "GET", path: "/v1/models/{model}/changelog", desc: "Version history for a model." },
-      { method: "GET", path: "/v1/models/{model}/examples", desc: "Curated example outputs for the gallery." },
-    ],
-  },
-];
-
-const COST_UNITS: { unit: string; applies: string; formula: string }[] = [
-  { unit: "per_image", applies: "Image models", formula: "unit price × number of images × quality/resolution tier" },
-  { unit: "per_video_second", applies: "Video models", formula: "unit price × clip duration in seconds" },
-  { unit: "per_mesh", applies: "3D mesh models", formula: "unit price × meshes (texture resolution tier applies)" },
-  { unit: "per_splat", applies: "3D world models", formula: "unit price × generated worlds" },
-  { unit: "per_million_tokens_in / _out", applies: "Language models", formula: "(input_tokens × in-rate + output_tokens × out-rate) ÷ 1,000,000" },
-];
+type ManualCopy = (value: string) => void;
+const groups = ["Get started", "Build", "Reference", "Advanced"];
 
 export default function Docs() {
+  const { user } = useAuth();
+  const keyPath = demoEnabled ? getStartedPath(Boolean(user)) : user ? "/dashboard/keys" : entryPath("/signup", "/dashboard/keys");
+  const docs = useMemo(() => buildDocs({ baseUrl: API_BASE_URL, demo: demoEnabled, keyPath }), [keyPath]);
+  const active = useActiveSection(docs.sections);
+  const [manual, setManual] = useState("");
+  const manualDialog = useRef<HTMLDialogElement>(null);
+  const manualText = useRef<HTMLTextAreaElement>(null);
+  const chatDialog = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "Docs | TokenCraft";
+    return () => { document.title = previousTitle; };
+  }, []);
+
+  useEffect(() => {
+    if (manual && !manualDialog.current?.open) {
+      manualDialog.current?.showModal();
+      manualText.current?.select();
+    }
+  }, [manual]);
+
+  function copyContext() {
+    return docsMarkdown(docs, new URL(window.location.pathname, window.location.origin));
+  }
+
+  function openChat() {
+    chatDialog.current?.showModal();
+  }
+
   return (
-    <Container className="max-w-5xl py-16">
-      <Badge tone="brand" className="mb-4">
-        Reference
-      </Badge>
-      <h1 className="font-display text-4xl font-extrabold tracking-tight">API & cost reference</h1>
-      <p className="mt-4 max-w-2xl text-muted">
-        Foundation exposes three families of endpoints — model-specific, modality, and language — plus a public
-        catalog. Every generate endpoint has a <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">/cost</code>{" "}
-        twin, and every request can carry an <code className="rounded bg-surface2 px-1.5 py-0.5 text-sm">end_user</code>{" "}
-        identifier so usage is traceable down to your own customers.
-      </p>
+    <div className="docs-shell">
+      <a className="docs-skip" href="#docs-content">Skip to documentation</a>
+      <aside className="docs-sidebar">
+        <details className="docs-mobile-toc">
+          <summary><List size={17} aria-hidden /> On this page <ChevronDown size={16} aria-hidden /></summary>
+          <TableOfContents sections={docs.sections} active={active} onNavigate={(event) => {
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }} />
+        </details>
+        <div className="docs-desktop-toc">
+          <div className="docs-sidebar-title"><BookOpen size={18} aria-hidden /> Documentation</div>
+          <TableOfContents sections={docs.sections} active={active} />
+        </div>
+      </aside>
 
-      {/* ── Auth note ── */}
-      <Card className="mt-8 p-5">
-        <h2 className="font-display font-semibold">Authentication</h2>
-        <p className="mt-2 text-sm text-muted">
-          Send your key as a bearer token. Use <code className="rounded bg-surface2 px-1.5 py-0.5">sk_live_…</code>{" "}
-          in production and <code className="rounded bg-surface2 px-1.5 py-0.5">sk_test_…</code> for sandbox traffic.
-        </p>
-        <pre className="scrollbar-thin mt-3 overflow-x-auto rounded-lg bg-surface2/60 p-4 text-[13px]">
-          <code>Authorization: Bearer sk_live_xxxxxxxxxxxxxxxx</code>
-        </pre>
-      </Card>
+      <article className="docs-content" id="docs-content" tabIndex={-1} aria-labelledby="docs-title">
+        <div className="docs-toolbar">
+          <div className="docs-breadcrumb"><Link to="/">TokenCraft</Link><span aria-hidden>/</span><span>Docs</span></div>
+          <div className="docs-actions">
+            <CopyButton label="Copy context" value={copyContext} onManual={setManual} />
+            <button className="docs-button docs-assistant-button" type="button" onClick={openChat}><MessageCircle size={16} aria-hidden /> Ask docs</button>
+          </div>
+        </div>
 
-      {/* ── Endpoints ── */}
-      <div className="mt-12 space-y-10">
-        {ENDPOINT_GROUPS.map((g) => (
-          <section key={g.title}>
-            <h2 className="font-display text-2xl font-bold tracking-tight">{g.title}</h2>
-            <p className="mt-1 text-sm text-muted">{g.blurb}</p>
-            <Card className="mt-4 overflow-hidden">
-              <div className="scrollbar-thin overflow-x-auto">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {g.rows.map((r) => (
-                      <tr key={r.path} className="border-b border-border/60 last:border-0">
-                        <td className="px-4 py-3 align-top">
-                          <span className="rounded bg-brand/12 px-2 py-0.5 font-mono text-xs font-semibold text-brand">
-                            {r.method}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap px-4 py-3 align-top font-mono text-[13px] text-fg">{r.path}</td>
-                        <td className="px-4 py-3 align-top text-muted">{r.desc}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+        <header className="docs-intro">
+          <h1 id="docs-title">{docsTitle}</h1>
+          <p>{docsDescription}</p>
+        </header>
+
+        {docs.sections.map((section) => (
+          <section className="docs-section" id={section.id} key={section.id} tabIndex={-1} aria-labelledby={`${section.id}-title`}>
+            <h2 className="docs-section-title" id={`${section.id}-title`}>
+              <a className="docs-heading-link" href={`#${section.id}`}>{section.title}</a>
+            </h2>
+            {section.id === "quickstart" ? (
+              <ol className="docs-steps">
+                {section.topics.map((topic, index) => (
+                  <li key={topic.id} id={topic.id} tabIndex={-1}>
+                    <span className="docs-step-number" aria-hidden>{index + 1}</span>
+                    <TopicContent topic={topic} onManual={setManual} />
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="docs-topics">
+                {section.topics.map((topic) => (
+                  <div className="docs-topic" key={topic.id} id={topic.id} tabIndex={-1}><TopicContent topic={topic} onManual={setManual} /></div>
+                ))}
               </div>
-            </Card>
+            )}
           </section>
         ))}
+
+        <footer className="docs-next">
+          <div><h2>Need help with a step?</h2><p>Ask about a command, an endpoint, or an error from this guide.</p></div>
+          <button className="docs-button docs-assistant-button" type="button" onClick={openChat}><MessageCircle size={16} aria-hidden /> Ask docs</button>
+        </footer>
+      </article>
+
+      <DocsChat dialog={chatDialog} docs={docs} />
+      <dialog className="docs-dialog docs-copy-dialog" ref={manualDialog} aria-labelledby="docs-copy-title" onClose={() => setManual("")}
+        onClick={(event) => { if (event.target === event.currentTarget) event.currentTarget.close(); }}>
+        <div className="docs-dialog-header">
+          <h2 id="docs-copy-title">Copy manually</h2>
+          <CloseButton onClick={() => manualDialog.current?.close()} />
+        </div>
+        <p>Clipboard access is unavailable. The text is ready to select and copy.</p>
+        <textarea ref={manualText} readOnly value={manual} aria-label="Text to copy" />
+        <button className="docs-button" type="button" onClick={() => manualText.current?.select()}>Select all</button>
+      </dialog>
+    </div>
+  );
+}
+
+function useActiveSection(sections: DocsSection[]) {
+  const [active, setActive] = useState(sections[0].id);
+  const initialFragmentHandled = useRef(false);
+
+  useEffect(() => {
+    const targets = sections.map(({ id }) => document.getElementById(id));
+    let frame: number | undefined;
+    const update = () => {
+      frame = undefined;
+      const cutoff = Math.min(220, window.innerHeight * 0.3);
+      let current = targets[0];
+      for (const target of targets) {
+        if (target && target.getBoundingClientRect().top <= cutoff) current = target;
+      }
+      setActive(current?.id ?? sections[0].id);
+    };
+    const schedule = () => {
+      if (frame === undefined) frame = requestAnimationFrame(update);
+    };
+    // This route is lazy-loaded, so the initial fragment may precede its target.
+    if (!initialFragmentHandled.current) {
+      initialFragmentHandled.current = true;
+      try {
+        const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+        target?.scrollIntoView({ behavior: "instant" });
+      } catch {
+        // Ignore fragments with invalid URL encoding.
+      }
+    }
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
+  }, [sections]);
+
+  return active;
+}
+
+function TableOfContents({ sections, active, onNavigate }: {
+  sections: DocsSection[];
+  active: string;
+  onNavigate?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
+}) {
+  return (
+    <nav className="docs-toc" aria-label="Table of contents">
+      {groups.map((group) => (
+        <div className="docs-toc-group" key={group}>
+          <p>{group}</p>
+          <ul>
+            {sections.filter((section) => section.group === group).map(({ id, title }) => (
+              <li key={id}>
+                <a href={`#${id}`} aria-current={active === id ? "location" : undefined} onClick={onNavigate}>{title}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function InlineText({ text }: { text: string }) {
+  return text.split("`").map((part, index) => index % 2 ? <code key={index}>{part}</code> : <Fragment key={index}>{part}</Fragment>);
+}
+
+function TopicContent({ topic, onManual }: { topic: Topic; onManual: ManualCopy }) {
+  return (
+    <div className="docs-topic-body">
+      <h3 className="docs-topic-title">
+        <a className="docs-heading-link" href={`#${topic.id}`}>{topic.title}</a>
+      </h3>
+      {topic.paragraphs.map((paragraph) => <p key={paragraph}><InlineText text={paragraph} /></p>)}
+      {topic.example && <Example snippet={topic.example} onManual={onManual} />}
+      {topic.links && <div className="docs-links">{topic.links.map((link) => <Hotlink key={link.href} link={link} />)}</div>}
+      {topic.endpoints && <EndpointTable topic={topic} />}
+    </div>
+  );
+}
+
+function Hotlink({ link }: { link: DocsLink }) {
+  if (link.href.startsWith("#")) return <a className="docs-hotlink" href={link.href}>{link.label}<ArrowRight size={15} aria-hidden /></a>;
+  if (link.external) return (
+    <a className="docs-hotlink" href={link.href} target="_blank" rel="noopener noreferrer">{link.label}<ArrowUpRight size={15} aria-hidden /></a>
+  );
+  return <Link className="docs-hotlink" to={link.href}>{link.label}<ArrowUpRight size={15} aria-hidden /></Link>;
+}
+
+function EndpointTable({ topic }: { topic: Topic }) {
+  return (
+    <div className="docs-endpoints">
+      <table>
+        <caption className="sr-only">{topic.title} endpoints</caption>
+        <thead><tr><th scope="col">Endpoint</th><th scope="col">Behavior</th></tr></thead>
+        <tbody>
+          {topic.endpoints?.map(([method, path, summary, doc]) => {
+            const id = endpointId(method, path);
+            const label = <>
+              <span className={`docs-method docs-method-${method.toLowerCase()}`}>{method}</span>
+              <code>{path}</code>
+            </>;
+            return (
+              <tr id={id} key={id}>
+                <th scope="row">
+                  {doc
+                    ? <Link className="docs-endpoint-link" to={doc} aria-label={`Documentation for ${method} ${path}`}>{label}<ArrowRight size={13} aria-hidden /></Link>
+                    : <span className="docs-endpoint-link">{label}</span>}
+                </th>
+                <td>{summary}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Example({ snippet, onManual }: { snippet: Snippet; onManual: ManualCopy }) {
+  return (
+    <div className="docs-code">
+      <div className="docs-code-header">
+        <span>{snippet.lang === "bash" ? <Terminal size={16} aria-hidden /> : <Code2 size={16} aria-hidden />}{snippet.label}</span>
+        <CopyButton label="Copy" accessibleLabel={`Copy ${snippet.label.toLowerCase()} example`} value={() => snippet.code} onManual={onManual} />
       </div>
+      <CodeBlock code={snippet.code} lang={snippet.lang} className="docs-code-body" />
+    </div>
+  );
+}
 
-      {/* ── Cost structures ── */}
-      <section className="mt-14">
-        <h2 className="font-display text-2xl font-bold tracking-tight">Cost structures</h2>
-        <p className="mt-1 text-sm text-muted">
-          Every response includes a <code className="rounded bg-surface2 px-1.5 py-0.5">cost</code> object with the
-          charged amount and a breakdown. Costs draw down prepaid credits; tax is applied at top-up.
-        </p>
-        <Card className="mt-4 overflow-hidden">
-          <div className="scrollbar-thin overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-surface2/50 text-left text-muted">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Metering unit</th>
-                  <th className="px-4 py-3 font-medium">Applies to</th>
-                  <th className="px-4 py-3 font-medium">How it's computed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {COST_UNITS.map((c) => (
-                  <tr key={c.unit} className="border-b border-border/60 last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[13px] text-fg">{c.unit}</td>
-                    <td className="px-4 py-3 text-muted">{c.applies}</td>
-                    <td className="px-4 py-3 text-muted">{c.formula}</td>
-                  </tr>
+function CopyButton({ label, accessibleLabel, value, onManual }: { label: string; accessibleLabel?: string; value: () => string; onManual: ManualCopy }) {
+  const [copied, setCopied] = useState(false);
+  const timeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timeout.current), []);
+
+  async function copy() {
+    const content = value();
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      clearTimeout(timeout.current);
+      timeout.current = setTimeout(() => setCopied(false), 2100);
+    } catch {
+      onManual(content);
+    }
+  }
+
+  return (
+    <button type="button" className="docs-button docs-copy-button" onClick={() => void copy()} aria-label={accessibleLabel}>
+      {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
+      <span aria-live="polite">{copied ? "Copied" : label}</span>
+    </button>
+  );
+}
+
+function CloseButton({ onClick }: { onClick: () => void }) {
+  return <button className="docs-close" type="button" onClick={onClick} aria-label="Close"><X size={20} aria-hidden /></button>;
+}
+
+function DocsChat({ dialog, docs }: { dialog: React.RefObject<HTMLDialogElement | null>; docs: DocsData }) {
+  const [question, setQuestion] = useState("");
+  const [turns, setTurns] = useState<{ question: string; answer: DocsReply }[]>([]);
+  const transcript = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const prompts = ["How do I get an API key?", "Show me the setup steps", "Why am I getting a 401?"];
+
+  useEffect(() => {
+    const log = transcript.current;
+    const latest = log?.lastElementChild;
+    if (log && latest && turns.length) {
+      log.scrollTop += latest.getBoundingClientRect().top - log.getBoundingClientRect().top - 12;
+    }
+  }, [turns]);
+
+  function ask(value: string) {
+    const clean = value.trim();
+    if (!clean) return;
+    setTurns((current) => [...current, { question: clean, answer: answerDocsQuestion(docs, clean, current.at(-1)?.answer) }]);
+    setQuestion("");
+    input.current?.focus();
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    ask(question);
+  }
+
+  return (
+    <dialog className="docs-dialog docs-chat" ref={dialog} aria-labelledby="docs-chat-title" onClick={(event) => {
+      if (event.target === event.currentTarget) event.currentTarget.close();
+    }}>
+      <div className="docs-chat-frame">
+        <div className="docs-dialog-header">
+          <div className="docs-chat-brand"><MessageCircle size={20} aria-hidden /></div>
+          <div><h2 id="docs-chat-title">Ask docs</h2><p>Answers from the TokenCraft guide</p></div>
+          <CloseButton onClick={() => dialog.current?.close()} />
+        </div>
+        <div className="docs-transcript" ref={transcript} role="log" aria-label="Conversation" aria-live="polite">
+          {!turns.length && <div className="docs-chat-intro">
+            <p>What are you setting up?</p>
+            <div className="docs-prompts">
+              {prompts.map((prompt) => <button type="button" key={prompt} onClick={() => ask(prompt)}>{prompt}<ArrowUpRight size={15} aria-hidden /></button>)}
+            </div>
+          </div>}
+          {turns.map(({ question: asked, answer }, index) => (
+            <div className="docs-turn" key={index}>
+              <p className="docs-question"><span className="sr-only">You: </span>{asked}</p>
+              <div className="docs-answer">
+                <span className="sr-only">Docs assistant: </span>
+                {answer.passages.map(({ title, paragraphs, example }, passageIndex) => (
+                  <div className="docs-passage" key={passageIndex}>
+                    {title && <h3>{title}</h3>}
+                    {paragraphs.map((paragraph) => <p key={paragraph}><InlineText text={paragraph} /></p>)}
+                    {example && <CodeBlock code={example.code} lang={example.lang} className="docs-chat-code" />}
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-
-        <Card className="mt-4 p-5">
-          <h3 className="font-display font-semibold">Example cost response</h3>
-          <pre className="scrollbar-thin mt-3 overflow-x-auto rounded-lg bg-surface2/60 p-4 text-[13px] leading-relaxed">
-            <code>{`{
-  "request_id": "req_6d2b04",
-  "model": "bytedance_seedance_2",
-  "status": "succeeded",
-  "cost": {
-    "amount_usd": 0.60,
-    "currency": "USD",
-    "unit": "per_video_second",
-    "breakdown": "5s × $0.12 / video second"
-  },
-  "end_user": "cust_a2f_user_5512"
-}`}</code>
-          </pre>
-        </Card>
-      </section>
-
-      {/* ── End-user attribution ── */}
-      <section className="mt-14">
-        <h2 className="font-display text-2xl font-bold tracking-tight">End-user attribution</h2>
-        <p className="mt-2 max-w-3xl text-sm text-muted">
-          Pass an <code className="rounded bg-surface2 px-1.5 py-0.5">end_user</code> string on any request to tag
-          it with your own customer's identifier. Foundation records it on the request ledger so you can see{" "}
-          <strong className="text-fg">everything that transited your account</strong> — not just calls your team
-          made in the dashboard, but the traffic your customers' end-users generated through you. Filter, export,
-          and reconcile per end-user in the dashboard's <em>Requests</em> view.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {(["image", "video", "3d", "world", "chat"] as const).map((m) => (
-            <Badge key={m}>{MODALITY_LABEL[m]}</Badge>
+                <div className="docs-chat-sources" aria-label="Sources">
+                  {answer.sources.map(({ id, label, href }) => {
+                    const text = <><Link2 size={14} aria-hidden />{label}</>;
+                    return href
+                      ? <Link key={id} to={href} onClick={() => dialog.current?.close()}>{text}</Link>
+                      : <a key={id} href={`#${id}`} onClick={() => dialog.current?.close()}>{text}</a>;
+                  })}
+                </div>
+              </div>
+            </div>
           ))}
         </div>
-      </section>
-    </Container>
+        <form className="docs-chat-form" onSubmit={submit}>
+          <label className="sr-only" htmlFor="docs-question">Ask a setup question</label>
+          <div>
+            <input id="docs-question" ref={input} autoFocus value={question} maxLength={500} placeholder="Ask a setup question…" onChange={(event) => setQuestion(event.target.value)} />
+            <button className="docs-button docs-primary" type="submit" aria-label="Send question" disabled={!question.trim()}><Send size={18} aria-hidden /></button>
+          </div>
+          <p>Questions stay in this browser. Keep API keys out of chat.</p>
+        </form>
+      </div>
+    </dialog>
   );
 }

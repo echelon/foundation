@@ -1,0 +1,43 @@
+{
+  "id": "image-1",
+  "modality": "image",
+  "summary": "Text only · 1024 × 1024 · 1 image",
+  "settings": {
+    "task": "text_to_image",
+    "reference_count": 0,
+    "output_count": 1,
+    "width": 1024,
+    "height": 1024,
+    "tuning": "provider_default"
+  },
+  "prompts": [
+    {
+      "id": "product-label",
+      "name": "Product label",
+      "theme": "Detail Close-up",
+      "criteria": "Legible text and realistic materials",
+      "prompt": "A straight-on studio product photograph of one matte cobalt-blue water bottle standing on a pale stone plinth, with soft light from the left. Its white label reads ORBIT in large letters, with 500 ml beneath it. Use a warm off-white backdrop. No other objects or text."
+    },
+    {
+      "id": "portrait",
+      "name": "Editorial portrait",
+      "theme": "Portrait Detail",
+      "criteria": "Hands, expression, and lighting",
+      "prompt": "An editorial waist-up portrait of an adult ceramic artist in a dark green apron, holding a small unglazed clay bowl in both hands. A workshop window lights the left side of their face. Include a softly blurred shelf in the background and keep the bowl and hands in focus."
+    },
+    {
+      "id": "spatial-layout",
+      "name": "Spatial layout",
+      "theme": "Spatial Accuracy",
+      "criteria": "Object count, color, and placement",
+      "prompt": "An overhead photograph of a cream table with exactly three objects: a red apple at the top left, a blue ceramic cup at the top right, and a single silver spoon below the apple. Leave the bottom right empty. Keep every object fully in frame."
+    },
+    {
+      "id": "illustration",
+      "name": "Limited-palette illustration",
+      "theme": "Palette Control",
+      "criteria": "Style and palette control",
+      "prompt": "A cut-paper illustration of a cyclist passing a small bus shelter in the rain. Use exactly four colors: navy, warm cream, muted orange, and slate blue. Show layered paper edges and a clear silhouette, with no lettering."
+    }
+  ]
+}

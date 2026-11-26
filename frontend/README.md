@@ -55,7 +55,9 @@ src/
 
 ## Catalog index (`/models`)
 
-- **Gallery ⇄ Table view** toggle — cards, or one model per row.
+- **Grid and table views** use the model creator's mark. Generated previews appear in Examples, and playground outputs appear after generation.
+- **Catalog search** matches model names, slugs, creators, and capabilities. Use `Ctrl+K` or `⌘ K` to focus search from the catalog.
+- **Model Advisor** opens from the button beside search and recommends models from a job description. The local fixture uses catalog capabilities and sample estimates.
 - **Rank + usage sparkline** on every model in both views.
 - **Sort/rank selector**: Volume (generations), Volume (output), Volume (price-weighted), Cost
   (high→low), Cost (low→high), Trending (WoW), Newest.
@@ -65,9 +67,75 @@ src/
   deterministic from the slug (dummy data). Price-weighted "value" is list-price × volume — public,
   not revenue (privacy line preserved).
 
+### AI web research
+
+To enable web research on a non-fixture gateway, set `TOKENCRAFT_ADVISOR_OPENROUTER_KEY` and `TOKENCRAFT_ADVISOR_MODEL` in the gateway environment. Choose a model that supports OpenRouter server tools and JSON-object output. Signed-in developers can submit a job description and receive catalog recommendations with primary-source links. The advisor uses the catalog if web research is unavailable. The gateway allows up to three concurrent requests and 60 requests per hour per process. [OpenRouter web search](https://openrouter.ai/docs/guides/features/server-tools/web-search)
+
+Creator marks are downloaded from the official sites for [Google](https://about.google/), [OpenAI](https://openai.com/brand/), [Anthropic](https://www.anthropic.com/), [Meta](https://www.meta.com/about/), [ByteDance](https://www.bytedance.com/), [Tencent](https://www.tencent.com/), and [World Labs](https://worldlabs.ai/).
+
+## Shared example prompts
+
+The Examples tab shows four fixed prompts for each comparable output type. Image, video, textured mesh, and Gaussian-splat worlds each have their own suite. Each suite fixes the input type, reference count, output count, and relevant output settings. Optional provider-specific tuning uses its default. Video starts muted for a visual comparison. Add separate suites for speech, music, and sound effects when the catalog supports those tasks, with the same source text or audio instructions and a fixed output format within each suite.
+
+Image onboarding and the Examples tab share `content/benchmark-suites/image-1.json`. The other suites are in `src/lib/model-examples.ts`. Keep the first successful result that meets the suite settings. Confirm the request, model, provider, and output before staging a result. Create a new suite revision when a prompt or comparison setting changes. Use public test inputs and approved artifacts.
+
+### Onboard an image model
+
+Once the same slug has a working text-to-image route in the gateway catalog and an entry in the frontend catalog, run this from the repository root with a generation API key in `TOKENCRAFT_API_KEY`.
+
+```bash
+TOKENCRAFT_BASE_URL=https://your-gateway.example \
+TOKENCRAFT_CDN_ORIGIN=https://your-generation-cdn.example \
+node script/onboard-image-model.mjs --model YOUR_MODEL_SLUG --max-total-usd-micros 500000
+```
+
+The command estimates the full suite before submitting jobs. The example budget is $0.50 in USD micros. It submits the four exact prompts with one image per prompt, no references, and default provider tuning. The selected model must produce 1024 × 1024 images. `TOKENCRAFT_CDN_ORIGIN` defaults to the gateway origin for deployments that serve both there.
+
+The command writes the verified images and then atomically publishes the model’s four-entry `results.json`. It defaults to `frontend/public/cdn`. Pass `--output` to target the directory served at `/cdn` in your deployment. For object storage, deploy the staged images first, then the index. The Examples tab picks up the index on its next load without a frontend rebuild.
+
+The runner saves job IDs in `~/.local/state/tokencraft/image-onboarding` by default. Keep that directory across runs or pass a durable private `--state-dir`. Rerunning uses the saved jobs and skips a complete published suite. If the connection dropped during admission, find the accepted job in the generation account and pass `--resume-job SCENARIO=JOB_ID`. You can also use that flag to attach a matching replacement for a failed job. The runner verifies the job’s original prompt and settings before using it.
+
+Publish approved media under `/cdn/benchmarks/{suite}/{scenario}/{model}/`, then write a JSON array of the model’s matched run objects to `/cdn/benchmarks/{suite}/{model}/results.json`. Serve the index as `application/json`. The Examples tab loads each selected model's index when opened and replaces the placeholder for each matched result. This works without a frontend rebuild. Local static deployments can use `public/cdn/benchmarks/`. The example below shows one item in the array.
+
+```json
+{
+  "suite": "image-1",
+  "scenario": "product-label",
+  "model": "google_nano_banana_2",
+  "prompt": "COPY THE EXACT PRODUCT LABEL PROMPT FROM THE SUITE",
+  "effective_settings": {
+    "task": "text_to_image",
+    "reference_count": 0,
+    "output_count": 1,
+    "width": 1024,
+    "height": 1024,
+    "tuning": "provider_default"
+  },
+  "request_id": "REQUEST_ID_FROM_THE_TRACE",
+  "provider": "PROVIDER_FROM_THE_TRACE",
+  "artifact": "benchmarks/image-1/product-label/google_nano_banana_2/output.png"
+}
+```
+
+The catalog displays a placeholder when an image or video lacks a matching record. Records must also pass the suite’s prompt, effective settings, model, and artifact checks. Images must match the target dimensions. Video must also be within 0.15 seconds of the suite duration. For bundled examples, the app can also read individual run objects from `content/benchmarks/` when a published index is unavailable.
+
+### Comparison placeholder assets
+
+The comparison uses one preview image per image prompt across all models, plus a [stock flower video from MDN](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/video). The video is copied from [MDN's CC0 media directory](https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4), with a frame from the clip used as its poster. The four stills were created with the built-in ImageGen tool and are saved under `public/benchmarks/placeholders/`.
+
+<details>
+<summary>ImageGen prompts</summary>
+
+- `product-label.webp` — Use case: product-mockup. Asset: one square TokenCraft examples preview image. A straight-on studio product photograph of one matte cobalt-blue water bottle standing on a pale stone plinth, with soft light from the left. Its white label reads ORBIT in large letters, with 500 ml beneath it. Use a warm off-white backdrop. No other objects or text. Single photograph, edge to edge, no frames, no UI, no watermark.
+- `portrait.webp` — Use case: photorealistic-natural. Asset: one square TokenCraft examples preview image. An editorial waist-up portrait of an adult ceramic artist in a dark green apron, holding a small unglazed clay bowl in both hands. A workshop window lights the left side of their face. Include a softly blurred shelf in the background and keep the bowl and hands in focus. Single professional photograph, edge to edge, no text or watermark.
+- `spatial-layout.webp` — Use case: photorealistic-natural. Asset: one square TokenCraft examples preview image. An overhead photograph of a cream table with exactly three objects: a red apple at the top left, a blue ceramic cup at the top right, and a single silver spoon below the apple. Leave the bottom right empty. Keep every object fully in frame. Single clean edge-to-edge photograph, no text or watermark.
+- `illustration.webp` — Use case: illustration-story. Asset: one square TokenCraft examples preview image. A cut-paper illustration of a cyclist passing a small bus shelter in the rain. Use exactly four colors: navy, warm cream, muted orange, and slate blue. Show layered paper edges and a clear silhouette, with no lettering. Single edge-to-edge artwork, no frame or watermark.
+
+</details>
+
 ## Prompt Gallery (curated per-model examples)
 
-The model page's **Examples** tab is a **Prompt Gallery** — curated examples showing what a
+The model page's **Additional example prompts** section includes a **Prompt Gallery** of examples showing what a
 model can do and *how each effect is achieved* (the `awesome-*-prompts` pattern, productized).
 
 - **Content-as-code**: examples are markdown files in `content/gallery/{model}/*.md`

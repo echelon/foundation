@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, ImagePlus, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, ExternalLink, ImagePlus, TriangleAlert, X } from "lucide-react";
 import { Badge, Button, Modal } from "@/components/ui";
 import { api, type ApiJob, type ApiJobRequest } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -58,6 +58,8 @@ export function OutputLightbox({
   onClose: () => void;
 }) {
   const outputs = job.outputs;
+  const dropped = job.param_adjustments.filter(({ action }) => action === "pruned");
+  const changed = job.param_adjustments.filter(({ action }) => action === "coerced");
   const [idx, setIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(outputs.length - 1, 0)));
   const [copied, setCopied] = useState<"url" | "image" | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
@@ -143,8 +145,8 @@ export function OutputLightbox({
       : []),
     ...(req?.media_type === "video"
       ? ([
-          ["Resolution", req.resolution ?? "720p (default)"],
-          ["Duration", req.duration_seconds ? `${req.duration_seconds} s` : "8 s (default)"],
+          ["Resolution", req.resolution ?? "Model default"],
+          ["Duration", req.duration_seconds ? `${req.duration_seconds} s` : "Model default"],
           ["Aspect", req.aspect_ratio ?? "16:9 (default)"],
         ] as [string, string][])
       : ([
@@ -283,9 +285,21 @@ export function OutputLightbox({
               </div>
             </div>
           )}
-          {job.param_adjustments.length > 0 && (
+          {dropped.length > 0 && (
+            <aside aria-label="Dropped settings" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-fg">
+              <h3 className="flex items-center gap-2 font-semibold">
+                <TriangleAlert size={15} className="text-amber-600 dark:text-amber-400" aria-hidden /> Dropped settings
+              </h3>
+              <ul className="mt-2 space-y-1.5">
+                {dropped.map(({ param, detail }, index) => (
+                  <li key={`${param}-${index}`}><code className="font-semibold">{param}</code> <span className="text-muted">{detail}</span></li>
+                ))}
+              </ul>
+            </aside>
+          )}
+          {changed.length > 0 && (
             <p className="rounded-lg bg-surface2/60 px-3 py-2 text-xs text-muted">
-              Adjusted: {job.param_adjustments.map((a) => `${a.param} (${a.action}) — ${a.detail}`).join("; ")}
+              Adjusted settings. {changed.map(({ param, detail }) => `${param} — ${detail}`).join(" · ")}
             </p>
           )}
         </div>

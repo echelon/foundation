@@ -12,8 +12,6 @@
 //! `FOUNDATION_ENV` (read from the process environment BEFORE any file) picks the set; default is
 //! dev. Real process env vars always win over file values, and more-specific files win over
 //! `common` — so a deploy platform or a one-off `DATABASE_URL=… cargo run` override just works.
-//! Provider credential pools are optional — a missing key means that provider is simply
-//! unroutable, not a boot failure.
 
 use std::path::{Path, PathBuf};
 
@@ -70,7 +68,6 @@ pub struct Config {
     /// Object storage (R2 in prod, minio locally). `None` when unconfigured — avatar mirroring
     /// and uploads are disabled, not a boot failure.
     pub storage: Option<StorageConfig>,
-    pub providers: ProviderKeys,
 }
 
 /// S3-compatible object storage settings. For R2: endpoint
@@ -122,17 +119,6 @@ pub struct EmailConfig {
     /// Sender in display form, e.g. `"Foundation <noreply@example.com>"`. Must be a Resend-verified
     /// sender domain.
     pub from_address: String,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ProviderKeys {
-    pub kinovi: Option<String>,
-    pub openai: Option<String>,
-    /// Standard-Webhooks signing secret (`whsec_…`) for OpenAI's project webhooks — verifies
-    /// inbound `/v1/webhooks/openai` deliveries. None = webhook receiving disabled (polling
-    /// still completes jobs).
-    pub openai_webhook_secret: Option<String>,
-    pub gemini: Option<String>,
 }
 
 fn opt(name: &str) -> Option<String> {
@@ -243,12 +229,6 @@ impl Config {
                     })
                 }
                 _ => None,
-            },
-            providers: ProviderKeys {
-                kinovi: opt("KINOVI_API_KEY"),
-                openai: opt("OPENAI_API_KEY"),
-                openai_webhook_secret: opt("OPENAI_WEBHOOK_SECRET"),
-                gemini: opt("GEMINI_API_KEY"),
             },
         })
     }

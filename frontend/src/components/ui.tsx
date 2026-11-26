@@ -1,15 +1,15 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import { type ComponentPropsWithRef, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Link } from "react-router-dom";
-import { Moon, Sun } from "lucide-react";
+import { ChevronDown, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useTheme } from "@/lib/theme";
 
 /* ── Brand mark ── */
 export function Logo({ className, withText = true }: { className?: string; withText?: boolean }) {
   return (
-    <Link to="/" className={cn("flex items-center gap-2 font-display font-extrabold", className)}>
-      <span className="grid h-7 w-7 place-items-center rounded-lg brand-gradient text-white shadow-glow">✦</span>
-      {withText && <span className="text-lg tracking-tight">Foundation</span>}
+    <Link to="/" aria-label="TokenCraft home" className={cn("flex items-center gap-2 font-display font-extrabold", className)}>
+      <img src="/brand/tokencraft-mark.png" alt="" width={32} height={32} className="h-8 w-8 shrink-0" />
+      {withText && <span className="text-lg tracking-tight">TokenCraft</span>}
     </Link>
   );
 }
@@ -22,7 +22,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       onClick={toggle}
       aria-label="Toggle day / night"
       className={cn(
-        "grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-muted transition hover:text-fg hover:border-brand/50",
+        "grid h-9 w-9 place-items-center border border-border bg-surface text-muted transition hover:text-fg hover:border-brand/50",
         className,
       )}
     >
@@ -32,7 +32,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 }
 
 /* ── Button ── */
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type ButtonProps = ComponentPropsWithRef<"button"> & {
   variant?: "primary" | "secondary" | "ghost" | "outline";
   size?: "sm" | "md" | "lg";
 };
@@ -40,11 +40,11 @@ export function Button({ variant = "primary", size = "md", className, ...props }
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex items-center justify-center gap-2 font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50",
         size === "sm" && "h-8 px-3 text-sm",
         size === "md" && "h-10 px-4 text-sm",
         size === "lg" && "h-12 px-6 text-base",
-        variant === "primary" && "brand-gradient text-white shadow-glow hover:brightness-110",
+        variant === "primary" && "brand-gradient hover:opacity-85",
         variant === "secondary" && "bg-surface2 text-fg hover:bg-border/60",
         variant === "outline" && "border border-border bg-surface text-fg hover:border-brand/60",
         variant === "ghost" && "text-muted hover:bg-surface2 hover:text-fg",
@@ -65,12 +65,12 @@ export function Badge({ className, children, tone = "muted" }: { className?: str
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-sm px-2 py-0.5 text-sm font-medium",
         tone === "muted" && "bg-surface2 text-muted",
         tone === "brand" && "bg-brand/12 text-brand",
-        tone === "green" && "bg-emerald-500/12 text-emerald-500",
-        tone === "amber" && "bg-amber-500/15 text-amber-500",
-        tone === "red" && "bg-rose-500/15 text-rose-500",
+        tone === "green" && "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+        tone === "amber" && "bg-amber-500/15 text-amber-800 dark:text-amber-300",
+        tone === "red" && "bg-rose-500/15 text-rose-800 dark:text-rose-300",
         className,
       )}
     >
@@ -80,16 +80,23 @@ export function Badge({ className, children, tone = "muted" }: { className?: str
 }
 
 /* ── Form controls ── */
-export function Label({ children, hint }: { children: ReactNode; hint?: string }) {
+export function Label({ children, hint, htmlFor }: { children: ReactNode; hint?: string; htmlFor?: string }) {
   return (
-    <label className="mb-1.5 flex items-center justify-between text-sm font-medium text-fg">
+    <label htmlFor={htmlFor} className="mb-1.5 flex items-center justify-between text-sm font-medium text-fg">
       <span>{children}</span>
       {hint && <span className="font-normal text-muted">{hint}</span>}
     </label>
   );
 }
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
+export function Checkbox({ className, ...props }: Omit<ComponentPropsWithRef<"input">, "type">) {
+  return <input {...props} type="checkbox" className={cn(
+    "h-4 w-4 shrink-0 cursor-pointer accent-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-55",
+    className,
+  )} />;
+}
+
+export function Input(props: ComponentPropsWithRef<"input">) {
   return (
     <input
       {...props}
@@ -115,13 +122,16 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select
-      {...props}
-      className={cn(
-        "h-10 w-full rounded-lg border border-border bg-bg px-3 text-sm text-fg outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/25",
-        props.className,
-      )}
-    />
+    <span className="relative block">
+      <select
+        {...props}
+        className={cn(
+          "h-10 w-full appearance-none rounded-sm border border-border bg-bg pl-3 pr-8 text-sm text-fg outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/25",
+          props.className,
+        )}
+      />
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
+    </span>
   );
 }
 

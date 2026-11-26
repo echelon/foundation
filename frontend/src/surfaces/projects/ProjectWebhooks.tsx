@@ -1,0 +1,214 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+import { Button, Card, Input, Select } from "@/components/ui";
+import { errorMessage, isGatewayEndpointUnavailable, withProject, type ProjectScope } from "@/lib/gateway";
+import { OneTimeSecret } from "./OneTimeSecret";
+import {
+  webhooksApi, type IssuedWebhook, type WebhookDelivery, type WebhookDetail, type WebhookPage, type WebhookSubscription,
+} from "./api";
+
+type Webhooks = { destinations: string[]; subscriptions: WebhookPage<WebhookSubscription>; deliveries: WebhookPage<WebhookDelivery> };
+type Collection = "subscriptions" | "deliveries";
+const date = (value: string) => new Date(value).toLocaleString();
+const stateLabels: Record<WebhookDelivery["state"], string> = {
+  pending: "Pending", sending: "Sending", delivered: "Delivered", dead: "Failed",
+};
+
+export function ProjectWebhooks({ scope }: { scope: ProjectScope }) {
+  const [data, setData] = useState<Webhooks | null>();
+  const [before, setBefore] = useState<Partial<Record<Collection, string>>>({});
+  const [revision, setRevision] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [issued, setIssued] = useState<IssuedWebhook>();
+  const [selected, setSelected] = useState<string>();
+  const refresh = () => setRevision((value) => value + 1);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    Promise.all([
+      webhooksApi.destinations(scope, signal),
+      webhooksApi.subscriptions(scope, before.subscriptions, signal),
+      webhooksApi.deliveries(scope, before.deliveries, signal),
+    ]).then(([destinations, subscriptions, deliveries]) => {
+      if (!signal.aborted) setData({ destinations, subscriptions, deliveries });
+    }).catch((error) => {
+      if (signal.aborted) return;
+      if (isGatewayEndpointUnavailable(error)) setData(null);
+      else setError(errorMessage(error));
+    });
+    return () => controller.abort();
+  }, [scope, revision, before]);
+
+  async function change(action: () => Promise<void | IssuedWebhook>, notice = "") {
+    if (busy || issued) return false;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const next = await action();
+      if (next) setIssued(next);
+      setNotice(notice);
+      refresh();
+      return true;
+    } catch (error) {
+      setError(errorMessage(error));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const disabled = busy || Boolean(issued);
+  return (
+    <Card className="min-w-0 space-y-4 p-4 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-xl font-semibold">Webhooks</h3>
+          <p className="mt-1 text-sm text-muted">Send signed request outcomes to a registered receiver.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { setError(""); refresh(); }}>Refresh webhooks</Button>
+      </div>
+      {data === undefined && !error && <p className="text-sm text-muted" role="status">Loading webhooks…</p>}
+      {data === null && <p className="text-sm text-muted" role="status">Webhook delivery requires a receiver configured on this gateway.</p>}
+      {error && <p className="text-sm text-rose-600 dark:text-rose-300" role="alert">{error}</p>}
+      {notice && <p className="text-sm text-muted" role="status">{notice}</p>}
+      {data && <AddSubscription destinations={data.destinations} disabled={disabled} create={async (input) => {
+        if (!await change(() => webhooksApi.create(scope, input))) return false;
+        if (before.subscriptions) setBefore((previous) => ({ ...previous, subscriptions: undefined }));
+        return true;
+      }} />}
+      {issued && <OneTimeSecret key={`${issued.id}:${issued.signing_version}`} label="Webhook signing secret" noun="secret"
+        value={issued.signing_secret} dismiss={() => setIssued(undefined)} />}
+      {data && <>
+        <section aria-label="Webhook subscriptions" className="space-y-2">
+          <h4 className="font-semibold">Subscriptions</h4>
+          {data.subscriptions.items.length === 0 && <p className="text-sm text-muted">No subscriptions in this project.</p>}
+          <ul className="divide-y divide-border">
+            {data.subscriptions.items.map((subscription) => (
+              <li key={subscription.id} className="flex flex-wrap items-start justify-between gap-2 border-t border-border py-3 text-sm">
+                <div className="min-w-0 break-all">
+                  <p className="font-medium">{subscription.name}{subscription.revoked_at && " · Revoked"}</p>
+                  <p className="text-muted">{subscription.destination_id}{subscription.client_ref && ` · Client ${subscription.client_ref}`}</p>
+                  <code className="text-xs text-muted">{subscription.id}</code>
+                </div>
+                {!subscription.revoked_at && <div className="flex flex-wrap items-center gap-2">
+                  <Link className="font-medium text-brand hover:underline" to={`${withProject("/compare", scope.project_id, scope.account_id)}&webhook_subscription_id=${encodeURIComponent(subscription.id)}`}
+                    state={{ webhookClient: subscription.client_ref }}>Try in comparison</Link>
+                  <Button variant="outline" size="sm" disabled={disabled} onClick={() => {
+                    void change(() => webhooksApi.rotate(scope, subscription.id), "Both signing keys are valid for 24 hours.");
+                  }}>Rotate signing key</Button>
+                  <Button variant="ghost" size="sm" disabled={disabled} onClick={() => {
+                    if (window.confirm(`Disable ${subscription.name}?`)) void change(() => webhooksApi.revoke(scope, subscription.id), "Subscription disabled.");
+                  }}>Disable subscription</Button>
+                </div>}
+              </li>
+            ))}
+          </ul>
+          <PageControls label="subscriptions" before={before.subscriptions} next={data.subscriptions.next_before}
+            select={(cursor) => setBefore((previous) => ({ ...previous, subscriptions: cursor }))} />
+        </section>
+        <section aria-label="Webhook deliveries" className="space-y-2">
+          <h4 className="font-semibold">Deliveries</h4>
+          {data.deliveries.items.length === 0 && <p className="text-sm text-muted">No webhook deliveries yet.</p>}
+          <ul className="divide-y divide-border">
+            {data.deliveries.items.map((delivery) => (
+              <li key={delivery.id} className="border-t border-border py-3 text-sm">
+                <button type="button" className="flex w-full flex-wrap justify-between gap-2 text-left hover:text-brand"
+                  aria-expanded={selected === delivery.id} onClick={() => setSelected(selected === delivery.id ? undefined : delivery.id)}>
+                  <span className="min-w-0 break-all"><span className="font-medium">{delivery.event_type}</span>{" "}
+                    <span className="font-mono text-xs text-muted">{delivery.request_id}</span>
+                  </span>
+                  <span>{stateLabels[delivery.state]} · {delivery.attempt_count} {delivery.attempt_count === 1 ? "attempt" : "attempts"}</span>
+                </button>
+                {selected === delivery.id && <DeliveryAttempts scope={scope} id={delivery.id} revision={revision} disabled={disabled}
+                  redrive={() => { void change(() => webhooksApi.redrive(scope, delivery.id), "Delivery queued for another attempt."); }} />}
+              </li>
+            ))}
+          </ul>
+          <PageControls label="deliveries" before={before.deliveries} next={data.deliveries.next_before}
+            select={(cursor) => { setSelected(undefined); setBefore((previous) => ({ ...previous, deliveries: cursor })); }} />
+        </section>
+      </>}
+    </Card>
+  );
+}
+
+type CreateInput = Parameters<typeof webhooksApi.create>[1];
+
+function AddSubscription({ destinations, disabled, create }: {
+  destinations: string[]; disabled: boolean; create: (input: CreateInput) => Promise<boolean>;
+}) {
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState(destinations[0] ?? "");
+  const [client, setClient] = useState("");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim() || !target || disabled) return;
+    if (await create({ name: name.trim(), destination_id: target, client_ref: client.trim() || null })) {
+      setName("");
+      setClient("");
+    }
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-end gap-3">
+      <label className="min-w-0 w-full max-w-52 space-y-1 text-sm font-medium">Subscription name
+        <Input value={name} required maxLength={80} disabled={disabled} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <label className="min-w-0 w-full max-w-52 space-y-1 text-sm font-medium">Webhook destination
+        <Select value={target} required disabled={disabled} onChange={(event) => setTarget(event.target.value)}>
+          {destinations.map((id) => <option key={id} value={id}>{id}</option>)}
+        </Select>
+      </label>
+      <label className="min-w-0 w-full max-w-52 space-y-1 text-sm font-medium">Webhook client reference
+        <Input value={client} maxLength={64} placeholder="Optional" disabled={disabled} onChange={(event) => setClient(event.target.value)} />
+      </label>
+      <Button type="submit" disabled={disabled || !name.trim() || !target}>Create subscription</Button>
+    </form>
+  );
+}
+
+function DeliveryAttempts({ scope, id, revision, disabled, redrive }: {
+  scope: ProjectScope; id: string; revision: number; disabled: boolean; redrive: () => void;
+}) {
+  const [result, setResult] = useState<{ detail?: WebhookDetail; error?: string }>();
+  useEffect(() => {
+    const controller = new AbortController();
+    webhooksApi.detail(scope, id, controller.signal).then((detail) => {
+      if (!controller.signal.aborted) setResult({ detail });
+    }).catch((error) => {
+      if (!controller.signal.aborted) setResult({ error: errorMessage(error) });
+    });
+    return () => controller.abort();
+  }, [scope, id, revision]);
+  if (!result) return <p className="mt-2 text-muted" role="status">Loading delivery attempts…</p>;
+  if (result.error) return <p className="mt-2 text-rose-600 dark:text-rose-300" role="alert">{result.error}</p>;
+  const { delivery, attempts } = result.detail!;
+  return (
+    <div className="mt-2 space-y-2 bg-surface2/45 p-3 text-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <code className="break-all">{delivery.id}</code>
+        <Link className="font-medium text-brand hover:underline" to={`${withProject(`/dashboard/${scope.account_id}/requests`, scope.project_id)}&request_id=${encodeURIComponent(delivery.request_id)}`}>Open request trace</Link>
+      </div>
+      {delivery.state === "pending" && <p className="text-muted">Next attempt {date(delivery.available_at)}</p>}
+      {delivery.last_error && <p className="text-muted">{delivery.last_error.replaceAll("_", " ")}</p>}
+      <ol className="space-y-1">
+        {attempts.map((attempt) => <li key={attempt.number}>
+          Attempt {attempt.number} · {date(attempt.started_at)} · {attempt.outcome?.replaceAll("_", " ") ?? "sending"}
+          {attempt.http_status && ` (HTTP ${attempt.http_status})`}
+        </li>)}
+      </ol>
+      {delivery.state === "dead" && <Button variant="outline" size="sm" disabled={disabled} onClick={redrive}>Retry delivery</Button>}
+    </div>
+  );
+}
+
+function PageControls({ label, before, next, select }: { label: string; before?: string; next: string | null; select: (cursor?: string) => void }) {
+  if (!before && !next) return null;
+  return <div className="flex flex-wrap gap-2">
+    {before && <Button variant="outline" size="sm" onClick={() => select()}>Newest {label}</Button>}
+    {next && <Button variant="outline" size="sm" onClick={() => select(next)}>Older {label}</Button>}
+  </div>;
+}

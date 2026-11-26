@@ -1,0 +1,6 @@
+{
+  "files": [
+    {"location": "https://files.example.test/first.png"},
+    {"location": "https://files.example.test/second.png"}
+  ]
+}

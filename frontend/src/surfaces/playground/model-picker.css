@@ -1,0 +1,88 @@
+.model-picker-trigger,
+.model-picker-option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 3.25rem;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.model-picker-trigger {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  background: linear-gradient(165deg, hsl(var(--surface)), hsl(var(--surface-2) / 0.55));
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08);
+}
+
+.model-picker-trigger:hover,
+.model-picker-trigger[aria-expanded="true"] {
+  border-color: hsl(var(--brand) / 0.55);
+  box-shadow: 0 0 0 2px hsl(var(--brand) / 0.12);
+}
+
+.model-picker-trigger:focus-visible {
+  outline: 2px solid hsl(var(--brand));
+  outline-offset: 3px;
+}
+
+.model-picker-trigger[aria-expanded="true"] .model-picker-chevron {
+  transform: rotate(180deg);
+}
+
+.model-picker-list {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  inset-block-start: calc(100% + 0.35rem);
+  max-height: min(18rem, 45dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.3rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.85rem;
+  background: hsl(var(--surface));
+  box-shadow: 0 14px 32px -10px hsl(0 0% 0% / 0.28), 0 4px 10px hsl(0 0% 0% / 0.08);
+}
+
+.model-picker-option {
+  cursor: pointer;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+}
+
+.model-picker-option[data-active="true"] {
+  background: hsl(var(--surface-2));
+  border-color: hsl(var(--border));
+}
+
+.model-picker-option[aria-selected="true"] {
+  background: hsl(var(--brand) / 0.09);
+}
+
+.model-picker-option[aria-selected="true"][data-active="true"] {
+  border-color: hsl(var(--brand) / 0.3);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .model-picker-trigger,
+  .model-picker-option {
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .model-picker-chevron {
+    transition: transform 160ms ease;
+  }
+
+  .model-picker-list {
+    animation: model-picker-enter 150ms ease-out both;
+  }
+
+  @keyframes model-picker-enter {
+    from { opacity: 0; transform: translateY(-0.2rem); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}

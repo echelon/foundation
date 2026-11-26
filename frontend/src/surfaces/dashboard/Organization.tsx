@@ -1,46 +1,87 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Copy, MailX, UserMinus } from "lucide-react";
+import { NavLink, useLocation } from "react-router-dom";
 import { Badge, Button, Card, Input, Label, Select } from "@/components/ui";
 import { UserAvatar } from "@/components/UserAvatar";
-import { api, ApiError, type ApiAccountUser, type ApiMember, type ApiPendingInvitation } from "@/lib/api";
+import { accountDisplayName, api, ApiError, type ApiAccountUser, type ApiMember, type ApiPendingInvitation } from "@/lib/api";
 import { useOrg } from "@/lib/org";
+import { demoEnabled } from "@/lib/gateway";
+import { OrganizationRouting } from "@/surfaces/projects/ProjectRouting";
+import { OrganizationGeneral } from "./OrganizationGeneral";
 
-/**
- * The organization page: the member roster with roles, plus invite/remove for owners and
- * admins. Scoped to the org selected in the header switcher.
- */
-export default function Organization() {
-  const { current, loading } = useOrg();
+export default function Organization({ routing = false }: { routing?: boolean }) {
+  const { current, loading, withScope } = useOrg();
+  const { hash } = useLocation();
+  const generalHeading = useRef<HTMLHeadingElement>(null);
+  const accountId = current?.account_id;
+
+  useEffect(() => {
+    if (loading || !accountId || routing || hash !== "#general") return;
+    generalHeading.current?.focus({ preventScroll: true });
+    generalHeading.current?.scrollIntoView({ block: "start" });
+  }, [accountId, hash, loading, routing]);
+
+  if (loading) return <p className="text-muted" role="status">Loading organization…</p>;
+  if (!current) return <p className="text-muted">You don't belong to any organization yet.</p>;
+
+  const canManageRouting = demoEnabled && (current.role === "owner" || current.role === "admin");
+  const sectionLink = ({ isActive }: { isActive: boolean }) =>
+    "rounded-md px-3 py-2 text-sm font-medium " + (isActive ? "bg-brand/10 text-brand" : "text-muted hover:bg-surface2 hover:text-fg");
+
+  return (
+    <div className="max-w-3xl space-y-8">
+      <h1 className="break-words font-display text-3xl font-bold tracking-tight">{accountDisplayName(current)}</h1>
+      {canManageRouting && (
+        <nav aria-label="Organization sections" className="flex flex-wrap gap-2 border-b border-border pb-2">
+          <NavLink end className={sectionLink} to={withScope("/organization")}>General and members</NavLink>
+          <NavLink className={sectionLink} to={withScope("/organization/routing-policy")}>Routing policy</NavLink>
+        </nav>
+      )}
+      {routing ? (
+        canManageRouting ? <OrganizationRouting key={current.account_id} accountId={current.account_id} />
+          : <p role="status" className="text-sm text-muted">Organization owners and admins can manage routing policy.</p>
+      ) : <>
+        <section aria-labelledby="general" className="space-y-3">
+          <h2 id="general" ref={generalHeading} tabIndex={-1} className="scroll-mt-20 font-display text-lg font-semibold">
+            General
+          </h2>
+          <OrganizationGeneral key={current.account_id} account={current} />
+        </section>
+        <OrganizationMembers key={current.account_id} accountId={current.account_id} />
+      </>}
+    </div>
+  );
+}
+
+function OrganizationMembers({ accountId }: { accountId: string }) {
   const [members, setMembers] = useState<ApiMember[] | null>(null);
-  const [myRole, setMyRole] = useState<string>("member");
+  const [myRole, setMyRole] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [invites, setInvites] = useState<ApiPendingInvitation[] | null>(null);
   const [inviters, setInviters] = useState<Record<string, ApiAccountUser>>({});
+  const canManage = myRole === "owner" || myRole === "admin";
 
   const load = useCallback(async () => {
-    if (!current) return;
     try {
-      const r = await api.listMembers(current.account_id);
+      const r = await api.listMembers(accountId);
       setMembers(r.members);
       setMyRole(r.your_role);
     } catch (err) {
       setNotice({ tone: "err", text: err instanceof ApiError ? err.message : "Couldn't load members." });
       setMembers([]);
     }
-  }, [current]);
+  }, [accountId]);
 
-  // Owner/admin only — a member's 403 just means no card (the role check below hides it too).
   const loadInvites = useCallback(async () => {
-    if (!current) return;
     try {
-      const r = await api.listInvitations(current.account_id);
+      const r = await api.listInvitations(accountId);
       setInvites(r.invitations);
       const ids = [...new Set(r.invitations.map((i) => i.invited_by_user_id))];
       if (ids.length > 0) {
         api
-          .accountUsers(current.account_id, ids)
+          .accountUsers(accountId, ids)
           .then((res) => {
             const map: Record<string, ApiAccountUser> = {};
             for (const u of res.users) map[u.user_id] = u;
@@ -51,25 +92,21 @@ export default function Organization() {
     } catch {
       setInvites([]);
     }
-  }, [current]);
+  }, [accountId]);
 
   useEffect(() => {
-    setMembers(null);
-    setInvites(null);
     void load();
-    void loadInvites();
-  }, [load, loadInvites]);
+  }, [load]);
 
-  if (loading) return null;
-  if (!current) return <p className="text-muted">You don't belong to any organization yet.</p>;
-
-  const canManage = myRole === "owner" || myRole === "admin";
+  useEffect(() => {
+    if (canManage) void loadInvites();
+  }, [canManage, loadInvites]);
 
   const remove = async (member: ApiMember) => {
     setBusyId(member.user_id);
     setNotice(null);
     try {
-      await api.removeMember(current.account_id, member.user_id);
+      await api.removeMember(accountId, member.user_id);
       setNotice({ tone: "ok", text: `${member.display_name ?? member.email} was removed.` });
       await load();
     } catch (err) {
@@ -85,18 +122,13 @@ export default function Organization() {
     canManage && !m.is_you && m.role !== "owner" && (myRole === "owner" || m.role === "member");
 
   return (
-    <div className="max-w-3xl space-y-8">
-      <div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">{current.name ?? "Team"}</h1>
-        <p className="mt-1 text-muted">
-          Members and roles · you are <Badge tone="brand">{myRole}</Badge>
-        </p>
+    <section aria-labelledby="members" className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="members" className="font-display text-lg font-semibold">Members</h2>
+        {myRole && <p className="text-sm text-muted">Your role <Badge tone="brand">{myRole}</Badge></p>}
       </div>
 
       <Card className="overflow-hidden">
-        <div className="border-b border-border px-5 py-4">
-          <h2 className="font-display font-semibold">Members</h2>
-        </div>
         {members === null ? (
           <p className="px-5 py-4 text-sm text-muted">Loading…</p>
         ) : (
@@ -147,7 +179,7 @@ export default function Organization() {
 
       {canManage && invites !== null && invites.length > 0 && (
         <PendingInvitesCard
-          accountId={current.account_id}
+          accountId={accountId}
           invites={invites}
           inviters={inviters}
           onChanged={loadInvites}
@@ -156,14 +188,14 @@ export default function Organization() {
 
       {canManage && (
         <InviteCard
-          accountId={current.account_id}
+          accountId={accountId}
           onInvited={async () => {
             await load();
             await loadInvites();
           }}
         />
       )}
-    </div>
+    </section>
   );
 }
 
@@ -195,7 +227,7 @@ function InviteCard({ accountId, onInvited }: { accountId: string; onInvited: ()
 
   return (
     <Card className="p-6">
-      <h2 className="font-display font-semibold">Invite a member</h2>
+      <h3 className="font-display font-semibold">Invite a member</h3>
       <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={submit}>
         <div className="min-w-56 flex-1">
           <Label>Email</Label>
@@ -279,7 +311,7 @@ function PendingInvitesCard({
   return (
     <Card className="overflow-hidden">
       <div className="border-b border-border px-5 py-4">
-        <h2 className="font-display font-semibold">Pending invitations</h2>
+        <h3 className="font-display font-semibold">Pending invitations</h3>
         <p className="text-xs text-muted">Sent but not yet accepted. Cancelling kills the link and code.</p>
       </div>
       <table className="w-full text-sm">

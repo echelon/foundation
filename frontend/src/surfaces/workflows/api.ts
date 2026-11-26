@@ -1,0 +1,57 @@
+import { gatewayRequest, type ProjectScope } from "@/lib/gateway";
+import type { AppKey, Capabilities, Graph, IssuedKey, Permission, ProposedStep, Receipt, Release, Run, RunSummary, Scalar, Workflow, WorkflowSummary } from "./types";
+
+const scopeSuffix = (scope: ProjectScope) => `?account_id=${encodeURIComponent(scope.account_id)}`;
+const projectRoot = (scope: ProjectScope) => `/v1/projects/${encodeURIComponent(scope.project_id)}`;
+const consoleRoot = (scope: ProjectScope, id?: string) => `${projectRoot(scope)}/workflows${id ? `/${encodeURIComponent(id)}` : ""}`;
+
+export function workflowEndpoint(scope: ProjectScope, id: string) {
+  return `${projectRoot(scope)}/workflow-endpoints/${encodeURIComponent(id)}`;
+}
+
+function write(body: object, method = "POST", extra?: HeadersInit): RequestInit {
+  return { method, headers: { "Content-Type": "application/json", ...extra }, body: JSON.stringify(body) };
+}
+
+export const workflowApi = {
+  capabilities: (signal?: AbortSignal) => gatewayRequest<Capabilities>("/v1/workflows/capabilities", { signal }),
+  plan: (intent: string, useAdvisor: boolean, signal: AbortSignal) =>
+    (useAdvisor
+      ? gatewayRequest<{ primitives: ProposedStep[] }>("/v1/model-advisor/workflow-plan", { ...write({ intent }), signal })
+      : Promise.resolve(undefined)
+    ).then((plan) => gatewayRequest<Graph>("/v1/workflows/plan", { ...write({ intent, primitives: plan?.primitives }), signal })),
+  list: (scope: ProjectScope, signal?: AbortSignal) => gatewayRequest<WorkflowSummary[]>(consoleRoot(scope) + scopeSuffix(scope), { signal }),
+  read: (scope: ProjectScope, id: string, signal?: AbortSignal) => gatewayRequest<Workflow>(consoleRoot(scope, id) + scopeSuffix(scope), { signal }),
+  create: (scope: ProjectScope, graph: Graph) => gatewayRequest<Workflow>(consoleRoot(scope) + scopeSuffix(scope), write(graph)),
+  save: (scope: ProjectScope, id: string, revision: number, graph: Graph) =>
+    gatewayRequest<Workflow>(consoleRoot(scope, id) + scopeSuffix(scope), write({ revision, graph }, "PUT")),
+  releases: (scope: ProjectScope, id: string, signal?: AbortSignal) =>
+    gatewayRequest<Release[]>(`${consoleRoot(scope, id)}/versions${scopeSuffix(scope)}`, { signal }),
+  publish: (scope: ProjectScope, workflow: Workflow) => gatewayRequest<Workflow>(
+    `${consoleRoot(scope, workflow.id)}/versions${scopeSuffix(scope)}`,
+    write({ revision: workflow.revision, active_version: workflow.active_version }),
+  ),
+  activation: (scope: ProjectScope, workflow: Workflow, version: number, paused: boolean) => gatewayRequest<Workflow>(
+    `${consoleRoot(scope, workflow.id)}/activation${scopeSuffix(scope)}`,
+    write({ expected_version: workflow.active_version, version, paused }),
+  ),
+  test: (scope: ProjectScope, workflow: Workflow, inputs: Record<string, Scalar>, idempotencyKey: string) =>
+    gatewayRequest<Receipt>(`${consoleRoot(scope, workflow.id)}/test-runs${scopeSuffix(scope)}`,
+      write({ revision: workflow.revision, inputs }, "POST", { "Idempotency-Key": idempotencyKey })),
+  runs: (scope: ProjectScope, id: string, signal?: AbortSignal) =>
+    gatewayRequest<RunSummary[]>(`${consoleRoot(scope, id)}/runs${scopeSuffix(scope)}`, { signal }),
+  run: (scope: ProjectScope, workflow: string, run: string, signal?: AbortSignal) =>
+    gatewayRequest<Run>(`${workflowEndpoint(scope, workflow)}/runs/${encodeURIComponent(run)}${scopeSuffix(scope)}`, { signal }),
+  cancel: (scope: ProjectScope, workflow: string, run: string) =>
+    gatewayRequest<void>(`${workflowEndpoint(scope, workflow)}/runs/${encodeURIComponent(run)}/cancel${scopeSuffix(scope)}`, { method: "POST" }),
+  openApi: (scope: ProjectScope, workflow: string) =>
+    gatewayRequest<{ "x-workflow-example-inputs"?: Record<string, Scalar> }>(`${workflowEndpoint(scope, workflow)}/openapi.json${scopeSuffix(scope)}`),
+  keys: (scope: ProjectScope, id: string, signal?: AbortSignal) =>
+    gatewayRequest<AppKey[]>(`${consoleRoot(scope, id)}/apps${scopeSuffix(scope)}`, { signal }),
+  createApp: (scope: ProjectScope, id: string, name: string, scopes: Permission[], days: number) =>
+    gatewayRequest<IssuedKey>(`${consoleRoot(scope, id)}/apps${scopeSuffix(scope)}`, write({ name, scopes, days })),
+  rotate: (scope: ProjectScope, id: string, app: string, days: number) =>
+    gatewayRequest<IssuedKey>(`${consoleRoot(scope, id)}/apps/${encodeURIComponent(app)}/keys${scopeSuffix(scope)}`, write({ days })),
+  revoke: (scope: ProjectScope, id: string, key: string) =>
+    gatewayRequest<void>(`${consoleRoot(scope, id)}/keys/${encodeURIComponent(key)}${scopeSuffix(scope)}`, { method: "DELETE" }),
+};

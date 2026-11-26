@@ -1,14 +1,17 @@
-/target
-**/target
+/target/
+/.tokencraft-dev/
 .env
-.env.test
+.env.*
+*.log
 .DS_Store
-# local test credentials
-external/credentials/*.txt
-external/credentials/*.yaml
-external/credentials/*.yml
-external/*
-# per-service dev secrets (config crate convention — see crates/core/config)
-*.development-secrets.env
 
-frontend/public/cdn/model_samples/.tmp/
+# Local dependencies, builds, state, and review artifacts
+node_modules
+dist
+*.tsbuildinfo
+.vercel/
+.tokencraft-core/
+.tokencraft-demo/
+.tokencraft-workflows/
+practice/
+/native-packages/

@@ -1,26 +1,69 @@
 //! Router assembly + server bootstrap. `main.rs` stays thin over [`run`].
 
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
-use axum::http::header::CONTENT_TYPE;
-use axum::http::{HeaderValue, Method};
+use axum::extract::MatchedPath;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE, ETAG, IF_NONE_MATCH, LOCATION, RETRY_AFTER};
+use axum::http::{HeaderName, HeaderValue, Method};
 use axum::routing::{delete, get, post, put};
 use axum::Router;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::{DefaultOnResponse, TraceLayer};
+use tower_http::trace::{DefaultOnResponse, OnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::auth::token::JwtKeys;
+use crate::{gateway_demo, hosted};
 use crate::handlers::{
-  account, api_keys, audit_logs, auth, avatar, catalog, files, generation, invitations, login_methods, org, root,
-  sessions, webhooks,
+  account, api_keys, audit_logs, auth, avatar, catalog, files, invitations, login_methods, org, root,
+  sessions,
 };
+use crate::middleware::trace_context::{self, TraceContext, TRACE_ID_HEADER};
 use crate::state::AppState;
 
 /// Connect the DB, build state + router, and serve until shutdown.
-pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
+pub async fn run(mut cfg: config::Config) -> anyhow::Result<()> {
+  let role = gateway_demo::ProcessRole::load()?;
+  let scoped = std::env::var_os("TOKENCRAFT_CORE_CATALOG").is_some();
+  let is_hosted = scoped && hosted::enabled(&cfg.environment);
+  let listen_ip = if is_hosted {
+    hosted::configure(&mut cfg)?
+  } else {
+    anyhow::ensure!(
+      std::env::var_os("TOKENCRAFT_LISTEN_IP").is_none(),
+      "TOKENCRAFT_LISTEN_IP requires the hosted gateway profile"
+    );
+    if scoped { Ipv4Addr::LOCALHOST.into() } else { Ipv4Addr::UNSPECIFIED.into() }
+  };
+  let demo = gateway_demo::startup_config(&cfg.environment, &cfg.database_url, &cfg.session_secret, role)?;
+  if demo.is_some() && !is_hosted {
+    if role != gateway_demo::ProcessRole::Worker {
+      anyhow::ensure!(cfg.session_secret.len() >= 32 && cfg.session_secret != "dev-insecure-session-secret-change-me",
+        "set a strong, local JWT session secret before starting the TokenCraft demo");
+    }
+    cfg.email.resend_api_key = None;
+    cfg.storage = None;
+    cfg.google_client_id = None;
+    cfg.github_oauth = None;
+  }
   let pool = db::connect(&cfg.database_url).await?;
   tracing::info!("connected to database");
+  if is_hosted || role != gateway_demo::ProcessRole::Combined {
+    let mut connection = pool.acquire().await?;
+    anyhow::ensure!(
+      db::migrations_current(&mut connection).await?,
+      "apply the matching TokenCraft migrations before starting this gateway profile"
+    );
+  }
+
+  let addr = SocketAddr::from((listen_ip, cfg.api_gateway_port));
+  let listener = tokio::net::TcpListener::bind(&addr).await?;
+  if let Some(demo) = &demo {
+    gateway_demo::spawn_background_tasks(pool.clone(), demo);
+    if role == gateway_demo::ProcessRole::Worker {
+      return serve(listener, gateway_demo::worker_probe_router(demo), role).await;
+    }
+  }
 
   let state = AppState {
     pool,
@@ -58,20 +101,6 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
       .github_oauth
       .clone()
       .map(|g| Arc::new(crate::auth::github::GithubAuth::new(g.client_id, g.client_secret))),
-    openai: cfg
-      .providers
-      .openai
-      .clone()
-      .map(|k| Arc::new(openai_client::creds::openai_api_key::OpenAiApiKey::new(k))),
-    openai_webhook_secret: cfg.providers.openai_webhook_secret.clone().and_then(|s| {
-      match openai_client::creds::openai_webhook_secret::OpenAiWebhookSecret::new(s) {
-        Ok(secret) => Some(Arc::new(secret)),
-        Err(e) => {
-          tracing::error!("OPENAI_WEBHOOK_SECRET is malformed ({e}) — webhook receiving disabled");
-          None
-        }
-      }
-    }),
   };
   if state.resend_api_key.is_none() {
     tracing::warn!("RESEND_API_KEY not set — outbound email will be logged and skipped");
@@ -99,20 +128,13 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
     );
   }
 
-  if state.openai.is_none() {
-    tracing::warn!("OPENAI_API_KEY not set — OpenAI generation dispatch disabled");
-  }
-  if state.openai_webhook_secret.is_none() {
-    tracing::warn!("OPENAI_WEBHOOK_SECRET not set — inbound OpenAI webhooks disabled (polling still completes jobs)");
-  }
-  // The in-process dispatcher loop (dispatch.md's worker, embedded for now — extractable
-  // to its own bin when scale demands).
-  crate::generation::dispatcher::spawn(state.clone());
+  let app = build_router_inner(state, demo);
+  serve(listener, app, role).await
+}
 
-  let app = build_router(state);
-  let addr = format!("0.0.0.0:{}", cfg.api_gateway_port);
-  let listener = tokio::net::TcpListener::bind(&addr).await?;
-  tracing::info!("api-gateway listening on http://{addr}");
+async fn serve(listener: tokio::net::TcpListener, app: Router, role: gateway_demo::ProcessRole) -> anyhow::Result<()> {
+  let addr = listener.local_addr()?;
+  tracing::info!(?role, "api-gateway listening on http://{addr}");
   // with_connect_info: gives the trace span a peer address even when no proxy header is set.
   axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
   Ok(())
@@ -121,26 +143,66 @@ pub async fn run(cfg: config::Config) -> anyhow::Result<()> {
 /// The product router group (auth.md §5). Split-seam kept clean so console/admin/webhooks-in
 /// groups can mount here later.
 pub fn build_router(state: AppState) -> Router {
+  build_router_inner(state, None)
+}
+
+fn build_router_inner(
+  state: AppState, demo: Option<gateway_demo::DemoConfig>,
+) -> Router {
   // Browser calls come from the frontend origin (credentials/cookies included), so CORS must name
   // origins explicitly — wildcard + credentials is forbidden by the spec. We allow the configured
   // app plus the local dev servers.
-  let origins: Vec<HeaderValue> = [
-    state.app_base_url.trim_end_matches('/'),
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-  ]
-  .iter()
-  .filter_map(|o| o.parse().ok())
-  .collect();
-  let cors = CorsLayer::new()
+  let is_hosted = demo.is_some() && hosted::enabled(&state.environment);
+  let console_origin = state.app_base_url.trim_end_matches('/').parse::<HeaderValue>().ok();
+  let mut origins: Vec<_> = console_origin.iter().cloned().collect();
+  if !is_hosted {
+    origins.extend([HeaderValue::from_static("http://localhost:3000"),
+      HeaderValue::from_static("http://127.0.0.1:3000")]);
+  }
+  let mut allowed_headers = vec![CONTENT_TYPE];
+  if demo.is_some() {
+    allowed_headers.extend([
+      AUTHORIZATION,
+      IF_NONE_MATCH,
+      HeaderName::from_static("idempotency-key"),
+      HeaderName::from_static("traceparent"),
+      HeaderName::from_static("tracestate"),
+      HeaderName::from_static("baggage"),
+      HeaderName::from_static(gateway_demo::CLIENT_REF),
+      HeaderName::from_static(gateway_demo::APP_REF),
+      HeaderName::from_static(gateway_demo::MAX_COST_NANOS),
+      HeaderName::from_static(gateway_demo::PROVIDER_HEADER),
+      HeaderName::from_static(gateway_demo::PROVIDER_PREFERENCE_HEADER),
+      HeaderName::from_static(gateway_demo::WEBHOOK_SUBSCRIPTION_ID),
+    ]);
+  }
+  let mut cors = CorsLayer::new()
     .allow_origin(origins)
     .allow_credentials(true)
     .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-    .allow_headers([CONTENT_TYPE]);
+    .allow_headers(allowed_headers);
+  if demo.is_some() {
+    cors = cors.expose_headers([
+      ETAG,
+      LOCATION,
+      RETRY_AFTER,
+      HeaderName::from_static(gateway_demo::REQUEST_ID_HEADER),
+      HeaderName::from_static(TRACE_ID_HEADER),
+      HeaderName::from_static(gateway_demo::X_REQUEST_ID),
+      HeaderName::from_static(gateway_demo::X_SHOULD_RETRY),
+      HeaderName::from_static(gateway_demo::NEXT_AFTER_HEADER),
+      HeaderName::from_static(gateway_demo::HAS_MORE_HEADER),
+      HeaderName::from_static(gateway_demo::SHA256_HEADER),
+      HeaderName::from_static(gateway_demo::FEED_AS_OF_HEADER),
+      HeaderName::from_static(gateway_demo::PUBLICATION_PENDING_HEADER),
+      HeaderName::from_static(gateway_demo::EXPORT_PROJECT_HEADER),
+      HeaderName::from_static(gateway_demo::EXPORT_CLIENT_HEADER),
+      HeaderName::from_static(gateway_demo::EXPORT_VERSION_HEADER),
+    ]);
+  }
 
-  // Every request log line carries method, path, and remote ip. The ip prefers
-  // `x-forwarded-for` (Tailscale funnel / any fronting proxy) and falls back to the raw
-  // peer address; responses log at INFO so the context is visible with default filters.
+  // Use route templates and parsed IP addresses so headers and path parameters stay out of access logs.
+  let on_response = DefaultOnResponse::new().level(Level::INFO);
   let trace = TraceLayer::new_for_http()
     .make_span_with(|request: &axum::http::Request<axum::body::Body>| {
       let ip = request
@@ -148,26 +210,39 @@ pub fn build_router(state: AppState) -> Router {
         .get("x-forwarded-for")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
         .or_else(|| {
           request
             .extensions()
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-            .map(|ci| ci.0.ip().to_string())
-        })
-        .unwrap_or_else(|| "-".to_string());
-      tracing::info_span!("http", method = %request.method(), path = %request.uri().path(), ip = %ip)
+            .map(|ci| ci.0.ip())
+        });
+      let route = request.extensions().get::<MatchedPath>().map_or("<unmatched>", MatchedPath::as_str);
+      let context = TraceContext::admission();
+      tracing::info_span!(
+        "http", method = %request.method(), route, ip = ?ip,
+        trace_id = %context.trace_id, span_id = %context.span_id,
+        request_id = tracing::field::Empty, execution_trace_id = tracing::field::Empty,
+      )
     })
-    .on_response(DefaultOnResponse::new().level(Level::INFO));
+    .on_response(move |response: &axum::http::Response<axum::body::Body>, latency, span: &tracing::Span| {
+      for (header, field) in [(gateway_demo::REQUEST_ID_HEADER, "request_id"), (TRACE_ID_HEADER, "execution_trace_id")] {
+        if let Some(value) = response.headers().get(header).and_then(|value| value.to_str().ok()) {
+          span.record(field, value);
+        }
+      }
+      on_response.clone().on_response(response, latency, span);
+    });
 
-  Router::new()
+  let router = Router::new()
     // hello, human (embedded landing page)
     .route("/", get(root::index_handler))
     // health + public catalog
     .route("/health", get(catalog::health_handler))
+    .route("/openapi.json", get(crate::openapi::document))
+    .route("/v1/schemas/primitives", get(crate::openapi::primitive_schemas))
     .route("/v1/api_status", get(root::api_status_handler))
-    .route("/v1/models", get(catalog::list_models_handler))
-    .route("/v1/models/:slug", get(catalog::get_model_handler))
+    .merge(gateway_demo::media_router(&state, demo.as_ref()))
     // auth
     .route("/v1/auth/signup", post(auth::signup_handler))
     .route("/v1/auth/login", post(auth::login_handler))
@@ -232,28 +307,23 @@ pub fn build_router(state: AppState) -> Router {
       delete(invitations::cancel_invitation_handler),
     )
     .route("/v1/invitations/:code_or_token", get(invitations::resolve_invitation_handler))
-    .route("/v1/invitations/:id/accept", post(invitations::accept_invitation_handler))
-    // generation: the Any plane, the unified model plane, their cost twins, job polling
-    .route("/v1/any/image", post(generation::generate_any_image_handler))
-    .route("/v1/any/image/cost", post(generation::cost_any_image_handler))
-    .route("/v1/any/video", post(generation::generate_any_video_handler))
-    .route("/v1/any/video/cost", post(generation::cost_any_video_handler))
-    .route("/v1/models/:slug/generate", post(generation::generate_with_model_handler))
-    .route("/v1/models/:slug/generate/cost", post(generation::cost_with_model_handler))
-    .route("/v1/jobs", get(generation::list_jobs_handler))
-    .route("/v1/jobs/:id", get(generation::get_job_handler))
-    .route("/v1/jobs/:id/status", get(generation::get_job_status_handler))
-    .route("/v1/jobs/:id/request", get(generation::get_job_request_handler))
-    .route("/v1/admin/jobs", get(generation::admin_list_jobs_handler))
-    .route("/v1/admin/jobs/:id/request", get(generation::admin_get_job_request_handler))
-    // input uploads (image editing sources)
-    .route("/v1/files", post(files::upload_file_handler))
-    // inbound provider webhooks (signature-authed, not session-authed)
-    .route("/v1/webhooks/openai", post(webhooks::openai_webhook_handler))
+    .route("/v1/invitations/:id/accept", post(invitations::accept_invitation_handler));
+  let router = router.route("/v1/files", post(files::upload_file_handler));
+  let router = router.merge(crate::model_reviews::router(demo.as_ref().map(gateway_demo::DemoConfig::scoped_models)));
+  let router = match demo {
+    Some(demo) => router.merge(gateway_demo::router(demo)),
+    None => router,
+  };
+  let router = match console_origin.filter(|_| is_hosted) {
+    Some(origin) => router.layer(axum::middleware::from_fn_with_state(origin, hosted::protect_session_origin)),
+    None => router,
+  };
+  router
     // Avatar photos and generation input images are whole files; the axum default (2 MB)
     // is far too small.
     .layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024))
     .layer(cors)
     .layer(trace)
+    .layer(axum::middleware::from_fn(trace_context::scope))
     .with_state(state)
 }

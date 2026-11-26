@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { Badge, Button, Card, Select } from "@/components/ui";
 import { BatchBadge } from "@/components/BatchBadge";
@@ -13,11 +14,12 @@ import { OutputLightbox, sessionRequestLoader } from "@/components/OutputLightbo
 import { useOrg } from "@/lib/org";
 import { api, type ApiJob } from "@/lib/api";
 import { MODEL_BY_SLUG, MODELS } from "@/lib/catalog";
+import { demoEnabled } from "@/lib/gateway";
 
 const LIVE_MODELS = MODELS.filter((m) => m.live);
 
 export default function Requests() {
-  const { current, loading: orgLoading } = useOrg();
+  const { current, loading: orgLoading, withScope } = useOrg();
   const [model, setModel] = useState<string>("all");
   const [jobs, setJobs] = useState<ApiJob[]>([]);
   const [nextAfter, setNextAfter] = useState<string | null>(null);
@@ -62,10 +64,13 @@ export default function Requests() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-3xl font-bold tracking-tight">Requests</h1>
-        <p className="mt-1 text-muted">Every generation job on the organization — playground, dashboard, and API.</p>
-      </div>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-bold tracking-tight">{demoEnabled ? "Generation jobs" : "Requests"}</h1>
+          <p className="mt-1 text-muted">Inspect generation jobs from the playground, dashboard, and API.</p>
+        </div>
+        {demoEnabled && <Link to={withScope("/requests")} className="text-sm font-semibold text-brand hover:underline">Project requests</Link>}
+      </header>
 
       <div className="flex flex-wrap items-center gap-3">
         <Select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -136,7 +141,9 @@ export default function Requests() {
                       </div>
                     </td>
                     <td className="px-3 py-3">
-                      <div className="font-mono text-[13px] text-fg">{j.id}</div>
+                      <button type="button" className="font-mono text-[13px] text-fg hover:underline"
+                        onClick={(event) => { event.stopPropagation(); setSelected({ job: j, index: 0 }); }}
+                        aria-label={`Inspect job ${j.id}`}>{j.id}</button>
                       <div className="text-xs text-muted">{new Date(j.created_at).toLocaleString()}</div>
                     </td>
                     <td className="px-3 py-3 font-mono text-xs text-muted">{j.model}</td>
@@ -146,7 +153,7 @@ export default function Requests() {
                           {j.source === "api_key" ? "API key" : j.source}
                         </Badge>
                         <span className="font-mono text-[11px] text-muted">
-                          {j.api_shape === "any" ? "/v1/any/image" : "/v1/models/{slug}"}
+                          {j.api_shape === "any" ? "Primitive" : "Model-specific"}
                         </span>
                       </div>
                     </td>

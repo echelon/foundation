@@ -2,80 +2,21 @@
 //! signup mints a placeholder, owners/admins can set/clear `business_name`, members and
 //! owners/admins of OTHER accounts cannot.
 
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use common::{app_and_pool, body_json, get, post, put, session_cookie, unique_email};
+
+use axum::http::StatusCode;
 use axum::Router;
 use serde_json::{json, Value};
 use tower::ServiceExt; // oneshot
 
-use api_gateway::auth::token::JwtKeys;
-use api_gateway::AppState;
-
-async fn app_and_pool() -> (Router, db::PgPool) {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  (api_gateway::build_router(state), pool)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn req(method: &str, uri: &str, body: Option<Value>, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method(method).uri(uri);
-  if body.is_some() {
-    b = b.header("content-type", "application/json");
-  }
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  match body {
-    Some(v) => b.body(Body::from(serde_json::to_vec(&v).unwrap())).unwrap(),
-    None => b.body(Body::empty()).unwrap(),
-  }
-}
-
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if !token.is_empty() {
-        return Some(format!("foundation_session={token}"));
-      }
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 /// Sign up a fresh user; returns (cookie, user id, their owned account id).
 async fn signup_owner(app: &Router, pool: &db::PgPool) -> (String, ids::UserId, ids::AccountId) {
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": unique_email(), "password": "password1" })), None))
+    .oneshot(post("/v1/auth/signup", json!({ "email": unique_email(), "password": "password1" }), None))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::CREATED);
@@ -92,10 +33,9 @@ async fn join_as(app: &Router, owner_cookie: &str, account_id: &ids::AccountId, 
   let invitee_email = unique_email();
   let inv = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/invitations"),
-      Some(json!({ "email": invitee_email, "role": role })),
+      json!({ "email": invitee_email, "role": role }),
       Some(owner_cookie),
     ))
     .await
@@ -104,10 +44,9 @@ async fn join_as(app: &Router, owner_cookie: &str, account_id: &ids::AccountId, 
   let code = body_json(inv).await["code"].as_str().unwrap().to_string();
   let signup = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       "/v1/auth/signup",
-      Some(json!({ "email": invitee_email, "password": "password1", "invitation": code })),
+      json!({ "email": invitee_email, "password": "password1", "invitation": code }),
       None,
     ))
     .await
@@ -132,7 +71,7 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
   }
 
   // The accounts list carries both fields.
-  let list = app.clone().oneshot(req("GET", "/v1/accounts", None, Some(&owner_cookie))).await.unwrap();
+  let list = app.clone().oneshot(get("/v1/accounts", Some(&owner_cookie))).await.unwrap();
   let list = body_json(list).await;
   assert_eq!(list["accounts"][0]["business_name"], Value::Null);
   assert_eq!(list["accounts"][0]["placeholder_business_name"], account.placeholder_business_name);
@@ -140,10 +79,9 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
   // Owner sets the name.
   let set = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{account_id}/business"),
-      Some(json!({ "business_name": "  Acme Corporation  " })),
+      json!({ "business_name": "  Acme Corporation  " }),
       Some(&owner_cookie),
     ))
     .await
@@ -156,10 +94,9 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
   // Clearing (empty string) → null; the placeholder is still there as the fallback.
   let cleared = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{account_id}/business"),
-      Some(json!({ "business_name": "" })),
+      json!({ "business_name": "" }),
       Some(&owner_cookie),
     ))
     .await
@@ -173,7 +110,7 @@ async fn signup_mints_a_capitalized_placeholder_and_owner_sets_and_clears_busine
   // Newest first: [0] = the clear, [1] = the set.
   let audit = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/audit_logs"), None, Some(&owner_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/audit_logs"), Some(&owner_cookie)))
     .await
     .unwrap();
   let audit = body_json(audit).await;
@@ -203,10 +140,9 @@ async fn admins_can_set_business_name_but_members_cannot() {
   // Admin: allowed.
   let by_admin = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{account_id}/business"),
-      Some(json!({ "business_name": "Set By Admin" })),
+      json!({ "business_name": "Set By Admin" }),
       Some(&admin_cookie),
     ))
     .await
@@ -216,10 +152,9 @@ async fn admins_can_set_business_name_but_members_cannot() {
   // Regular member: 403, and the name is untouched.
   let by_member = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{account_id}/business"),
-      Some(json!({ "business_name": "Set By Member" })),
+      json!({ "business_name": "Set By Member" }),
       Some(&member_cookie),
     ))
     .await
@@ -241,10 +176,9 @@ async fn owner_of_a_different_account_cannot_set_this_ones_business_name() {
   // gets (no existence leak).
   let cross = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{target_account_id}/business"),
-      Some(json!({ "business_name": "Hijacked" })),
+      json!({ "business_name": "Hijacked" }),
       Some(&other_owner_cookie),
     ))
     .await
@@ -256,10 +190,9 @@ async fn owner_of_a_different_account_cannot_set_this_ones_business_name() {
   // Unauthenticated: 401.
   let anon = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       &format!("/v1/accounts/{target_account_id}/business"),
-      Some(json!({ "business_name": "Anon" })),
+      json!({ "business_name": "Anon" }),
       None,
     ))
     .await

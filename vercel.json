@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "installCommand": "npm --prefix frontend ci --include=dev",
+  "buildCommand": "npm --prefix frontend run build",
+  "outputDirectory": "frontend/dist",
+  "rewrites": [
+    { "source": "/design", "destination": "/design/index.html" },
+    { "source": "/design/", "destination": "/design/index.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

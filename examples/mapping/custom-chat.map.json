@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "schema": "urn:tokencraft:primitives:1",
+  "primitive": "text",
+  "provider": "mapped-chat",
+  "model": "fixture/custom-chat",
+  "revision": "v1",
+  "status": "approved",
+  "rules": {
+    "request": [
+      {
+        "to": "/variant",
+        "value": {
+          "op": "copy",
+          "from": "/model"
+        }
+      },
+      {
+        "to": "/limit",
+        "value": {
+          "op": "copy",
+          "from": "/max_tokens"
+        }
+      },
+      {
+        "to": "/live",
+        "value": {
+          "op": "copy",
+          "from": "/stream"
+        }
+      },
+      {
+        "to": "/sampling/temperature",
+        "value": {
+          "op": "copy",
+          "from": "/temperature"
+        },
+        "optional": true
+      },
+      {
+        "to": "/sampling/top_p",
+        "value": {
+          "op": "copy",
+          "from": "/top_p"
+        },
+        "optional": true
+      },
+      {
+        "to": "/live_options",
+        "value": {
+          "op": "copy",
+          "from": "/stream_options"
+        },
+        "optional": true
+      },
+      {
+        "to": "/utterances",
+        "value": {
+          "op": "each",
+          "from": "/messages",
+          "fields": [
+            {
+              "to": "/speaker",
+              "value": {
+                "op": "copy",
+                "from": "/role"
+              }
+            },
+            {
+              "to": "/body",
+              "value": {
+                "op": "copy",
+                "from": "/content"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "response": [
+      {
+        "to": "/text",
+        "value": {
+          "op": "copy",
+          "from": "/answer"
+        }
+      },
+      {
+        "to": "/finish_reason",
+        "value": {
+          "op": "copy",
+          "from": "/completion_kind"
+        }
+      },
+      {
+        "to": "/usage/input_tokens",
+        "value": {
+          "op": "copy",
+          "from": "/usage/prompt"
+        }
+      },
+      {
+        "to": "/usage/output_tokens",
+        "value": {
+          "op": "copy",
+          "from": "/usage/output"
+        }
+      }
+    ]
+  }
+}

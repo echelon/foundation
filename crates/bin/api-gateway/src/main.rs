@@ -3,8 +3,18 @@
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+  let mut args = std::env::args_os().skip(1);
+  if args.next().is_some_and(|command| command == "catalog") {
+    return api_gateway::catalog_command(args).await;
+  }
+
   // Env files first, so RUST_LOG from a file shapes the tracing filter below.
-  let loaded = config::load_env_files("api-gateway");
+  let loaded = if std::env::var_os("TOKENCRAFT_CORE_CATALOG").is_some()
+  {
+    Vec::new()
+  } else {
+    config::load_env_files("api-gateway")
+  };
 
   tracing_subscriber::fmt()
     .with_env_filter(

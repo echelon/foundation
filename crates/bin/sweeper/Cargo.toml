@@ -21,6 +21,7 @@ client_core.workspace = true
 bucket_client.workspace = true
 bucket_paths.workspace = true
 reqwest.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

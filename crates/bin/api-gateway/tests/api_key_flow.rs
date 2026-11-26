@@ -1,79 +1,20 @@
 //! End-to-end API-key management (auth.md §4, revised 2026-07-21: ANY member may create and
 //! delete): mint with one-time secret, list, delete, cross-account isolation, audit rows.
 
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use common::{app_and_pool, body_json, delete, get, post, session_cookie, unique_email};
+
+use axum::http::StatusCode;
 use axum::Router;
 use serde_json::{json, Value};
 use tower::ServiceExt; // oneshot
 
-use api_gateway::auth::token::JwtKeys;
-use api_gateway::AppState;
-
-async fn app_and_pool() -> (Router, db::PgPool) {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  (api_gateway::build_router(state), pool)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn req(method: &str, uri: &str, body: Option<Value>, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method(method).uri(uri);
-  if body.is_some() {
-    b = b.header("content-type", "application/json");
-  }
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  match body {
-    Some(v) => b.body(Body::from(serde_json::to_vec(&v).unwrap())).unwrap(),
-    None => b.body(Body::empty()).unwrap(),
-  }
-}
-
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if !token.is_empty() {
-        return Some(format!("foundation_session={token}"));
-      }
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 async fn signup_owner(app: &Router, pool: &db::PgPool) -> (String, ids::UserId, ids::AccountId) {
   let resp = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": unique_email(), "password": "password1" })), None))
+    .oneshot(post("/v1/auth/signup", json!({ "email": unique_email(), "password": "password1" }), None))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::CREATED);
@@ -90,10 +31,9 @@ async fn join_as_member(app: &Router, owner_cookie: &str, account_id: &ids::Acco
   let invitee_email = unique_email();
   let inv = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/invitations"),
-      Some(json!({ "email": invitee_email, "role": "member" })),
+      json!({ "email": invitee_email, "role": "member" }),
       Some(owner_cookie),
     ))
     .await
@@ -101,10 +41,9 @@ async fn join_as_member(app: &Router, owner_cookie: &str, account_id: &ids::Acco
   let code = body_json(inv).await["code"].as_str().unwrap().to_string();
   let signup = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       "/v1/auth/signup",
-      Some(json!({ "email": invitee_email, "password": "password1", "invitation": code })),
+      json!({ "email": invitee_email, "password": "password1", "invitation": code }),
       None,
     ))
     .await
@@ -121,10 +60,9 @@ async fn any_member_can_mint_list_and_delete_keys_with_one_time_secret() {
   // A REGULAR MEMBER mints a key.
   let created = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/api_keys"),
-      Some(json!({ "title": "  Render farm  ", "description": "workers pull jobs with this" })),
+      json!({ "title": "  Render farm  ", "description": "workers pull jobs with this" }),
       Some(&member_cookie),
     ))
     .await
@@ -146,7 +84,7 @@ async fn any_member_can_mint_list_and_delete_keys_with_one_time_secret() {
   // The list shows it to any member — prefix only, no secret, no hash anywhere.
   let list = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/api_keys"), None, Some(&owner_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/api_keys"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(list.status(), StatusCode::OK);
@@ -160,13 +98,13 @@ async fn any_member_can_mint_list_and_delete_keys_with_one_time_secret() {
   // A DIFFERENT member (the owner here) deletes the member's key — any member may.
   let deleted = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/api_keys/{key_id}"), None, Some(&owner_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/api_keys/{key_id}"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(deleted.status(), StatusCode::OK);
   let list = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/api_keys"), None, Some(&member_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/api_keys"), Some(&member_cookie)))
     .await
     .unwrap();
   assert_eq!(body_json(list).await["api_keys"].as_array().unwrap().len(), 0);
@@ -174,7 +112,7 @@ async fn any_member_can_mint_list_and_delete_keys_with_one_time_secret() {
   // Deleting again: 404 (already revoked).
   let again = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/api_keys/{key_id}"), None, Some(&owner_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/api_keys/{key_id}"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(again.status(), StatusCode::NOT_FOUND);
@@ -182,7 +120,7 @@ async fn any_member_can_mint_list_and_delete_keys_with_one_time_secret() {
   // Both actions are audited.
   let audit = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/audit_logs"), None, Some(&owner_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/audit_logs"), Some(&owner_cookie)))
     .await
     .unwrap();
   let audit = body_json(audit).await;
@@ -199,10 +137,9 @@ async fn api_keys_are_account_isolated() {
 
   let created = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/api_keys"),
-      Some(json!({ "title": "Prod" })),
+      json!({ "title": "Prod" }),
       Some(&owner_cookie),
     ))
     .await
@@ -212,7 +149,7 @@ async fn api_keys_are_account_isolated() {
   // An outsider (owner of their OWN account) can't list this account's keys…
   let denied = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/api_keys"), None, Some(&outsider_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/api_keys"), Some(&outsider_cookie)))
     .await
     .unwrap();
   assert_eq!(denied.status(), StatusCode::NOT_FOUND);
@@ -220,7 +157,7 @@ async fn api_keys_are_account_isolated() {
   // …can't delete its key through this account…
   let denied = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/api_keys/{key_id}"), None, Some(&outsider_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/api_keys/{key_id}"), Some(&outsider_cookie)))
     .await
     .unwrap();
   assert_eq!(denied.status(), StatusCode::NOT_FOUND);
@@ -229,10 +166,8 @@ async fn api_keys_are_account_isolated() {
   // revoke query is the gate).
   let denied = app
     .clone()
-    .oneshot(req(
-      "DELETE",
+    .oneshot(delete(
       &format!("/v1/accounts/{outsider_account_id}/api_keys/{key_id}"),
-      None,
       Some(&outsider_cookie),
     ))
     .await
@@ -242,7 +177,7 @@ async fn api_keys_are_account_isolated() {
   // The key survived all of it.
   let list = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/api_keys"), None, Some(&owner_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/api_keys"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(body_json(list).await["api_keys"].as_array().unwrap().len(), 1);
@@ -250,10 +185,9 @@ async fn api_keys_are_account_isolated() {
   // Blank titles are rejected.
   let blank = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/api_keys"),
-      Some(json!({ "title": "   " })),
+      json!({ "title": "   " }),
       Some(&owner_cookie),
     ))
     .await

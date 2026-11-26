@@ -18,12 +18,15 @@ pub mod authz;
 pub mod avatar_links;
 pub mod business_names;
 pub mod error;
-pub mod generation;
+mod gateway_demo;
 pub mod handlers;
+mod hosted;
 pub mod mailer;
 pub mod middleware;
+mod model_reviews;
 pub mod openapi;
 pub mod state;
 
 pub use app::{build_router, run};
+pub use gateway_demo::catalog_import::run as catalog_command;
 pub use state::AppState;

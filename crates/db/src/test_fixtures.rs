@@ -1,57 +1,41 @@
-//! Test-database harness (testing.md §3–§5).
-//!
-//! HARD RULE: tests and fixtures talk to `foundation_test` (or an ephemeral
-//! `foundation_test_*`) ONLY. They read the connection string from exactly one env var —
-//! `FOUNDATION_TEST_DATABASE_URL` — and [`guard_test_db`] PANICS before any connection if
-//! that URL points at `foundation_development` or `foundation_production` (or any db whose
-//! name doesn't mark it as a test db). This makes it impossible to wipe dev/prod from a test.
+//! PostgreSQL fixtures for tests. See `FOUNDATION_TEST_DATABASE_URL`.
 
-use crate::{connect, MIGRATOR, PgPool};
+use crate::{MIGRATOR, PgPool};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
-/// The one env var tests are allowed to read for the database (never `DATABASE_URL`).
+/// The test database URL. The harness never reads `DATABASE_URL`.
 pub const TEST_DB_ENV: &str = "FOUNDATION_TEST_DATABASE_URL";
 
-/// Databases a test must NEVER touch.
-const FORBIDDEN_DATABASES: &[&str] = &["foundation_development", "foundation_production"];
+const DEFAULT_TEST_DATABASE_URL: &str =
+    "postgres://foundation:foundation@localhost:5432/foundation_test";
 
-/// The standard local test database URL, used when `FOUNDATION_TEST_DATABASE_URL` is unset.
-/// Always a `*_test` database — the [`guard_test_db`] check still runs on it.
-const DEFAULT_TEST_DATABASE_URL: &str = "postgres://foundation:foundation@localhost:5432/foundation_test";
-
-/// Connect to the test database (migrating it up first). Panics unless the URL is a test db.
-/// Reads `FOUNDATION_TEST_DATABASE_URL`; falls back to the standard `foundation_test` URL.
+/// Connect to a test database and apply migrations before returning the pool.
 pub async fn create_test_pool() -> PgPool {
     let url = std::env::var(TEST_DB_ENV).unwrap_or_else(|_| DEFAULT_TEST_DATABASE_URL.to_string());
-    guard_test_db(&url);
-    let pool = connect(&url).await.expect("connect to test database");
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect_with(test_db_options(&url))
+        .await
+        .expect("connect to test database");
     MIGRATOR.run(&pool).await.expect("migrate test database");
     pool
 }
 
-/// Panic unless `url` names a *_test database. The safety valve.
+/// Panic unless the URL resolves to an explicitly named test database.
 pub fn guard_test_db(url: &str) {
-    let name = database_name(url).unwrap_or_default();
-
-    assert!(
-        !FORBIDDEN_DATABASES.contains(&name.as_str()),
-        "REFUSING to run tests/fixtures against a non-test database: {name:?}. \
-         Tests must use foundation_test (via {TEST_DB_ENV})."
-    );
-    assert!(
-        name == "foundation_test" || name.starts_with("foundation_test_") || name.ends_with("_test"),
-        "test database name must be foundation_test or foundation_test_* (got {name:?})"
-    );
+    test_db_options(url);
 }
 
-/// Extract the database name from a Postgres URL (last path segment, query stripped).
-fn database_name(url: &str) -> Option<String> {
-    let before_query = url.split('?').next()?;
-    let name = before_query.rsplit('/').next()?;
-    if name.is_empty() {
-        None
-    } else {
-        Some(name.to_string())
-    }
+fn test_db_options(url: &str) -> PgConnectOptions {
+    let options: PgConnectOptions = url.parse().unwrap_or_else(|_| {
+        panic!("{TEST_DB_ENV} must contain a valid PostgreSQL URL");
+    });
+    let database = options.get_database().unwrap_or_default();
+    assert!(
+        database.starts_with("foundation_test_") || database.ends_with("_test"),
+        "{TEST_DB_ENV} must select a foundation_test_* or *_test database (got {database:?})",
+    );
+    options
 }
 
 #[cfg(test)]
@@ -59,27 +43,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guard_rejects_development_and_production() {
-        for db in ["foundation_development", "foundation_production"] {
-            let url = format!("postgres://foundation:foundation@localhost/{db}");
-            let err = std::panic::catch_unwind(|| guard_test_db(&url));
-            assert!(err.is_err(), "guard must reject {db}");
+    fn accepts_test_database_names_and_url_options() {
+        for database in [
+            "foundation_test",
+            "foundation_test_run_123",
+            "tokencraft_test",
+        ] {
+            let url = format!("postgres://localhost/{database}?sslmode=disable");
+            guard_test_db(&url);
         }
     }
 
     #[test]
-    fn guard_accepts_test_databases() {
-        for db in ["foundation_test", "foundation_test_abc123"] {
-            let url = format!("postgres://foundation:foundation@localhost/{db}");
-            guard_test_db(&url); // must not panic
+    fn rejects_non_test_database_names() {
+        for database in ["foundation_development", "foundation_production", "other"] {
+            let url = format!("postgres://localhost/{database}");
+            assert!(
+                std::panic::catch_unwind(|| guard_test_db(&url)).is_err(),
+                "allowed {database}",
+            );
         }
     }
 
     #[test]
-    fn database_name_parses() {
-        assert_eq!(
-            database_name("postgres://u:p@localhost:5432/foundation_test?sslmode=disable").as_deref(),
-            Some("foundation_test")
-        );
+    #[should_panic(expected = "got \"foundation_production\"")]
+    fn rejects_a_url_whose_explicit_database_overrides_the_path() {
+        guard_test_db("postgres://localhost/foundation_test?dbname=foundation_production");
     }
 }

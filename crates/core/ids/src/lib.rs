@@ -25,9 +25,18 @@ define_id!(pub struct UserAvatarFileId => "uaf");
 define_id!(pub struct SsoDisconnectionId => "ssodisc");
 define_id!(pub struct LegalAcceptanceId => "legal");
 define_id!(pub struct EndUserId => "enduser");
+define_id!(pub struct GatewayProjectId => "proj");
+define_id!(pub struct GatewayMcpGrantId => "mcpgrant");
+define_id!(pub struct GatewayPrincipalId => "svc");
+define_id!(pub struct GatewayProjectKeyId => "pkey");
+define_id!(pub struct GatewayWebhookSubscriptionId => "whs");
+define_id!(pub struct GatewayWebhookDeliveryId => "whd");
+define_id!(pub struct GatewayExportId => "exp");
+define_id!(pub struct GatewayArchiveId => "arc");
 
 // ── Jobs, files, assets, queue ──
 define_id!(pub struct JobId => "job");
+define_id!(pub struct GatewayRequestId => "req");
 define_id!(pub struct JobEventId => "jevt");
 define_id!(pub struct JobSliceId => "slice");
 define_id!(pub struct FileId => "file");

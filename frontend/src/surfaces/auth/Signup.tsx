@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Input, Label } from "@/components/ui";
+import { Button, Input } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { demoEnabled } from "@/lib/gateway";
+import { defaultSignupDestination, isConnectDestination } from "@/lib/onboarding";
 import { safeRedirectPath } from "@/lib/redirect";
 import { AuthCard, Divider, SsoRow } from "./AuthCard";
 
@@ -15,6 +17,9 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestedDestination = safeRedirectPath(params.get("redirect_to"));
+  const destination = requestedDestination ?? defaultSignupDestination(demoEnabled);
+  const connecting = isConnectDestination(destination);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -22,8 +27,7 @@ export default function Signup() {
     setError(null);
     try {
       await signup(email, password, name || undefined);
-      // A safe same-origin ?redirect_to wins; else the dashboard.
-      navigate(safeRedirectPath(params.get("redirect_to")) ?? "/dashboard", { replace: true });
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong — try again.");
     } finally {
@@ -34,7 +38,7 @@ export default function Signup() {
   return (
     <AuthCard
       title="Create your account"
-      subtitle="Start generating in minutes. No card required to explore."
+      subtitle={connecting ? "Create an account to get your API key." : "Start generating in minutes. No card required to explore."}
       footer={
         <>
           Already have an account?{" "}
@@ -45,50 +49,42 @@ export default function Signup() {
       }
     >
       <SsoRow
-        onSignedIn={() => navigate(safeRedirectPath(params.get("redirect_to")) ?? "/dashboard", { replace: true })}
-        destination={safeRedirectPath(params.get("redirect_to")) ?? "/dashboard"}
+        onSignedIn={() => navigate(destination, { replace: true })}
+        destination={destination}
       />
       <Divider />
       <form className="space-y-4" onSubmit={submit}>
-        <div>
-          <Label>Full name</Label>
-          <Input placeholder="Ada Rivera" value={name} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div>
-          <Label>Work email</Label>
+        {(!requestedDestination || !connecting) && <label className="block space-y-1.5 text-sm font-medium">
+          <span>Full name</span>
+          <Input placeholder="Ada Rivera" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
+        </label>}
+        <label className="block space-y-1.5 text-sm font-medium">
+          <span>Email</span>
           <Input
             type="email"
             placeholder="you@company.com"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-        </div>
-        <div>
-          <Label>Password</Label>
+        </label>
+        <label className="block space-y-1.5 text-sm font-medium">
+          <span>Password</span>
           <Input
             type="password"
             placeholder="At least 8 characters"
+            autoComplete="new-password"
+            minLength={8}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-        </div>
-        {error && <p className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500">{error}</p>}
+        </label>
+        {error && <p role="alert" className="rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-500">{error}</p>}
         <Button type="submit" className="w-full" disabled={busy}>
           {busy ? "Creating account…" : "Create account"}
         </Button>
-        <p className="text-center text-xs text-muted">
-          By continuing you agree to the{" "}
-          <a href="#" className="text-muted underline hover:text-fg">
-            Terms
-          </a>{" "}
-          and{" "}
-          <a href="#" className="text-muted underline hover:text-fg">
-            Privacy Policy
-          </a>
-          .
-        </p>
       </form>
     </AuthCard>
   );

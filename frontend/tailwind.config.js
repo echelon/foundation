@@ -17,12 +17,12 @@ export default {
       },
       fontFamily: {
         sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        display: ["Sora", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        display: ["Archivo", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["Geist Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       borderRadius: {
-        xl: "0.9rem",
-        "2xl": "1.25rem",
+        xl: "0.4rem",
+        "2xl": "0.55rem",
       },
       boxShadow: {
         glow: "0 0 0 1px hsl(var(--brand) / 0.25), 0 8px 40px -8px hsl(var(--brand) / 0.35)",

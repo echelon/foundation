@@ -1,0 +1,58 @@
+name: Native packages
+
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL 17 on Ubuntu
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          key=/usr/share/keyrings/pgdg.asc
+          curl --fail --silent --show-error https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            --output "$RUNNER_TEMP/pgdg.asc"
+          fingerprints=$(gpg --batch --show-keys --with-colons "$RUNNER_TEMP/pgdg.asc" |
+            awk -F: '$1 == "pub" { primary = 1 } $1 == "fpr" && primary { print $10; primary = 0 }')
+          test "$fingerprints" = B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8
+          sudo install -m 0644 "$RUNNER_TEMP/pgdg.asc" "$key"
+          echo "deb [signed-by=$key] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" |
+            sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install -y postgresql-17 libpq-dev jq
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+      - name: Install PostgreSQL 17 on macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          brew list --versions postgresql@17 >/dev/null || brew install postgresql@17
+          brew list --versions jq >/dev/null || brew install jq
+          echo "$(brew --prefix postgresql@17)/bin" >> "$GITHUB_PATH"
+      - name: Build and verify the unpacked package
+        shell: bash
+        run: |
+          rustup show
+          test -x "$(pg_config --bindir)/initdb"
+          python3 scripts/native_package.py --output "$RUNNER_TEMP/native-packages" --source-revision "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tokencraft-native-${{ matrix.runner }}
+          path: ${{ runner.temp }}/native-packages/tokencraft-*.tar.gz*
+          if-no-files-found: error
+          compression-level: 0

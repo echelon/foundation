@@ -1,84 +1,23 @@
 //! End-to-end organization + audit-log flows through the REAL router against `foundation_test`
 //! — full axum stack via `tower::ServiceExt::oneshot`, real signups, cookie sessions.
 
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{header, Request, StatusCode};
+use common::{app_and_pool, body_json, delete, get, post, put, session_cookie, unique_email};
+
+use axum::http::StatusCode;
 use axum::Router;
 use serde_json::{json, Value};
 use tower::ServiceExt; // oneshot
 
-use api_gateway::auth::token::JwtKeys;
-use api_gateway::AppState;
-
-async fn app() -> Router {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool,
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  api_gateway::build_router(state)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn req(method: &str, uri: &str, body: Option<Value>, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method(method).uri(uri);
-  if body.is_some() {
-    b = b.header("content-type", "application/json");
-  }
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  let body = match body {
-    Some(v) => Body::from(serde_json::to_vec(&v).unwrap()),
-    None => Body::empty(),
-  };
-  b.body(body).unwrap()
-}
-
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if !token.is_empty() {
-        return Some(format!("foundation_session={token}"));
-      }
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 /// Sign up over HTTP → (cookie, user_id).
 async fn signup(app: &Router) -> (String, String) {
   let resp = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       "/v1/auth/signup",
-      Some(json!({ "email": unique_email(), "password": "hunter2hunter2" })),
+      json!({ "email": unique_email(), "password": "hunter2hunter2" }),
       None,
     ))
     .await
@@ -90,7 +29,7 @@ async fn signup(app: &Router) -> (String, String) {
 }
 
 async fn get_json(app: &Router, uri: &str, cookie: &str) -> (StatusCode, Value) {
-  let resp = app.clone().oneshot(req("GET", uri, None, Some(cookie))).await.unwrap();
+  let resp = app.clone().oneshot(get(uri, Some(cookie))).await.unwrap();
   let status = resp.status();
   (status, body_json(resp).await)
 }
@@ -104,10 +43,9 @@ async fn org_with_two(app: &Router, invitee_role: enums::MemberRole) -> (String,
 
   let resp = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/invitations"),
-      Some(json!({ "email": unique_email(), "role": invitee_role })),
+      json!({ "email": unique_email(), "role": invitee_role }),
       Some(&owner_cookie),
     ))
     .await
@@ -118,7 +56,7 @@ async fn org_with_two(app: &Router, invitee_role: enums::MemberRole) -> (String,
   let (member_cookie, member_id) = signup(app).await;
   let resp = app
     .clone()
-    .oneshot(req("POST", &format!("/v1/invitations/{invitation_id}/accept"), Some(json!({})), Some(&member_cookie)))
+    .oneshot(post(&format!("/v1/invitations/{invitation_id}/accept"), json!({}), Some(&member_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -130,7 +68,7 @@ async fn org_with_two(app: &Router, invitee_role: enums::MemberRole) -> (String,
 
 #[tokio::test]
 async fn org_membership_roster_and_removal_flow() {
-  let app = app().await;
+  let (app, _) = app_and_pool().await;
   let (owner_cookie, owner_id, member_cookie, member_id, account_id) = org_with_two(&app, enums::MemberRole::Member).await;
 
   // The joiner's switcher shows BOTH orgs (their own signup account + the joined one).
@@ -159,7 +97,7 @@ async fn org_membership_roster_and_removal_flow() {
   // A plain member may NOT remove anyone (403/404 from the role gate).
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{owner_id}"), None, Some(&member_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{owner_id}"), Some(&member_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -167,7 +105,7 @@ async fn org_membership_roster_and_removal_flow() {
   // The owner can't be removed, and self-removal is rejected.
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{owner_id}"), None, Some(&owner_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{owner_id}"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -175,7 +113,7 @@ async fn org_membership_roster_and_removal_flow() {
   // The owner removes the member; the roster shrinks and the member's switcher loses the org.
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{member_id}"), None, Some(&owner_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{member_id}"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -195,16 +133,15 @@ async fn org_membership_roster_and_removal_flow() {
 
 #[tokio::test]
 async fn admins_can_remove_members_but_not_admins() {
-  let app = app().await;
+  let (app, _) = app_and_pool().await;
   let (owner_cookie, _owner_id, admin_cookie, admin_id, account_id) = org_with_two(&app, enums::MemberRole::Admin).await;
 
   // Bring in a plain member too.
   let resp = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/invitations"),
-      Some(json!({ "email": unique_email(), "role": "member" })),
+      json!({ "email": unique_email(), "role": "member" }),
       Some(&owner_cookie),
     ))
     .await
@@ -213,14 +150,14 @@ async fn admins_can_remove_members_but_not_admins() {
   let (member_cookie, member_id) = signup(&app).await;
   app
     .clone()
-    .oneshot(req("POST", &format!("/v1/invitations/{invitation_id}/accept"), Some(json!({})), Some(&member_cookie)))
+    .oneshot(post(&format!("/v1/invitations/{invitation_id}/accept"), json!({}), Some(&member_cookie)))
     .await
     .unwrap();
 
   // Admin can remove the member…
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{member_id}"), None, Some(&admin_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{member_id}"), Some(&admin_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -228,13 +165,13 @@ async fn admins_can_remove_members_but_not_admins() {
   // …but an admin cannot remove another admin (only the owner can).
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{admin_id}"), None, Some(&admin_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{admin_id}"), Some(&admin_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "self-removal rejected first");
   let resp = app
     .clone()
-    .oneshot(req("DELETE", &format!("/v1/accounts/{account_id}/members/{admin_id}"), None, Some(&owner_cookie)))
+    .oneshot(delete(&format!("/v1/accounts/{account_id}/members/{admin_id}"), Some(&owner_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK, "the owner CAN remove an admin");
@@ -244,14 +181,14 @@ async fn admins_can_remove_members_but_not_admins() {
 
 #[tokio::test]
 async fn own_audit_log_paginates() {
-  let app = app().await;
+  let (app, _) = app_and_pool().await;
   let (cookie, _user_id) = signup(&app).await;
 
   // Generate a few org-visible events via real endpoints (name changes).
   for name in ["Ada One", "Ada Two", "Ada Three"] {
     let resp = app
       .clone()
-      .oneshot(req("PUT", "/v1/auth/profile", Some(json!({ "display_name": name })), Some(&cookie)))
+      .oneshot(put("/v1/auth/profile", json!({ "display_name": name }), Some(&cookie)))
       .await
       .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
@@ -276,7 +213,7 @@ async fn own_audit_log_paginates() {
 
 #[tokio::test]
 async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
-  let app = app().await;
+  let (app, _) = app_and_pool().await;
   let (owner_cookie, _owner_id, member_cookie, member_id, account_id) = org_with_two(&app, enums::MemberRole::Member).await;
 
   // A plain member cannot read the org audit log.
@@ -287,10 +224,9 @@ async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
   // (revoking one of their other sessions — log in again to have one to kill).
   let resp = app
     .clone()
-    .oneshot(req(
-      "PUT",
+    .oneshot(put(
       "/v1/auth/password",
-      Some(json!({ "current_password": "hunter2hunter2", "new_password": "hunter3hunter3" })),
+      json!({ "current_password": "hunter2hunter2", "new_password": "hunter3hunter3" }),
       Some(&member_cookie),
     ))
     .await
@@ -304,7 +240,7 @@ async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
   // Revoke-others always writes a (private) session_revoked event.
   let resp = app
     .clone()
-    .oneshot(req("DELETE", "/v1/auth/sessions?others=true", None, Some(&member_cookie)))
+    .oneshot(delete("/v1/auth/sessions?others=true", Some(&member_cookie)))
     .await
     .unwrap();
   assert_eq!(resp.status(), StatusCode::OK);
@@ -340,14 +276,14 @@ async fn org_audit_log_is_admin_only_and_member_view_filters_private_rows() {
 
 #[tokio::test]
 async fn roster_and_user_info_carry_avatars() {
-  let app = app().await;
+  let (app, _) = app_and_pool().await;
   let pool = db::test_fixtures::create_test_pool().await;
 
   // Owner + one member (via invitation), both fresh — no uploads, no gravatar mirrored yet.
   let owner_email = unique_email();
   let signup = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": owner_email, "password": "ownerpass1" })), None))
+    .oneshot(post("/v1/auth/signup", json!({ "email": owner_email, "password": "ownerpass1" }), None))
     .await
     .unwrap();
   let owner_cookie = session_cookie(&signup).unwrap();
@@ -359,10 +295,9 @@ async fn roster_and_user_info_carry_avatars() {
   let invitee_email = unique_email();
   let inv = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       &format!("/v1/accounts/{account_id}/invitations"),
-      Some(json!({ "email": invitee_email, "role": "member" })),
+      json!({ "email": invitee_email, "role": "member" }),
       Some(&owner_cookie),
     ))
     .await
@@ -370,10 +305,9 @@ async fn roster_and_user_info_carry_avatars() {
   let code = body_json(inv).await["code"].as_str().unwrap().to_string();
   let joined = app
     .clone()
-    .oneshot(req(
-      "POST",
+    .oneshot(post(
       "/v1/auth/signup",
-      Some(json!({ "email": invitee_email, "password": "memberpass1", "invitation": code })),
+      json!({ "email": invitee_email, "password": "memberpass1", "invitation": code }),
       None,
     ))
     .await
@@ -383,7 +317,7 @@ async fn roster_and_user_info_carry_avatars() {
   // The roster reports every member's avatar; fresh users show the letter monogram.
   let roster = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/members"), None, Some(&member_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/members"), Some(&member_cookie)))
     .await
     .unwrap();
   assert_eq!(roster.status(), StatusCode::OK);
@@ -396,10 +330,8 @@ async fn roster_and_user_info_carry_avatars() {
   // The user-info API answers for current members…
   let info = app
     .clone()
-    .oneshot(req(
-      "GET",
+    .oneshot(get(
       &format!("/v1/accounts/{account_id}/users?ids={owner_id},user_notreal000000000000000000"),
-      None,
       Some(&member_cookie),
     ))
     .await
@@ -415,13 +347,13 @@ async fn roster_and_user_info_carry_avatars() {
   // …but not for outsiders (same 404 an unknown account gets).
   let outsider = app
     .clone()
-    .oneshot(req("POST", "/v1/auth/signup", Some(json!({ "email": unique_email(), "password": "outsider12" })), None))
+    .oneshot(post("/v1/auth/signup", json!({ "email": unique_email(), "password": "outsider12" }), None))
     .await
     .unwrap();
   let outsider_cookie = session_cookie(&outsider).unwrap();
   let denied = app
     .clone()
-    .oneshot(req("GET", &format!("/v1/accounts/{account_id}/users?ids={owner_id}"), None, Some(&outsider_cookie)))
+    .oneshot(get(&format!("/v1/accounts/{account_id}/users?ids={owner_id}"), Some(&outsider_cookie)))
     .await
     .unwrap();
   assert_eq!(denied.status(), StatusCode::NOT_FOUND);

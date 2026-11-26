@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowUpRight, TrendingDown, TrendingUp } from "lucide-react";
 import { Badge, Card } from "@/components/ui";
 import { Sparkline } from "@/components/Sparkline";
-import { MODALITY_GLYPH, ModelCoverArt } from "@/components/ModelArt";
+import { ModelIcon } from "@/components/ModelArt";
 import { MODALITY_LABEL, priceLabel, type Model } from "@/lib/catalog";
 import type { ModelStats } from "@/lib/model-stats";
 
@@ -19,31 +19,28 @@ export function ModelCard({
   metric?: { label: string; value: string };
 }) {
   return (
-    <Link to={`/models/${model.slug}`} className="group block">
-      <Card className="h-full overflow-hidden transition group-hover:border-brand/50 group-hover:shadow-glow">
-        <div className="relative grid h-32 place-items-center overflow-hidden brand-gradient text-4xl">
-          <span className="opacity-90">{MODALITY_GLYPH[model.modality]}</span>
-          {/* Cover art layers over the gradient/glyph when the model has a sample set. */}
-          <ModelCoverArt slug={model.slug} className="transition duration-300 group-hover:scale-[1.03]" />
-          {rank !== undefined && (
-            <div className="absolute left-3 top-3 grid h-7 min-w-7 place-items-center rounded-lg bg-black/45 px-1.5 text-sm font-bold text-white backdrop-blur-sm">
-              #{rank}
-            </div>
-          )}
-          <div className="absolute right-3 top-3 flex gap-1.5">
-            {model.status === "new" && <Badge tone="green">New</Badge>}
-            {model.status === "preview" && <Badge tone="amber">Preview</Badge>}
+    <Link to={`/models/${model.slug}`} className="group block rounded-2xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
+      <Card className="flex h-full flex-col gap-3 p-4 group-hover:border-brand/55 group-hover:shadow-md motion-safe:transition motion-safe:duration-200 motion-safe:group-hover:-translate-y-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <ModelIcon model={model} />
+            <span className="truncate text-sm font-medium text-muted">{model.provider}</span>
           </div>
-          <ArrowUpRight className="absolute bottom-3 right-3 h-4 w-4 text-white/80 opacity-0 transition group-hover:opacity-100" />
+          <div className="flex shrink-0 items-center gap-2 text-muted">
+            {rank !== undefined && <span className="font-mono text-xs tabular-nums">#{rank}</span>}
+            <ArrowUpRight className="h-4 w-4 group-hover:text-brand motion-safe:transition-transform motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:translate-x-0.5" aria-hidden="true" />
+          </div>
         </div>
-        <div className="space-y-2 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="truncate font-display font-semibold">{model.name}</h3>
-            <Badge>{MODALITY_LABEL[model.modality]}</Badge>
-          </div>
-          <p className="text-xs uppercase tracking-wide text-muted">{model.provider}</p>
-          <p className="line-clamp-2 text-sm text-muted">{model.tagline}</p>
-
+        <div className="grow space-y-1.5">
+          <h3 className="font-display text-lg font-bold leading-tight group-hover:text-brand">{model.name}</h3>
+          <p className="line-clamp-2 text-sm leading-5 text-muted">{model.tagline}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge className="text-xs">{MODALITY_LABEL[model.modality]}</Badge>
+          {model.status === "new" && <Badge className="text-xs" tone="green">New</Badge>}
+          {model.status === "preview" && <Badge className="text-xs" tone="amber">Preview</Badge>}
+        </div>
+        <div className="border-t border-border pt-3">
           {stats && metric ? (
             <div className="flex items-end justify-between gap-2 pt-1">
               <div>
@@ -56,7 +53,7 @@ export function ModelCard({
               <Sparkline data={stats.sparkline} />
             </div>
           ) : (
-            <p className="pt-1 text-sm font-medium text-fg">{priceLabel(model.pricing[0])}</p>
+            <p className="text-sm font-medium text-fg">{priceLabel(model.pricing[0])}</p>
           )}
         </div>
       </Card>

@@ -1,0 +1,26 @@
+[package]
+name = "tokencraft"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+anyhow.workspace = true
+axum.workspace = true
+db.workspace = true
+hex.workspace = true
+hmac = "0.12"
+image.workspace = true
+mime_guess = "2"
+percent-encoding = "2"
+provider_mapping.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+subtle = "2"
+tokio.workspace = true
+tokio-util = { version = "0.7", features = ["io"] }

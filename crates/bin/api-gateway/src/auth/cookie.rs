@@ -7,15 +7,15 @@ pub const COOKIE_NAME: &str = "foundation_session";
 /// Build the `Set-Cookie` value that installs the session token.
 pub fn set_cookie(token: &str, domain: &str, secure: bool, max_age_secs: i64) -> String {
   let secure_attr = if secure { "; Secure" } else { "" };
+  let domain_attr = if domain.is_empty() { String::new() } else { format!("; Domain={domain}") };
   format!(
-    "{COOKIE_NAME}={token}; Path=/; HttpOnly{secure_attr}; SameSite=Lax; Domain={domain}; Max-Age={max_age_secs}"
+    "{COOKIE_NAME}={token}; Path=/; HttpOnly{secure_attr}; SameSite=Lax{domain_attr}; Max-Age={max_age_secs}"
   )
 }
 
 /// Build the `Set-Cookie` value that clears the session cookie (logout).
 pub fn clear_cookie(domain: &str, secure: bool) -> String {
-  let secure_attr = if secure { "; Secure" } else { "" };
-  format!("{COOKIE_NAME}=; Path=/; HttpOnly{secure_attr}; SameSite=Lax; Domain={domain}; Max-Age=0")
+  set_cookie("", domain, secure, 0)
 }
 
 /// Extract the session token from the request's `Cookie` header, if present.
@@ -51,6 +51,14 @@ mod tests {
   fn insecure_omits_secure() {
     let c = set_cookie("t", "localhost", false, 60);
     assert!(!c.contains("Secure"));
+  }
+
+  #[test]
+  fn empty_domain_sets_and_clears_host_only_cookies() {
+    assert_eq!(set_cookie("token", "", true, 60),
+      "foundation_session=token; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=60");
+    assert_eq!(clear_cookie("", true),
+      "foundation_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0");
   }
 
   #[test]

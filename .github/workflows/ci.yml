@@ -1,0 +1,69 @@
+name: Gateway, connector, and SDKs
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  example:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql libpq-dev jq
+      - name: Install Rust and verify PostgreSQL tools
+        run: |
+          rustup show
+          pg_bindir="$(pg_config --bindir)"
+          test -x "$pg_bindir/initdb"
+          test -x "$pg_bindir/pg_ctl"
+      - name: Test the launcher and provider mappings
+        run: cargo test --locked -p tokencraft -p provider_mapping -p tokencraft_sdk
+      - name: Check gateway contracts and run the bundled connector
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_dir="$RUNNER_TEMP/tokencraft"
+          cargo run --locked -p tokencraft -- dev --state-dir "$state_dir" >"$RUNNER_TEMP/gateway.log" 2>&1 &
+          launcher=$!
+          trap 'kill -TERM "$launcher" 2>/dev/null || true; wait "$launcher" || true' EXIT
+          for attempt in {1..480}; do
+            if curl -fsS --max-time 2 http://localhost:4000/ready >/dev/null 2>&1; then
+              curl -fsS --max-time 5 http://localhost:4000/v1/catalog/offers | jq -e '
+                (.offers | length) == 1 and
+                (.offers[0] | .id == "example_image" and .provider == "self_hosted" and .adapter == "connector_queue")
+              ' >/dev/null
+              bash examples/connector/smoke.sh
+              db_password="$(jq -er .database "$state_dir/dev-keys.json")"
+              export PGHOST=127.0.0.1 PGPORT=55439 PGUSER=tokencraft PGPASSWORD="$db_password"
+              createdb --maintenance-db=postgres -w tokencraft_export_test
+              PGDATABASE=tokencraft_export_test TOKENCRAFT_SMOKE_EXPIRY_DATABASE=tokencraft_dev \
+                python3 -B examples/postgres/smoke.py
+              DATABASE_URL="postgresql://tokencraft:${db_password}@127.0.0.1:55439/tokencraft_dev" \
+                SQLX_OFFLINE=false cargo test --locked -p api_gateway --lib
+              DATABASE_URL="postgresql://tokencraft:${db_password}@127.0.0.1:55439/tokencraft_dev" \
+                SQLX_OFFLINE=false cargo check --locked -p sweeper
+              exit 0
+            fi
+            if ! kill -0 "$launcher" 2>/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/gateway.log"
+          exit 1
+
+  typescript-sdk:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: sdk/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      - run: npm test

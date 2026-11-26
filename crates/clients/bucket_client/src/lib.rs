@@ -16,7 +16,7 @@ pub mod bucket_client_builder;
 pub mod bucket_client_error;
 pub mod object_key;
 
-pub use bucket_client::{BucketClient, UploadBytesArgs};
+pub use bucket_client::{BucketClient, SignedRestoreRequest, UploadBytesArgs};
 pub use bucket_client_builder::BucketClientBuilder;
 pub use bucket_client_error::BucketClientError;
 pub use object_key::ObjectKey;

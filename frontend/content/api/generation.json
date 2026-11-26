@@ -1,0 +1,614 @@
+{
+  "version": 1,
+  "scoped_media_examples": {
+    "image": { "model": "studio_flux_image", "task": "text_to_image", "prompt": "A ceramic bowl", "aspect_ratio": "1:1" },
+    "video": { "model": "studio_video_demo", "task": "text_to_video", "prompt": "Slow pan across a workbench", "duration_seconds": 5, "resolution": "540p", "aspect_ratio": "16:9" },
+    "audio": { "model": "studio_audio_demo", "task": "text_to_sound_effect", "prompt": "A soft studio chime", "duration_seconds": 5 },
+    "3d": { "model": "studio_mesh_demo", "task": "text_to_3d", "prompt": "A low-poly desk ornament", "output_format": "glb" }
+  },
+  "common_fields": [
+    {
+      "name": "model",
+      "type": "model slug",
+      "detail": "Optional on a primitive route. Omit to choose the lowest eligible estimate. The model route takes its slug in the URL."
+    },
+    {
+      "name": "account_id",
+      "type": "account ID",
+      "detail": "Required for browser sessions. Bearer keys carry their account."
+    },
+    {
+      "name": "count",
+      "type": "integer",
+      "detail": "Number of independent outputs. Range 1–10.",
+      "default": "1"
+    },
+    {
+      "name": "max_estimated_cost_micros",
+      "type": "integer",
+      "detail": "Optional nonnegative ceiling for the whole job estimate in USD micros. 1000000 means one USD."
+    },
+    {
+      "name": "dry_run",
+      "type": "boolean",
+      "detail": "Validate, select, and save a canceled job without contacting a provider.",
+      "default": "false"
+    }
+  ],
+  "primitives": {
+    "image": {
+      "label": "Image",
+      "status": "available",
+      "summary": "Create or edit still images.",
+      "fields": [
+        {
+          "name": "task",
+          "type": "enum",
+          "detail": "Choose text generation or reference-based editing.",
+          "values": [
+            "text_to_image",
+            "image_edit"
+          ],
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "detail": "Nonblank text. Maximum 32,000 UTF-8 bytes.",
+          "required": true
+        },
+        {
+          "name": "size",
+          "type": "enum",
+          "detail": "Exact output pixel dimensions. Use with models that advertise fixed sizes.",
+          "values": [
+            "1024x1024",
+            "1536x1024",
+            "1024x1536",
+            "auto"
+          ]
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "enum",
+          "detail": "Requested width-to-height ratio. Available on models that expose relative sizing.",
+          "values": [
+            "1:1",
+            "3:2",
+            "2:3",
+            "4:3",
+            "3:4",
+            "5:4",
+            "4:5",
+            "16:9",
+            "9:16",
+            "21:9"
+          ]
+        },
+        {
+          "name": "resolution",
+          "type": "enum",
+          "detail": "Requested output resolution tier. Available values depend on the model.",
+          "values": [
+            "512px",
+            "1k",
+            "2k",
+            "4k"
+          ]
+        },
+        {
+          "name": "quality",
+          "type": "enum",
+          "detail": "Rendering effort on models that expose a quality control.",
+          "values": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        {
+          "name": "output_format",
+          "type": "enum",
+          "detail": "Requested image encoding on models that offer a choice.",
+          "values": [
+            "png",
+            "jpeg",
+            "webp"
+          ]
+        },
+        {
+          "name": "image_inputs",
+          "type": "file ID[]",
+          "detail": "Ordered edit references. Supply 1–16 uploaded images for image_edit."
+        },
+        {
+          "name": "mask",
+          "type": "file ID",
+          "detail": "Optional edit mask for image_inputs[0]."
+        },
+        {
+          "name": "input_fidelity",
+          "type": "enum",
+          "detail": "How closely edited images should follow the references.",
+          "values": [
+            "low",
+            "high"
+          ]
+        }
+      ],
+      "rules": [
+        "text_to_image takes no image_inputs, mask, or input_fidelity.",
+        "image_edit requires 1–16 image_inputs. A mask applies to the first image.",
+        "Supply either size or aspect_ratio. Model pages specify which sizing controls are supported."
+      ],
+      "example": {
+        "task": "text_to_image",
+        "prompt": "Studio photograph of a cobalt cup on pale stone",
+        "size": "1024x1024",
+        "count": 1
+      }
+    },
+    "video": {
+      "label": "Video",
+      "status": "available",
+      "summary": "Generate a clip from text or a starting image.",
+      "fields": [
+        {
+          "name": "task",
+          "type": "enum",
+          "detail": "Choose text or image conditioning.",
+          "values": [
+            "text_to_video",
+            "image_to_video"
+          ],
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "detail": "Nonblank text. Maximum 32,000 UTF-8 bytes.",
+          "required": true
+        },
+        {
+          "name": "negative_prompt",
+          "type": "string",
+          "detail": "Nonblank avoidance guidance, maximum 32,000 UTF-8 bytes. Available on Veo."
+        },
+        {
+          "name": "image_input",
+          "type": "file ID",
+          "detail": "An uploaded file owned by the calling account. Required for image-conditioned tasks."
+        },
+        {
+          "name": "resolution",
+          "type": "enum",
+          "detail": "Requested video resolution.",
+          "values": [
+            "720p",
+            "1080p",
+            "4k"
+          ]
+        },
+        {
+          "name": "duration_seconds",
+          "type": "integer enum",
+          "detail": "Requested clip length in seconds.",
+          "values": [
+            4,
+            6,
+            8
+          ]
+        },
+        {
+          "name": "aspect_ratio",
+          "type": "enum",
+          "detail": "Requested width-to-height ratio.",
+          "values": [
+            "16:9",
+            "9:16"
+          ]
+        }
+      ],
+      "rules": [
+        "image_input is required for image_to_video and excluded for text_to_video.",
+        "On Veo, 1080p and 4k require 8 seconds. If duration_seconds is omitted, TokenCraft selects 8 seconds for these tiers.",
+        "Gemini Omni Flash supports aspect ratio and image conditioning. Output length and resolution are model-controlled."
+      ],
+      "example": {
+        "task": "text_to_video",
+        "prompt": "Slow tracking shot through a ceramic studio",
+        "resolution": "720p",
+        "duration_seconds": 6,
+        "aspect_ratio": "16:9"
+      }
+    },
+    "audio": {
+      "label": "Audio",
+      "status": "planned",
+      "summary": "The request contract for speech synthesis, music, and sound effects.",
+      "fields": [
+        {
+          "name": "task",
+          "type": "enum",
+          "detail": "Choose the kind of audio to synthesize.",
+          "values": [
+            "text_to_speech",
+            "text_to_music",
+            "text_to_sound_effect"
+          ],
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "detail": "Nonblank text. Maximum 32,000 UTF-8 bytes.",
+          "required": true
+        },
+        {
+          "name": "voice",
+          "type": "string",
+          "detail": "Voice identifier for speech synthesis. Model pages will list accepted voices."
+        },
+        {
+          "name": "duration_seconds",
+          "type": "integer",
+          "detail": "Positive clip length for music or sound effects."
+        },
+        {
+          "name": "output_format",
+          "type": "enum",
+          "detail": "Audio encoding.",
+          "values": [
+            "wav",
+            "mp3",
+            "ogg",
+            "flac"
+          ]
+        }
+      ],
+      "rules": [
+        "For speech, prompt contains the text to speak. Use voice only for speech.",
+        "Speech length follows the supplied text. Use duration_seconds for music and sound effects."
+      ],
+      "example": {
+        "task": "text_to_speech",
+        "prompt": "Your recording is ready.",
+        "output_format": "wav"
+      }
+    },
+    "3d": {
+      "label": "3D mesh",
+      "status": "planned",
+      "summary": "The request contract for generating a mesh from text or an image.",
+      "fields": [
+        {
+          "name": "task",
+          "type": "enum",
+          "detail": "Choose text or image conditioning.",
+          "values": [
+            "text_to_3d",
+            "image_to_3d"
+          ],
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "detail": "Nonblank text. Maximum 32,000 UTF-8 bytes.",
+          "required": true
+        },
+        {
+          "name": "image_input",
+          "type": "file ID",
+          "detail": "An uploaded file owned by the calling account. Required for image-conditioned tasks."
+        },
+        {
+          "name": "output_format",
+          "type": "enum",
+          "detail": "Mesh container.",
+          "values": [
+            "glb",
+            "obj",
+            "usdz"
+          ]
+        }
+      ],
+      "rules": [
+        "image_input is required for image_to_3d and excluded for text_to_3d."
+      ],
+      "example": {
+        "task": "text_to_3d",
+        "prompt": "A low oak stool with three legs",
+        "output_format": "glb"
+      }
+    },
+    "world": {
+      "label": "World",
+      "status": "planned",
+      "summary": "The request contract for generating a spatial scene.",
+      "fields": [
+        {
+          "name": "task",
+          "type": "enum",
+          "detail": "Choose text or image conditioning.",
+          "values": [
+            "text_to_world",
+            "image_to_world"
+          ],
+          "required": true
+        },
+        {
+          "name": "prompt",
+          "type": "string",
+          "detail": "Nonblank text. Maximum 32,000 UTF-8 bytes.",
+          "required": true
+        },
+        {
+          "name": "image_input",
+          "type": "file ID",
+          "detail": "An uploaded file owned by the calling account. Required for image-conditioned tasks."
+        },
+        {
+          "name": "output_format",
+          "type": "enum",
+          "detail": "Gaussian-splat container.",
+          "values": [
+            "spz",
+            "ply"
+          ]
+        }
+      ],
+      "rules": [
+        "image_input is required for image_to_world and excluded for text_to_world."
+      ],
+      "example": {
+        "task": "text_to_world",
+        "prompt": "A small ceramics workshop at room scale",
+        "output_format": "spz"
+      }
+    },
+    "text": {
+      "label": "Text",
+      "status": "local",
+      "summary": "Generate a text completion on the local provider-routing profile.",
+      "fields": [
+        {
+          "name": "model",
+          "type": "model slug",
+          "detail": "Use a chat-capable alias from the local model catalog.",
+          "required": true
+        },
+        {
+          "name": "messages",
+          "type": "message[]",
+          "detail": "Supply 1–16 plain-text messages with role and content, including at least one user message.",
+          "required": true
+        },
+        {
+          "name": "stream",
+          "type": "boolean",
+          "detail": "Return server-sent events when true.",
+          "default": "false"
+        },
+        {
+          "name": "stream_options",
+          "type": "object",
+          "detail": "With streaming enabled, set include_usage to request a final usage event when both token counts are available."
+        },
+        {
+          "name": "n",
+          "type": "integer",
+          "detail": "The chat endpoint supports one completion per request.",
+          "values": [
+            1
+          ],
+          "default": "1"
+        },
+        {
+          "name": "max_completion_tokens",
+          "type": "integer",
+          "detail": "Output token ceiling, from 1 to 64000. max_tokens is a compatibility alias. Supply only one.",
+          "default": "512"
+        },
+        {
+          "name": "temperature",
+          "type": "number",
+          "detail": "Sampling temperature, from 0 to 2 inclusive."
+        },
+        {
+          "name": "top_p",
+          "type": "number",
+          "detail": "Nucleus sampling threshold, from 0 to 1 inclusive."
+        }
+      ],
+      "rules": [
+        "Message role must be system, user, or assistant.",
+        "Use a key with request submission permission. Streaming uses server-sent events."
+      ],
+      "example": {
+        "model": "studio_text_chat",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Describe a cobalt cup in one sentence."
+          }
+        ]
+      }
+    }
+  },
+  "profiles": {
+    "gpt_image": {
+      "primitive": "image",
+      "fields": [
+        "size",
+        "quality",
+        "output_format",
+        "image_inputs",
+        "mask",
+        "input_fidelity"
+      ],
+      "detail": "Fixed pixel sizes, rendering effort, and explicit output encoding. Fidelity and mask are edit-only.",
+      "rules": [
+        "For image_edit, supply 1–16 image_inputs. Leave them out for text_to_image.",
+        "A mask applies to image_inputs[0].",
+        "Use input_fidelity only for image_edit."
+      ]
+    },
+    "gpt_image_2": {
+      "primitive": "image",
+      "fields": [
+        "size",
+        "quality",
+        "output_format",
+        "image_inputs",
+        "mask"
+      ],
+      "detail": "Fixed pixel sizes, rendering effort, and explicit output encoding. Mask is edit-only.",
+      "rules": [
+        "For image_edit, supply 1–16 image_inputs. Leave them out for text_to_image.",
+        "A mask applies to image_inputs[0]."
+      ]
+    },
+    "gemini_image": {
+      "primitive": "image",
+      "fields": [
+        "aspect_ratio",
+        "image_inputs"
+      ],
+      "detail": "Aspect ratio and edit references. The model controls output resolution and encoding.",
+      "rules": [
+        "For image_edit, supply 1–16 image_inputs. Leave them out for text_to_image."
+      ]
+    },
+    "gemini_image_tiered": {
+      "primitive": "image",
+      "fields": [
+        "aspect_ratio",
+        "resolution",
+        "image_inputs"
+      ],
+      "detail": "Aspect ratio, edit references, and an explicit resolution tier. The model controls encoding.",
+      "values": {
+        "resolution": [
+          "1k",
+          "2k",
+          "4k"
+        ]
+      },
+      "rules": [
+        "For image_edit, supply 1–16 image_inputs. Leave them out for text_to_image."
+      ]
+    },
+    "veo": {
+      "primitive": "video",
+      "fields": [
+        "negative_prompt",
+        "image_input",
+        "resolution",
+        "duration_seconds",
+        "aspect_ratio"
+      ],
+      "detail": "Explicit video duration, output resolution, framing, and optional starting image.",
+      "rules": [
+        "Supply image_input for image_to_video. Leave it out for text_to_video.",
+        "For 1080p or 4k, duration_seconds must be 8. TokenCraft selects 8 if omitted."
+      ]
+    },
+    "veo_lite": {
+      "primitive": "video",
+      "fields": [
+        "negative_prompt",
+        "image_input",
+        "resolution",
+        "duration_seconds",
+        "aspect_ratio"
+      ],
+      "detail": "Explicit video duration, output resolution, framing, and optional starting image.",
+      "values": {
+        "resolution": [
+          "720p",
+          "1080p"
+        ]
+      },
+      "rules": [
+        "Supply image_input for image_to_video. Leave it out for text_to_video.",
+        "For 1080p, duration_seconds must be 8. TokenCraft selects 8 if omitted."
+      ]
+    },
+    "omni": {
+      "primitive": "video",
+      "fields": [
+        "image_input",
+        "aspect_ratio"
+      ],
+      "detail": "Specify framing and an optional starting image. Describe the desired duration and avoidance guidance in the prompt.",
+      "rules": [
+        "Supply image_input for image_to_video. Leave it out for text_to_video.",
+        "Include desired pacing, duration, or avoidance guidance in the prompt."
+      ]
+    },
+    "gemini_image_flash": {
+      "primitive": "image",
+      "fields": [
+        "aspect_ratio",
+        "resolution",
+        "image_inputs"
+      ],
+      "detail": "Aspect ratio, edit references, and an explicit resolution tier. The model controls encoding.",
+      "rules": [
+        "For image_edit, supply 1–16 image_inputs. Leave them out for text_to_image."
+      ]
+    }
+  },
+  "models": {
+    "openai_gpt_image_1": {
+      "label": "GPT Image 1",
+      "profile": "gpt_image"
+    },
+    "openai_gpt_image_1_mini": {
+      "label": "GPT Image 1 Mini",
+      "profile": "gpt_image"
+    },
+    "openai_gpt_image_1_5": {
+      "label": "GPT Image 1.5",
+      "profile": "gpt_image"
+    },
+    "openai_gpt_image_2": {
+      "label": "GPT Image 2",
+      "profile": "gpt_image_2"
+    },
+    "google_nano_banana": {
+      "label": "Nano Banana",
+      "profile": "gemini_image"
+    },
+    "google_nano_banana_2_lite": {
+      "label": "Nano Banana 2 Lite",
+      "profile": "gemini_image"
+    },
+    "google_nano_banana_2": {
+      "label": "Nano Banana 2",
+      "profile": "gemini_image_flash"
+    },
+    "google_nano_banana_pro": {
+      "label": "Nano Banana Pro",
+      "profile": "gemini_image_tiered"
+    },
+    "google_veo_3_1": {
+      "label": "Veo 3.1",
+      "profile": "veo"
+    },
+    "google_veo_3_1_fast": {
+      "label": "Veo 3.1 Fast",
+      "profile": "veo"
+    },
+    "google_veo_3_1_lite": {
+      "label": "Veo 3.1 Lite",
+      "profile": "veo_lite"
+    },
+    "google_omni_flash": {
+      "label": "Gemini Omni Flash",
+      "profile": "omni"
+    }
+  }
+}

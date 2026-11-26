@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Check, Image as ImageIcon, Laptop, Loader2, Palette, RefreshCw, ShieldCheck, X } from "lucide-react";
 import { Badge, Button, Card, Input, Label } from "@/components/ui";
 import { AvatarEditorModal } from "@/components/AvatarEditorModal";
@@ -24,6 +25,7 @@ export default function Settings() {
       <div>
         <h1 className="font-display text-3xl font-bold tracking-tight">User settings</h1>
         <p className="mt-1 text-muted">Manage your profile, security, and sessions.</p>
+        <Link to="/dashboard/user/activity" className="mt-2 inline-block text-sm font-medium text-brand hover:underline">My activity</Link>
       </div>
 
       {/* ── Profile — a 100% read-only snapshot; everything here is edited in the

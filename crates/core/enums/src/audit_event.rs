@@ -22,11 +22,24 @@ text_enum! {
     InvitationAccepted => "invitation_accepted",
     ApiKeyCreated => "api_key_created",
     ApiKeyRevoked => "api_key_revoked",
+    GatewayProjectKeyAttached => "gateway_project_key_attached",
     BusinessNameChanged => "business_name_changed",
     BillingAddressChanged => "billing_address_changed",
     SpendLimitChanged => "spend_limit_changed",
     AutoRefillChanged => "auto_refill_changed",
     WebhookSecretRotated => "webhook_secret_rotated",
+    GatewayProjectCreated => "gateway_project_created",
+    GatewayProjectGrantChanged => "gateway_project_grant_changed",
+    GatewayWebhookChanged => "gateway_webhook_changed",
+    GatewayRoutingPolicyChanged => "gateway_routing_policy_changed",
+    GatewayProviderCredentialSaved => "gateway_provider_credential_saved",
+    GatewayProviderCredentialRevoked => "gateway_provider_credential_revoked",
+    GatewaySupplierSettlementRecorded => "gateway_supplier_settlement_recorded",
+    GatewayRequestContentRestoreQueued => "gateway_request_content_restore_queued",
+    GatewayRequestContentRemoved => "gateway_request_content_removed",
+    GatewayDispatchControlChanged => "gateway_dispatch_control_changed",
+    GatewayProviderRecheckScheduled => "gateway_provider_recheck_scheduled",
+    GatewayClientBudgetChanged => "gateway_client_budget_changed",
   }
 }
 
@@ -55,11 +68,24 @@ impl AuditEvent {
       | Self::InvitationAccepted
       | Self::ApiKeyCreated
       | Self::ApiKeyRevoked
+      | Self::GatewayProjectKeyAttached
       | Self::BusinessNameChanged
       | Self::BillingAddressChanged
       | Self::SpendLimitChanged
       | Self::AutoRefillChanged
-      | Self::WebhookSecretRotated => false,
+      | Self::WebhookSecretRotated
+      | Self::GatewayProjectCreated
+      | Self::GatewayProjectGrantChanged
+      | Self::GatewayWebhookChanged
+      | Self::GatewayRoutingPolicyChanged
+      | Self::GatewayProviderCredentialSaved
+      | Self::GatewayProviderCredentialRevoked
+      | Self::GatewaySupplierSettlementRecorded
+      | Self::GatewayRequestContentRestoreQueued
+      | Self::GatewayRequestContentRemoved
+      | Self::GatewayDispatchControlChanged
+      | Self::GatewayProviderRecheckScheduled
+      | Self::GatewayClientBudgetChanged => false,
     }
   }
 }
@@ -74,7 +100,7 @@ mod tests {
       assert_eq!(v.as_str().parse::<AuditEvent>().unwrap(), *v);
       assert_eq!(serde_json::to_string(v).unwrap(), format!("\"{}\"", v.as_str()));
     }
-    assert_eq!(AuditEvent::ALL.len(), 23);
+    assert_eq!(AuditEvent::ALL.len(), 36);
   }
 
   #[test]

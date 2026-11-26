@@ -13,8 +13,6 @@ pub struct HealthResponse {
   pub status: &'static str,
   #[schema(example = "up")]
   pub database: &'static str,
-  /// Number of models in the catalog.
-  pub models: usize,
 }
 
 #[utoipa::path(
@@ -24,5 +22,5 @@ pub struct HealthResponse {
 )]
 pub async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
   let database = if db::ping(&state.pool).await { "up" } else { "down" };
-  Json(HealthResponse { status: "ok", database, models: catalog::MODELS.len() })
+  Json(HealthResponse { status: "ok", database })
 }

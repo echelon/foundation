@@ -1,3 +1,8 @@
+use hmac::Mac;
+use s3::command::Command;
+use s3::error::S3Error;
+use s3::request::{tokio_backend::ReqwestRequest, Request};
+use s3::signing;
 use s3::Bucket;
 
 use crate::bucket_client_error::BucketClientError;
@@ -20,6 +25,12 @@ pub struct BucketClient {
   bucket: Bucket,
 }
 
+/// Signed parts of a RestoreObject request. The caller sends the same body bytes.
+pub struct SignedRestoreRequest {
+  pub url: String,
+  pub headers: Vec<(String, String)>,
+}
+
 impl BucketClient {
   /// Wrap a fully-configured `Bucket`. Internal — use [`crate::BucketClientBuilder`].
   pub(crate) fn from_bucket(bucket: Bucket) -> Self {
@@ -29,6 +40,63 @@ impl BucketClient {
   /// The name of the bucket this client targets.
   pub fn bucket_name(&self) -> &str {
     self.bucket.name.as_str()
+  }
+
+  pub async fn presign_download(&self, object_key: &str, expires_in: u32) -> Result<String, BucketClientError> {
+    let key = ObjectKey::new(object_key);
+    Ok(self.bucket.presign_get(key.as_str(), expires_in, None).await?)
+  }
+
+  /// The PUT must send the signed `If-None-Match: *` precondition.
+  pub async fn presign_create(&self, object_key: &str, expires_in: u32) -> Result<String, BucketClientError> {
+    let key = ObjectKey::new(object_key);
+    let mut headers = self.bucket.extra_headers().clone();
+    headers.insert("if-none-match", "*".parse().expect("a valid precondition"));
+    Ok(self.bucket.presign_put(key.as_str(), expires_in, Some(headers), None).await?)
+  }
+
+  pub async fn presign_delete(&self, object_key: &str, expires_in: u32) -> Result<String, BucketClientError> {
+    let key = ObjectKey::new(object_key);
+    Ok(self.bucket.presign_delete(key.as_str(), expires_in).await?)
+  }
+
+  pub async fn sign_restore(&self, object_key: &str, body: &[u8]) -> Result<SignedRestoreRequest, BucketClientError> {
+    let key = ObjectKey::new(object_key);
+    let request = ReqwestRequest {
+      bucket: &self.bucket,
+      path: key.as_str(),
+      command: Command::PutObject { content: body, content_type: "application/xml", multipart: None },
+      datetime: s3::utils::now_utc(),
+      sync: false,
+    };
+    let mut url = request.url()?;
+    url.set_query(Some("restore"));
+
+    let mut headers = self.bucket.extra_headers().clone();
+    let payload_sha = request.command.sha256()?;
+    headers.insert("host", request.host_header().parse().map_err(S3Error::from)?);
+    headers.insert("content-type", "application/xml".parse().expect("valid media type"));
+    headers.insert("x-amz-date", request.long_date()?.parse().map_err(S3Error::from)?);
+    headers.insert("x-amz-content-sha256", payload_sha.parse().map_err(S3Error::from)?);
+    if let Some(token) = self.bucket.session_token().await? {
+      headers.insert("x-amz-security-token", token.parse().map_err(S3Error::from)?);
+    }
+    let canonical = signing::canonical_request("POST", &url, &headers, &payload_sha)?;
+    let string_to_sign = request.string_to_sign(&canonical)?;
+    let identity = self.bucket.access_key().await?.ok_or_else(|| {
+      BucketClientError::ClientBuilderSetupError("archive restoration requires a bucket access key".into())
+    })?;
+    let mut mac = signing::HmacSha256::new_from_slice(&request.signing_key().await?).map_err(S3Error::from)?;
+    mac.update(string_to_sign.as_bytes());
+    let authorization = signing::authorization_header(
+      &identity, &request.datetime(), &self.bucket.region(),
+      &signing::signed_header_string(&headers), &hex::encode(mac.finalize().into_bytes()),
+    )?;
+    headers.insert("authorization", authorization.parse().map_err(S3Error::from)?);
+    let headers = headers.iter().map(|(name, value)| {
+      Ok::<_, S3Error>((name.as_str().to_owned(), value.to_str()?.to_owned()))
+    }).collect::<Result<_, _>>()?;
+    Ok(SignedRestoreRequest { url: url.into(), headers })
   }
 
   /// Upload raw bytes to `object_key`, optionally with an explicit content type.

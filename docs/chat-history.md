@@ -1,0 +1,57 @@
+# Retain request inputs and outputs
+
+TokenCraft can keep encrypted chat and generated media available for 30 days and archived until day 395. The clock starts at the first recorded completion, cancellation, failure, or unconfirmed outcome. A replay of the same admitted request uses its original policy and deadlines.
+
+Set `TOKENCRAFT_CONTENT_ARCHIVE_DIR` to a private operator-managed filesystem directory to opt in for newly admitted connected chat, images, video, audio, and 3D. Use a dedicated mounted volume at the same canonical path on API and worker replicas. The content and event archive directories have separate lifecycles. Keep the persistent `TOKENCRAFT_DEMO_PAYLOAD_KEY`, PostgreSQL database, and filesystem archive together for recovery.
+
+Deployments using `TOKENCRAFT_CHAT_ARCHIVE_DIR` can keep that setting for chat-only retention. To include media on disk, set `TOKENCRAFT_CONTENT_ARCHIVE_DIR` to the existing canonical path. TokenCraft keeps the existing chat manifests readable across the upgrade.
+
+## Store content in an S3-compatible bucket
+
+Set the following options on the API and workers. New requests use the bucket when configured. Keep the filesystem directory mounted at its original path for existing requests. Quoting, admission, and archive metadata lookups do not contact the bucket.
+
+| Setting | Value |
+| --- | --- |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_ENDPOINT` | Region-specific HTTPS origin. Local fixtures accept literal loopback HTTP. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_BUCKET` | Private unversioned bucket with Object Lock disabled. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_REGION` | Signing region. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_ACCESS_KEY`, `TOKENCRAFT_CONTENT_ARCHIVE_S3_SECRET_KEY` | Operator credentials for the content prefix with GetObject, PutObject, and DeleteObject access. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_SESSION_TOKEN` | Optional temporary credentials. Restart with fresh credentials on rotation. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_AUTO_RESTORE` | Set to `1` to let project administrators request temporary cold copies. Grant the gateway `s3:RestoreObject` on the content prefix. |
+| `TOKENCRAFT_CONTENT_ARCHIVE_S3_PREFIX` | Defaults to `tokencraft-content/v1`. Use a dedicated prefix for each environment. |
+
+Keep the same endpoint, bucket, region, and prefix across replicas and restarts until all requests pinned to the target have expired and cleanup has finished. Retain the original payload key. TokenCraft conditionally writes encrypted objects and reads them back before removing the warm copy. Deletion is retried until storage acknowledges every object deletion. A versioned delete marker does not count as deletion. [S3 object deletion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html)
+
+To use a cold storage class, configure a prefix lifecycle transition after a read window that allows sealing and retries to finish. Keep objects available through their saved TokenCraft deadline. When a storage class requires retrieval, the history API returns HTTP `409` with `archive_retrieval_required`. A storage administrator can restore the request's `<request-id>.tch` manifest and, for media, its `<request-id>-<slot>.tcm` objects under the configured prefix. Retry the history read or artifact download once the object is readable. The gateway uses its original deadlines when reading temporary copies. [S3 lifecycle transitions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-transition-general-considerations.html) · [Restoring archived objects](https://docs.aws.amazon.com/AmazonS3/latest/userguide/restoring-objects.html)
+
+## Restore from Requests
+
+With gateway restores enabled, open archived content in Requests and select **Restore from cold storage**. Project administrators can also send an empty JSON object to `POST /v1/requests/{id}/content/restore`, using the same account and project query parameters as a history read. The gateway records an audit event and returns HTTP `202` with object counts and restore status. Metadata reads expose the status to authorized request readers. The console updates progress while the restore is pending.
+
+The worker asks storage for a Standard retrieval with a one-day temporary copy. It makes one restore call for each cold object in the job and verifies the stored checksum when the object is readable. The worker checks every five minutes for up to 48 hours and keeps the original retention deadline. An archive contains one manifest and up to eight media objects. Repeating the restore call returns the same job while pending or within 24 hours of its start. Retrieval can incur bucket charges. [S3 RestoreObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html)
+
+A lost response is handled by checking storage for readable bytes. If a worker stops after recording the attempt and before sending it, a storage administrator can start the restore at the bucket. When the status is ready, retrieve or download the archive from Requests. Expiry and administrator deletion remove queued restore work and still apply to any temporary copy.
+
+## Read or remove content
+
+| Operation | Behavior |
+| --- | --- |
+| `GET /v1/requests/{id}/content` | Returns the saved phase and dates. During the first 30 days it also returns the input and available final result. Pass `metadata_only=true` to omit the content. The response includes `media: true` for retained media. |
+| `POST /v1/requests/{id}/content/retrieve` | Reads and verifies the archive manifest for a scoped caller. Returns input and any final result. Media results include scoped archive download URLs. |
+| `POST /v1/requests/{id}/content/restore` | Queues a temporary storage restore for an archived request. Requires a project administrator session, a JSON `{}` body, and operator opt-in. |
+| `GET /v1/requests/{id}/content/artifacts/{slot}` | Downloads one verified archived media file, with its original content type and SHA-256. |
+| `DELETE /v1/projects/{project}/requests/{id}/content` | Project administrator action. Revokes future reads and queues deletion of archived files. |
+
+Use a project key with `requests:read` or an authorized session for reads and retrieval. Client-bound keys stay within their client. For session downloads, pass the same account and project query parameters used for the request. Responses use `Cache-Control: no-store`.
+
+The phase starts at `processing` and moves to `available` at the recorded outcome. At day 30, warm reads stop and the state becomes `archiving`. The worker verifies the encrypted files before removing PostgreSQL payloads and hot artifact references. It retries unsuccessful seals. In the `archived` phase, explicit retrieval serves the saved content from cold storage. It uses the existing request scope and does not restart the provider job. Final chat output is retained as a single result. Stream replay, including its original chunks, is available during the warm window.
+
+At day 395, the API reports `expired` and blocks reads before cleanup. An administrator can remove the content earlier, producing the `removed` phase. Cleanup deletes the archived objects and the gateway publishes a scoped removal signal for [customer data consumers](customer-data.md). Request status, usage, and trace metadata stay available.
+
+Keep a filesystem archive directory mounted until its managed history has expired and cleanup has finished. Backups and external copies have their own retention and deletion schedules.
+
+The standard successful-result deadlines apply to previous admissions and requests outside the configured profile. The history endpoint returns 404 for those requests.
+
+## Use an SDK
+
+The Rust and TypeScript SDKs expose metadata-only reads, warm reads, archive retrieval, and verified media downloads. Use the saved artifact reference to download a slot from your configured gateway. [Rust example](../sdk/rust/README.md#read-retained-history) · [TypeScript example](../sdk/typescript/README.md#read-retained-history)

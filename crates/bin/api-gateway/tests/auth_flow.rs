@@ -1,7 +1,11 @@
 //! End-to-end auth flow tests through the real router against `foundation_test`.
 //!
 //! Uses unique emails per run so rows never collide; the test database accumulates harmlessly
-//! (reset with `just db-reset-test`). `db::test_fixtures` hard-guards the URL is a `*_test` db.
+//! in the disposable database selected by `FOUNDATION_TEST_DATABASE_URL`.
+
+mod common;
+
+use common::{app_and_pool, body_json, get, post, put, session_cookie, test_state, unique_email, JWT_SECRET};
 
 use std::sync::Arc;
 
@@ -13,69 +17,6 @@ use tower::ServiceExt; // oneshot
 
 use api_gateway::auth::token::JwtKeys;
 use api_gateway::AppState;
-
-async fn app_and_pool() -> (Router, db::PgPool) {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None, // email sends log + no-op in tests
-    bucket: None,         // storage off — avatar uploads error, avatar links absent
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  (api_gateway::build_router(state), pool)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn post(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("POST").uri(uri).header("content-type", "application/json");
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
-}
-
-fn get(uri: &str, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("GET").uri(uri);
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::empty()).unwrap()
-}
-
-/// Pull the `foundation_session` cookie back out of a response's Set-Cookie header, as a
-/// `Cookie:` header value for the next request.
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if token.is_empty() {
-        return None; // a cleared cookie
-      }
-      return Some(format!("foundation_session={token}"));
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 #[tokio::test]
 async fn signup_sets_cookie_and_me_returns_user() {
@@ -168,24 +109,11 @@ const GOOGLE_TEST_CLIENT_ID: &str = "test-client-id.apps.googleusercontent.com";
 async fn app_with_google() -> (Router, db::PgPool) {
   let pool = db::test_fixtures::create_test_pool().await;
   let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
     google: Some(Arc::new(api_gateway::auth::google::GoogleAuth::with_static_jwks(
       GOOGLE_TEST_CLIENT_ID.to_string(),
       GOOGLE_TEST_JWKS,
     ))),
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
+    ..test_state(pool.clone())
   };
   (api_gateway::build_router(state), pool)
 }
@@ -374,21 +302,8 @@ async fn api_status_reports_reachability_and_operator_message() {
 
   // With an operator message (API_STATUS_MESSAGE at deploy) it's surfaced verbatim.
   let state = AppState {
-    pool,
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
     status_message: Some("Scheduled maintenance at 03:00 UTC.".into()),
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
+    ..test_state(pool)
   };
   let app = api_gateway::build_router(state);
   let resp = app.oneshot(get("/v1/api_status", None)).await.unwrap();
@@ -418,7 +333,7 @@ async fn sso_only_user_sets_first_password_without_current_then_rules_apply() {
   // Setting the FIRST password needs no current_password.
   let set = app
     .clone()
-    .oneshot(post_put("/v1/auth/password", json!({ "new_password": "brand-new-pass1" }), Some(&cookie)))
+    .oneshot(put("/v1/auth/password", json!({ "new_password": "brand-new-pass1" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(set.status(), StatusCode::OK);
@@ -436,13 +351,13 @@ async fn sso_only_user_sets_first_password_without_current_then_rules_apply() {
   // From here the normal rules apply: current required (400 absent, 401 wrong).
   let missing = app
     .clone()
-    .oneshot(post_put("/v1/auth/password", json!({ "new_password": "another-pass-1" }), Some(&cookie)))
+    .oneshot(put("/v1/auth/password", json!({ "new_password": "another-pass-1" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(missing.status(), StatusCode::BAD_REQUEST);
   let wrong = app
     .clone()
-    .oneshot(post_put(
+    .oneshot(put(
       "/v1/auth/password",
       json!({ "current_password": "not-it", "new_password": "another-pass-1" }),
       Some(&cookie),
@@ -453,14 +368,6 @@ async fn sso_only_user_sets_first_password_without_current_then_rules_apply() {
 }
 
 /// PUT with a JSON body + optional cookie (this file's `post` is POST-only).
-fn post_put(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("PUT").uri(uri).header("content-type", "application/json");
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
-}
-
 #[tokio::test]
 async fn settings_factoids_and_monogram_gradient() {
   let (app, _pool) = app_and_pool().await;
@@ -482,7 +389,7 @@ async fn settings_factoids_and_monogram_gradient() {
   // Pick a gradient — stored, echoed, and visible on /me thereafter.
   let set = app
     .clone()
-    .oneshot(post_put("/v1/auth/avatar/monogram", json!({ "gradient": "ocean" }), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/monogram", json!({ "gradient": "ocean" }), Some(&cookie)))
     .await
     .unwrap();
   assert_eq!(set.status(), StatusCode::OK);
@@ -493,7 +400,7 @@ async fn settings_factoids_and_monogram_gradient() {
   // Unknown slugs are rejected at deserialization.
   let bad = app
     .clone()
-    .oneshot(post_put("/v1/auth/avatar/monogram", json!({ "gradient": "neon-zebra" }), Some(&cookie)))
+    .oneshot(put("/v1/auth/avatar/monogram", json!({ "gradient": "neon-zebra" }), Some(&cookie)))
     .await
     .unwrap();
   assert!(bad.status().is_client_error(), "got {}", bad.status());
@@ -542,26 +449,13 @@ async fn mock_github(user_id: u64, email: &str) -> String {
 async fn app_with_github(mock_base: &str) -> (Router, db::PgPool) {
   let pool = db::test_fixtures::create_test_pool().await;
   let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
     github: Some(Arc::new(api_gateway::auth::github::GithubAuth::with_endpoints(
       GITHUB_TEST_CLIENT_ID.into(),
       GITHUB_TEST_CLIENT_SECRET.into(),
       format!("{mock_base}/login/oauth/access_token"),
       mock_base.to_string(),
     ))),
-    openai: None,
-    openai_webhook_secret: None,
+    ..test_state(pool.clone())
   };
   (api_gateway::build_router(state), pool)
 }
@@ -765,7 +659,7 @@ async fn unlink_is_refused_when_it_could_lock_the_user_out() {
   )
   .await
   .unwrap();
-  let token = JwtKeys::new("test-secret").mint(session.id.as_str(), user.id.as_str(), user.session_version).unwrap();
+  let token = JwtKeys::new(JWT_SECRET).mint(session.id.as_str(), user.id.as_str(), user.session_version).unwrap();
   let cookie = format!("foundation_session={token}");
 
   // Removal would strand them: no password to log in with, no verified email to reset with.

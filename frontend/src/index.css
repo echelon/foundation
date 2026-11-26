@@ -2,18 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Vibrant token system. Light is default; `.dark` on any wrapper flips a whole surface. ── */
+/* Color roles shared by the public site and console. */
 :root {
-  --bg: 250 40% 99%;
-  --surface: 0 0% 100%;
-  --surface-2: 252 38% 96%;
-  --fg: 250 30% 12%;
-  --muted: 250 10% 44%;
-  --border: 250 24% 90%;
-
-  --brand: 258 90% 62%;
-  --brand-2: 291 92% 63%;
-  --accent: 190 96% 48%;
+  --bg: 40 14% 94%;
+  --surface: 40 26% 98%;
+  --surface-2: 41 14% 90%;
+  --fg: 30 8% 9%;
+  --muted: 33 7% 34%;
+  --border: 37 9% 78%;
+  --brand: 19 83% 32%;
+  --brand-2: 22 73% 43%;
+  --accent: 46 89% 56%;
+  --action: 30 8% 9%;
+  --action-fg: 40 14% 94%;
 
   /* code syntax tokens (light) */
   --code-comment: 240 6% 50%;
@@ -28,16 +29,17 @@
 }
 
 .dark {
-  --bg: 255 32% 6%;
-  --surface: 255 28% 9%;
-  --surface-2: 255 24% 13%;
-  --fg: 250 30% 96%;
-  --muted: 250 12% 62%;
-  --border: 255 22% 18%;
-
-  --brand: 258 95% 70%;
-  --brand-2: 291 95% 72%;
-  --accent: 190 96% 56%;
+  --bg: 30 7% 9%;
+  --surface: 34 6% 12%;
+  --surface-2: 32 6% 16%;
+  --fg: 40 14% 94%;
+  --muted: 37 9% 70%;
+  --border: 34 5% 29%;
+  --brand: 23 87% 69%;
+  --brand-2: 32 82% 61%;
+  --accent: 45 73% 55%;
+  --action: 40 14% 94%;
+  --action-fg: 30 8% 9%;
 
   /* code syntax tokens (dark) */
   --code-comment: 250 10% 55%;
@@ -110,6 +112,10 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
 body {
   margin: 0;
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -119,23 +125,11 @@ body {
 
 /* Utilities */
 .brand-gradient {
-  background-image: linear-gradient(
-    120deg,
-    hsl(var(--brand)),
-    hsl(var(--brand-2)) 45%,
-    hsl(var(--accent))
-  );
+  background-color: hsl(var(--action));
+  color: hsl(var(--action-fg));
 }
 .brand-text {
-  background-image: linear-gradient(
-    110deg,
-    hsl(var(--brand)),
-    hsl(var(--brand-2)) 50%,
-    hsl(var(--accent))
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: hsl(var(--brand));
 }
 .grid-bg {
   background-image:

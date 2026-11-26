@@ -4,7 +4,25 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::json;
+use serde::Serialize;
+use utoipa::ToSchema;
+
+#[derive(Serialize, ToSchema)]
+pub(crate) struct GatewayError {
+  error: GatewayErrorDetail,
+}
+
+#[derive(Serialize, ToSchema)]
+struct GatewayErrorDetail {
+  code: &'static str,
+  message: String,
+}
+
+pub(crate) const MONTHLY_BUDGET_MESSAGE: &str = "request would exceed the monthly estimated budget";
+pub(crate) const PROVIDER_CREDENTIAL_MESSAGE: &str = "save an active provider key for this project or organization";
+pub(crate) const ACTIVE_REQUEST_LIMIT_MESSAGE: &str = "active request limit reached. Retry after outstanding work completes";
+
+pub(crate) const QUOTE_STALE_MESSAGE: &str = "quote expired or changed; request a fresh comparison";
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -14,6 +32,13 @@ pub enum ApiError {
   NotFound(String),
   /// A uniqueness/state conflict (e.g. email already in use with a different method).
   Conflict(String),
+  ArchiveRetrievalRequired(String),
+  QuoteStale,
+  BudgetExceeded,
+  ActiveRequestLimit,
+  ProviderCredentialUnavailable,
+  NotImplemented(String),
+  ServiceUnavailable(String),
   Internal(String),
 }
 
@@ -25,6 +50,12 @@ impl ApiError {
       Self::Forbidden(_) => StatusCode::FORBIDDEN,
       Self::NotFound(_) => StatusCode::NOT_FOUND,
       Self::Conflict(_) => StatusCode::CONFLICT,
+      Self::ArchiveRetrievalRequired(_) => StatusCode::CONFLICT,
+      Self::QuoteStale | Self::BudgetExceeded => StatusCode::CONFLICT,
+      Self::ActiveRequestLimit => StatusCode::TOO_MANY_REQUESTS,
+      Self::ProviderCredentialUnavailable => StatusCode::CONFLICT,
+      Self::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+      Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
       Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
   }
@@ -36,17 +67,31 @@ impl ApiError {
       Self::Forbidden(_) => "forbidden",
       Self::NotFound(_) => "not_found",
       Self::Conflict(_) => "conflict",
+      Self::ArchiveRetrievalRequired(_) => "archive_retrieval_required",
+      Self::QuoteStale => "quote_stale",
+      Self::BudgetExceeded => "monthly_budget_exceeded",
+      Self::ActiveRequestLimit => "active_request_limit",
+      Self::ProviderCredentialUnavailable => "provider_credential_unavailable",
+      Self::NotImplemented(_) => "not_implemented",
+      Self::ServiceUnavailable(_) => "service_unavailable",
       Self::Internal(_) => "internal_error",
     }
   }
 
   fn message(&self) -> &str {
     match self {
+      Self::QuoteStale => QUOTE_STALE_MESSAGE,
+      Self::BudgetExceeded => MONTHLY_BUDGET_MESSAGE,
+      Self::ActiveRequestLimit => ACTIVE_REQUEST_LIMIT_MESSAGE,
+      Self::ProviderCredentialUnavailable => PROVIDER_CREDENTIAL_MESSAGE,
       Self::BadRequest(m)
       | Self::Unauthorized(m)
       | Self::Forbidden(m)
       | Self::NotFound(m)
       | Self::Conflict(m)
+      | Self::ArchiveRetrievalRequired(m)
+      | Self::NotImplemented(m)
+      | Self::ServiceUnavailable(m)
       | Self::Internal(m) => m,
     }
   }
@@ -62,7 +107,7 @@ impl IntoResponse for ApiError {
       }
       other => other.message().to_string(),
     };
-    let body = Json(json!({ "error": { "code": self.code(), "message": public_message } }));
+    let body = Json(GatewayError { error: GatewayErrorDetail { code: self.code(), message: public_message } });
     (self.status(), body).into_response()
   }
 }

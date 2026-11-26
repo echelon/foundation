@@ -1,0 +1,62 @@
+# Export project data to PostgreSQL
+
+TokenCraft exposes a versioned event feed for request and usage metadata. It includes request state, model and offer IDs, provider lineage where reported, token counts, and exact costs in nano-USD. Events can carry an opaque client reference and an app reference. The feed excludes prompts, response bodies, credentials, and artifact URLs.
+
+The [reference importer](../examples/postgres/export_to_postgres.py) runs separately with Python 3.11 or later and the PostgreSQL client `psql`. Its only access to the gateway is a project key scoped to `exports:read`. The destination credentials stay with the importer.
+
+## Set up the destination
+
+1. Point libpq at your destination with `PGHOST`, `PGPORT`, `PGDATABASE`, and `PGUSER`. Use your normal libpq credential configuration, such as `PGPASSFILE`. The initial destination role needs permission to create the `tokencraft_export` schema and tables.
+2. Set `TOKENCRAFT_EXPORT_API_URL` to the gateway address. This defaults to `http://localhost:4000`; remote gateways use HTTPS. Set `TOKENCRAFT_EXPORT_PROJECT` to the project ID and supply the scoped key through `TOKENCRAFT_EXPORT_API_KEY`.
+3. For a client-only destination, issue a client-bound key and set `TOKENCRAFT_EXPORT_CLIENT_REF` to that client. A project-wide key can also explicitly filter by client. Use a separate destination database or PostgreSQL grants when consumers require isolation from other imported feeds.
+
+Run these commands from the repository root.
+
+```sh
+python3 -B examples/postgres/export_to_postgres.py
+python3 -B examples/postgres/export_to_postgres.py --status
+psql -X -w -v ON_ERROR_STOP=1 -f examples/postgres/postgres_usage_views.sql
+```
+
+The first command pulls a fixed snapshot. Run it again to continue from the last committed event or pick up events published later. Each page checks the checksum and event scope, then commits the events and checkpoint in one transaction. Events deduplicate by gateway URL, project ID, and event ID. Checkpoints also include the client filter. Keep the same gateway URL and scope between runs.
+
+After preparing the tables, a sync role can use `--no-init`. Grant it `USAGE` on the schema, `SELECT` and `INSERT` on `events`, `SELECT`, `INSERT`, and `UPDATE` on `checkpoints`, and permission to create temporary tables in the destination database. Scope any reporting access separately.
+
+## Follow the live feed
+
+```sh
+python3 -B examples/postgres/export_to_postgres.py --no-init --watch --interval 30
+```
+
+The watcher drains available pages, polls when caught up, and retries temporary failures with backoff. If the next events are in cold storage, [restore the archive](event-archives.md#recover-an-export-or-sync) to let the watcher continue from the same checkpoint. Unsupported schema versions fail before a page is committed. `--status` needs only the destination connection and feed identity. It returns the last committed event ID, the last successful feed observation, the last observation with no outstanding work, and pagination and publication flags.
+
+To implement another destination, use the same contract.
+
+| Operation | Endpoint |
+| --- | --- |
+| Follow published events | `GET /v1/exports/events` |
+| Create a fixed cutoff | `POST /v1/exports` |
+| Read a snapshot page | `GET /v1/exports/{id}/data` |
+
+For the feed, pass the `project_id` and optional `client_ref` and `after`. Validate `X-TokenCraft-Content-Sha256` against the exact NDJSON bytes and verify the effective project, client scope, and event schema version. Persist `X-TokenCraft-Next-After` together with the page data. Continue paging while `X-TokenCraft-Has-More` is true. Use the last cursor for this same feed and follow publication order, which can differ from an event's occurrence time. The OpenAPI specification documents the full response headers.
+
+## Reconcile costs
+
+`tokencraft_export.request_usage` shows the admitted model and offer, attribution, estimate, provider observations, and latest supplier settlement for each imported request. `tokencraft_export.supplier_settlement_postings` keeps every supplier revision and its signed delta. A zero settlement stays zero, and an unknown amount stays null. Older events may have no app attribution.
+
+`tokencraft_export.provider_charge_observations` exposes connector charges in their original billing units. They arrive as `usage.observed` events with `data.source` set to `connector_charge` and a decimal string at `data.provider_charge.quantity`. For example, Kinovi reports credits. Group amounts by provider and unit, and use the separate USD fields for dollar totals. The request and usage APIs expose the same observations even if artifact delivery is still pending.
+
+```sql
+SELECT app_ref, client_ref, count(*) AS requests,
+       sum(estimated_usd_nanos) AS estimated_usd_nanos,
+       sum(provider_reported_usd_nanos) AS provider_reported_usd_nanos,
+       sum(supplier_settled_usd_nanos) AS supplier_settled_usd_nanos
+FROM tokencraft_export.request_usage
+WHERE source_url = 'http://localhost:4000'
+  AND project_id = 'proj_REPLACE_WITH_YOUR_PROJECT_ID'
+GROUP BY app_ref, client_ref;
+```
+
+The destination owns retention and access for its copy. If your application stores request content separately, consume `request.content_removed` idempotently by event ID and use the source, project, and request ID to locate the content. The gateway emits the event for both administrator removal and automatic expiry of a successful provider result. The event preserves accounting metadata.
+
+For local verification against the bundled connector, point libpq at a fresh disposable destination database and run `python3 -B examples/postgres/smoke.py`. The smoke creates synthetic requests and settlements on a loopback gateway and installs the views in the destination.

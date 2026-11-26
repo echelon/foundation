@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "schema": "urn:tokencraft:primitives:1",
+  "primitive": "image",
+  "provider": "self_hosted",
+  "model": "example-image",
+  "revision": "v1",
+  "status": "approved",
+  "rules": {
+    "ignore_request": ["/kind"],
+    "request": [
+      {"to": "/description", "value": {"op": "copy", "from": "/prompt"}},
+      {"to": "/outputs", "value": {"op": "copy", "from": "/count"}},
+      {"to": "/layout", "value": {"op": "lookup", "from": "/aspect_ratio", "values": {"1:1": "Square", "4:3": "Landscape"}}}
+    ],
+    "response": [
+      {"to": "/images", "value": {"op": "each", "from": "/files", "fields": [
+        {"to": "/url", "value": {"op": "copy", "from": "/location"}},
+        {"to": "/content_type", "value": {"op": "literal", "value": "image/png"}}
+      ]}}
+    ]
+  }
+}

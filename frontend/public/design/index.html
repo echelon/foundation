@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Backend low-level design · TokenCraft &amp; ArtCraft Studio</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --background: light-dark(#f7f8fa, #10161c);
+      --foreground: light-dark(#172633, #e9f2f7);
+      --muted-foreground: light-dark(#455b69, #afbfca);
+      --card: light-dark(#fff, #17212a);
+      --card-foreground: var(--foreground);
+      --border: light-dark(#c7d3db, #435663);
+      --primary: light-dark(#184b53, #b4e5e0);
+      --primary-foreground: light-dark(#fff, #123038);
+      --accent: light-dark(#e1eeed, #263d44);
+      --viz-series-1: light-dark(#12635f, #81dfd5);
+      --viz-series-2: light-dark(#955027, #efb282);
+      --font-size-base: 15px;
+      background: var(--background);
+      color: var(--foreground);
+      font: var(--font-size-base)/1.54 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; }
+    .document { max-width: 1140px; margin: 0 auto; padding: clamp(14px, 4vw, 52px); }
+    .document-header { padding-bottom: 1.6rem; margin-bottom: 1.1rem; border-bottom: 1px solid var(--border); }
+    .edition { color: var(--viz-series-1); margin: 0 0 .5rem; font-size: .85rem; font-weight: 600; }
+    h1 { font-size: clamp(1.9rem, 5vw, 3.2rem); line-height: 1.08; margin: 0; font-weight: 625; letter-spacing: -.04em; }
+    h2 { font-size: 1.25rem; line-height: 1.25; margin: 0; font-weight: 610; }
+    h3 { font-size: 1.05rem; line-height: 1.25; margin: 0; font-weight: 600; }
+    .document-header p:last-child { max-width: 66ch; margin: .7rem 0 0; color: var(--muted-foreground); }
+    a { color: var(--viz-series-1); text-underline-offset: .19em; }
+    code { font-family: ui-monospace, monospace; font-size: .88em; overflow-wrap: anywhere; }
+    .viz-row { display: flex; flex-wrap: wrap; align-items: center; }
+    .btn { appearance: none; border: 1px solid var(--border); border-radius: 10px; background: var(--card); color: var(--foreground); padding: 6px 11px; font: inherit; font-weight: 500; cursor: pointer; }
+    .btn:hover { background: var(--accent); }
+    .btn[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    .btn-ghost { background: transparent; border-color: transparent; }
+    .btn-block { display: grid; place-items: center; width: 100%; min-width: 0; }
+    .card { background: var(--card); color: var(--card-foreground); border: 1px solid var(--border); border-radius: 13px; padding: 16px; }
+    .text-small { font-size: .82rem; }
+    .text-muted { color: var(--muted-foreground); }
+    .cursor-interaction { cursor: pointer; }
+    .form-control { font: inherit; font-size: .9rem; background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+    .bd-node-content .text-small { opacity: .86; }
+    .bd-graph .bd-wire-item button { padding: 2px 5px; min-width: 0; width: 100%; }
+    .bd-copy-status { margin-top: 5px; }
+    .bd-discussion .btn { border-color: var(--border); text-align: left; }
+    .bd-item-kind { letter-spacing: .06em; text-transform: uppercase; }
+    .bd-boundary { border-left: 2px solid var(--border); padding-left: 10px; }
+    :focus-visible { outline: 2px solid var(--viz-series-1); outline-offset: 3px; }
+    .notes h3 { margin: 0 0 .55rem; }
+    .notes details[id] { scroll-margin-top: 12px; }
+    .failure-case { padding: .75rem 0 .15rem; }
+    .failure-case + .failure-case { border-top: 1px solid var(--border); }
+    .migration-part { padding: .8rem 0 .35rem; border-top: 1px solid var(--border); }
+    .migration-part ol { max-width: 78ch; margin: 0 0 .9rem; padding-left: 1.4rem; }
+    .migration-part li + li { margin-top: .45rem; }
+    .notes { margin-top: 1.5rem; border-top: 1px solid var(--border); }
+    .notes details { border-bottom: 1px solid var(--border); }
+    .notes summary { font-weight: 600; padding: .85rem 0; cursor: pointer; }
+    .notes p { max-width: 82ch; margin: 0 0 .85rem; }
+    .notes dl { margin: 0 0 .95rem; display: grid; grid-template-columns: minmax(110px, .33fr) 1fr; gap: .4rem 1.2rem; max-width: 78ch; }
+    .notes dt { font-weight: 600; }
+    .notes dd { margin: 0; }
+    .notes pre { max-width: 76ch; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--card); padding: .75rem; }
+    .source-files { padding-left: 1.3rem; max-width: 90ch; }
+    .source-files li + li { margin-top: .3rem; }
+    .evidence-id { color: var(--muted-foreground); }
+    @media (max-width: 390px) {
+      .bd-node .btn { padding-inline: 4px; }
+      .bd-wire-item .btn { font-size: .8rem; }
+      .notes dl { grid-template-columns: 1fr; row-gap: .15rem; }
+      .notes dd { margin-bottom: .35rem; }
+    }
+    @media print {
+      .document { max-width: none; padding: 0; }
+      .bd-discussion { display: none; }
+      .card, .bd-graph { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="document">
+    <header class="document-header">
+      <p class="edition">TokenCraft &amp; ArtCraft Studio · November 25, 2026</p>
+      <h1>Backend low-level design</h1>
+      <p>Start with the System map. Select any component or connection to see how it works, then zoom into handlers, workers, or cell failover.</p>
+    </header>
+    <section id="craft-backend-design">
+  <nav class="viz-row bd-flow-nav" aria-label="Backend diagrams"></nav>
+  <div class="bd-main" id="craft-diagram-panel">
+    <div class="bd-map">
+      <div class="bd-flow-heading">
+        <h2 id="craft-flow-title"></h2>
+        <p class="text-muted bd-flow-summary" id="craft-flow-summary"></p>
+        <div class="viz-row bd-links bd-flow-links" role="group" aria-label="Related diagrams" hidden></div>
+      </div>
+      <div class="bd-graph" role="group" aria-labelledby="craft-flow-title" aria-describedby="craft-flow-summary">
+        <svg class="bd-wires" aria-hidden="true"></svg>
+        <div class="bd-node-grid"></div>
+        <div class="bd-wire-labels"></div>
+      </div>
+    </div>
+    <section class="card bd-inspector" aria-labelledby="craft-item-title">
+      <div class="bd-inspector-copy" aria-live="polite" aria-atomic="true">
+        <p class="bd-item-kind text-small text-muted"></p>
+        <h3 id="craft-item-title"></h3>
+        <p class="bd-detail"></p>
+        <p class="bd-boundary text-muted" hidden></p>
+      </div>
+      <div class="viz-row bd-links bd-drill-links" role="group" aria-label="Inspect in another diagram" hidden></div>
+      <details class="bd-sources">
+        <summary class="cursor-interaction">Source references</summary>
+        <ul></ul>
+      </details>
+      <div class="bd-discussion">
+        <button class="btn btn-ghost bd-ask" type="button">Discuss this step</button>
+        <button class="btn btn-ghost bd-back" type="button" hidden>Back to diagram</button>
+        <div class="text-small bd-copy-status" role="status"></div>
+        <textarea class="form-control bd-prompt" aria-label="Discussion prompt" rows="5" readonly hidden></textarea>
+      </div>
+    </section>
+  </div>
+</section>
+
+<style>
+  #craft-backend-design {
+    --bd-spacing: var(--font-size-base, 14px);
+    --bd-path: color-mix(in srgb, var(--foreground) 59%, var(--background));
+    --bd-focus: var(--viz-series-1, var(--primary));
+    --bd-exception: var(--viz-series-2, var(--orange, var(--foreground)));
+    container-type: inline-size;
+  }
+
+  #craft-backend-design [hidden] { display: none; }
+  #craft-backend-design .bd-flow-nav { gap: 5px; }
+  #craft-backend-design .bd-links { gap: .25em 1em; }
+  #craft-backend-design .bd-links a { color: var(--bd-focus); text-underline-offset: .22em; }
+  #craft-backend-design .bd-main { display: grid; gap: var(--bd-spacing); margin-top: var(--bd-spacing); min-width: 0; }
+  #craft-backend-design .bd-map { container-type: inline-size; min-width: 0; }
+  #craft-backend-design .bd-flow-heading { display: grid; gap: calc(var(--bd-spacing) * .3); }
+  #craft-backend-design .bd-flow-heading h2,
+  #craft-backend-design .bd-flow-heading p,
+  #craft-backend-design .bd-inspector h3,
+  #craft-backend-design .bd-inspector p { margin: 0; }
+  #craft-backend-design .bd-graph { position: relative; margin-top: var(--bd-spacing); isolation: isolate; }
+  #craft-backend-design .bd-wires,
+  #craft-backend-design .bd-wire-labels { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  #craft-backend-design .bd-wires { z-index: 1; }
+  #craft-backend-design .bd-wire-labels { z-index: 3; }
+  #craft-backend-design .bd-node-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-rows: minmax(57px, auto);
+    row-gap: 68px;
+  }
+  #craft-backend-design .bd-node-grid[data-density="overview"] { row-gap: 59px; }
+  #craft-backend-design .bd-zone {
+    grid-column: 1 / 4;
+    align-self: stretch;
+    align-content: start;
+    margin-block: -29px -10px;
+    padding: 9px 8px 0;
+    border: 1px dashed var(--border);
+    background: color-mix(in srgb, var(--bd-focus) 4%, var(--background));
+    color: var(--muted-foreground);
+    pointer-events: none;
+  }
+  #craft-backend-design .bd-zone-label {
+    position: relative;
+    z-index: 2;
+    display: block;
+    width: fit-content;
+    margin-left: auto;
+    padding-inline: 4px;
+    background: var(--background);
+  }
+  #craft-backend-design .bd-node[data-proposal="true"] > .btn { border-style: dashed; }
+
+  #craft-backend-design .bd-node {
+    display: grid;
+    align-content: center;
+    min-width: 0;
+    width: min(89%, 260px);
+    justify-self: center;
+    z-index: 2;
+  }
+
+  #craft-backend-design .bd-node[data-column="0"] { grid-column: 1 / span 2; justify-self: start; }
+  #craft-backend-design .bd-node[data-column="1"] { grid-column: 2 / span 2; width: min(100%, 260px); }
+  #craft-backend-design .bd-node[data-column="2"] { grid-column: 3 / span 2; justify-self: end; }
+  #craft-backend-design .bd-node-grid[data-density="overview"] .bd-node[data-column="0"] { margin-left: 6px; }
+  #craft-backend-design .bd-node-grid[data-density="overview"] .bd-node[data-column="1"] { width: min(92%, 260px); }
+  #craft-backend-design .bd-node-grid[data-density="overview"] .bd-node[data-node="upstream"] { width: min(48%, 150px); }
+  #craft-backend-design .bd-node-grid[data-density="overview"] .bd-node[data-node="upstream"] .bd-node-content { overflow-wrap: anywhere; }
+  #craft-backend-design .bd-node-grid[data-density="overview"][data-crossing="true"] .bd-node[data-crossing="true"] { width: min(58%, 153px); }
+  #craft-backend-design .bd-node-content { display: grid; gap: 2px; min-width: 0; white-space: normal; text-align: center; }
+  #craft-backend-design .bd-node-title { font-weight: 500; }
+  #craft-backend-design .bd-wire-item { pointer-events: auto; position: absolute; transform: translate(-50%, -50%); width: max-content; max-width: 95px; text-align: center; }
+  #craft-backend-design .bd-wire-item[data-branch="true"] { background: var(--background); }
+  #craft-backend-design .bd-wire-text { display: block; white-space: normal; }
+  #craft-backend-design .bd-curve,
+  #craft-backend-design .bd-arrow { fill: none; stroke: var(--bd-path); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  #craft-backend-design .bd-edge[data-style="attention"] .bd-curve { stroke: var(--bd-exception); stroke-dasharray: 4 4; }
+  #craft-backend-design .bd-edge[data-style="attention"] .bd-arrow { stroke: var(--bd-exception); }
+  #craft-backend-design .bd-edge[data-style="recovery"] .bd-curve { stroke-dasharray: 3 3; }
+  #craft-backend-design .bd-edge[data-style="proposal"] .bd-curve { stroke-dasharray: 5 4; }
+  #craft-backend-design .bd-edge.is-current .bd-curve,
+  #craft-backend-design .bd-edge.is-current .bd-arrow { stroke: var(--bd-focus); stroke-width: 2.2; }
+  #craft-backend-design .bd-hit { fill: none; stroke: transparent; stroke-width: 20; pointer-events: stroke; }
+  #craft-backend-design .bd-inspector { display: grid; align-content: start; gap: calc(var(--bd-spacing) * .75); min-width: 0; }
+  #craft-backend-design .bd-inspector-copy { display: grid; gap: calc(var(--bd-spacing) * .45); }
+  #craft-backend-design .bd-sources ul { margin: 8px 0 0; padding-left: 18px; overflow-wrap: anywhere; }
+  #craft-backend-design .bd-sources li + li { margin-top: 6px; }
+  #craft-backend-design .bd-prompt { margin-top: 8px; width: 100%; }
+  #craft-backend-design .bd-copy-status:empty { display: none; }
+
+  @container (min-width: 680px) {
+    #craft-backend-design .bd-main { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); align-items: start; gap: 28px; }
+    #craft-backend-design .bd-inspector { position: relative; margin-top: 0; }
+    #craft-backend-design .bd-main[data-depth="long"] .bd-inspector { position: sticky; top: 12px; }
+  }
+
+  @container (min-width: 486px) {
+    #craft-backend-design .bd-node-grid[data-density="compact"] { row-gap: 56px; }
+  }
+
+  @container (max-width: 485px) {
+    #craft-backend-design .bd-node { width: min(87%, 260px); }
+    #craft-backend-design .bd-wire-item { max-width: 92px; }
+    #craft-backend-design .bd-node-grid[data-crossing="true"] .bd-node[data-crossing="true"] { width: 75%; }
+  }
+</style>
+
+<script>
+(() => {
+  "use strict";
+
+  const root = document.getElementById("craft-backend-design");
+  const flows = [{"id":"overview","tab":"System map","title":"From API request to result, inside a cell","summary":"Trusted HTTPS ingress can reach one API replica directly or use a cell-local load balancer for multiple replicas. Inside the home cell, workers claim durable jobs and use the cell’s compute or an external inference provider. Dashed lines show proposed routing and capacity control.","question":"Which component picks the home cell, which sends the request to an API replica, and how does the worker get its job?","layout":"overview","zones":[[3,11,"Home cell · primary region"]],"planned":["ingress","peer","partition","other-tenant","capacity","health","route-organization"],"links":[["single-api/direct","Direct path for one API replica"],["handlers/inputs","Zoom into handlers"],["workers/poll","Zoom into workers"],["cells/ingress","Explore cell design"]],"drills":{"caller":[["handlers/inputs","Inspect request fields"]],"api":[["handlers/inputs","Inspect Axum dispatch"]],"handler":[["handlers/normalize","Inspect validation and policy"],["admission/replay","Inspect receipt recovery"]],"db":[["workers/claim","Inspect the claim transaction"],["overview/record-result","See how results update the request"]],"worker":[["workers/preflight","Inspect worker order"]],"claim":[["workers/claim","Inspect claim and lease"]],"ingress":[["cells/directory","Inspect the cell directory"]],"peer":[["cells/cell-a","Inspect cell ownership"]],"compute":[["cells/offer","Inspect compute fallback"]],"capacity":[["cells/backup","Inspect the standby design"]],"compute-link":[["cells/safe","Inspect safe fallback"]],"upstream":[["workers/connector","Inspect connector execution"]],"storage":[["overview/record-result","See the PostgreSQL writeback"],["workers/publish","Inspect publication"],["media/prepare","Inspect earlier media flow"]],"delivery":[["delivery/receiver","Inspect customer delivery"]],"load-balancer":[["overview/api","Inspect the Axum entry point"],["cells/cell-a","Inspect ownership in the cell"]],"public-ingress":[["single-api/direct","Follow the single-replica path"]],"direct-http":[["single-api/direct","Follow the single-replica path"]],"record-result":[["workers/publish","Inspect publication"]]},"nodes":[["caller",0,1,"Craft app or SDK","HTTP request","A media caller posts an endpoint-specific task, prompt and optional model, dimensions, duration, format, cost cap or policy preferences. Text supplies a model, messages or input, generation limits and optional streaming. Send a scoped bearer key and preserve the idempotency key for retries.","Optional client and app references, webhook subscription ID and provider preferences depend on the endpoint. The handler resolves identity and authorization server-side.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:47-75","v:crates/bin/api-gateway/src/gateway_demo/media.rs:153-215","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184"]],["public-ingress",1,1,"HTTPS ingress","Trusted edge","The deployment supplies TLS ingress. It replaces incoming forwarding headers with a verified client address and forwards streaming responses as they arrive.","A single cell with one API replica can forward straight to the private Axum listener. A cell with an API pool can forward to its load balancer.",["v:docs/deployment.md:146-163"]],["ingress",2,1,"Cell router","Hosted proposal","A thin ingress authenticates or verifies tenant identity, looks up its organization’s assigned home cell, and forwards writes and reads there. A local single-cell install can route directly to Axum.","Use a versioned assignment and routes for provider callbacks and request reads. Keep quote policy and job state in the cell.",[]],["peer",2,2,"Peer cell","Other tenants","Each peer has its own API, workers, PostgreSQL, and result namespace. It can run its own inference pool. Peer cells can share a region while isolating their application and data state.","A peer serves its own tenants. Recovery of a failed home cell requires a fenced promotion of that logical cell’s standby.",[]],["load-balancer",3,1,"Cell API load balancer","Ready API replicas","The provided HAProxy configuration discovers this cell’s API replicas through private DNS, probes /ready, and sends new requests to an eligible replica using least connections.","This proxy selects a ready API replica within the already chosen cell. A deployment with one API replica can send traffic directly from HTTPS ingress to Axum.",["v:deploy/haproxy/cell-api.cfg:1-45","v:deploy/haproxy/cell-api.cfg:47-54","v:docs/deployment.md:226-261"]],["api",4,1,"Axum API","Match method + path","Axum maps POST routes to scoped media middleware, text handlers, or native request handlers. Hosted mode has verified PostgreSQL TLS and a private listener behind HTTPS ingress.","API and worker process roles can run separately. Axum handles HTTP extraction, auth, scoped reads, and responses.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178","v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/hosted.rs:14-51","v:docs/deployment.md:146-167"]],["handler",5,1,"Admission handlers","Validate · scope · route","The handler validates and normalizes the primitive, resolves tenant and client scope, checks idempotent replay, then applies current policies to choose an eligible offer and reserve estimated spend.","Community ratings are an optional automatic model gate at admission. Workers consume the selected, versioned route.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:233-365","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:365-452"]],["db",6,1,"PostgreSQL","Queue + request state","For executable work, one transaction persists the request, selected quote and policy evidence, estimate reservation, and a provider run with an encrypted input and pinned binding. Commit precedes the receipt.","The database is authoritative for the request and its lease. Hosted multi-AZ placement is a design proposal.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"]],["worker",7,1,"Worker processes","Poll · claim · dispatch","A home-cell worker polls PostgreSQL and claims the job under a lease. It rechecks policy and runs the selected binding: either the cell’s inference pool or a connector to the managed provider.","The SQL claim assigns one owner. The active lease fences state changes. A missing upstream acknowledgment can still leave execution uncertain.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253","v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:284-358","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"]],["compute",8,0,"Cell-owned inference","Self-hosted compute","The intended default is to run self-hosted models on compute assigned to the home cell, typically in its primary region. GPU replicas can run separately from workers and scale independently.","The current text adapter can select among up to four configured targets. An optional reserve in another approved location can still belong to the same logical cell.",["v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:51-121","v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:146-184","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244"]],["upstream",8,2,"Vendor API","External provider","For outsourced inference, the home-cell worker submits through the selected connector to a provider such as fal or Kinovi. The provider runs the model on its infrastructure.","The cell keeps its request, budget, lease, and artifacts. Its workers observe an acknowledged job using the original connector and handle.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545","v:crates/bin/api-gateway/src/gateway_demo/providers/connector.rs:356-432","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488","v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125"]],["capacity",10,0,"Capacity control","Warm replicas · proposal","The proposed controller keeps the cell’s inference pool ready. It watches health, queue age, and spare capacity, shifts eligible work to ready targets, and replenishes cell-assigned capacity through the infrastructure or cluster autoscaler.","Admit replicas only after model readiness, placement policy, quota, and binding checks. Managed inference providers operate their own compute. The current text worker uses configured targets.",[]],["storage",9,1,"Home cell results","Chunks · assets · usage","Workers persist encrypted chat output or chunks, or fetch and validate media artifacts before publishing their manifest and completing the request. Metadata remains in PostgreSQL.","The source supports PostgreSQL, configured file storage, and shared object storage through an S3-compatible interface. Each hosted cell owns its artifact namespace.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/artifacts.rs:123-178","v:docs/deployment.md:146-167"]],["delivery",11,1,"Customer delivery","Read · stream · webhook","The API serves authorized status, results, assets, and retained text chunks. A separate signed webhook path records customer delivery attempts when a subscription is selected.","Provider completion, artifact publication, and customer delivery are distinct facts.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/gateway_demo/chat/stream.rs:28-104","v:crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs:11-75"]]],"edges":[["http","caller","public-ingress","Enter through trusted HTTPS ingress","The external ingress terminates TLS and sanitizes forwarding information before sending to a private cell endpoint.",["v:docs/deployment.md:146-163"],"normal","HTTPS"],["direct-http","public-ingress","load-balancer","Send to the sole cell’s API pool","When a single cell has multiple API replicas, HTTPS ingress can forward to that cell’s load balancer. A fixed destination suffices for home-cell routing.",["v:docs/deployment.md:226-261"],"normal","API pool","left"],["route-organization","public-ingress","ingress","Resolve the organization’s home cell","In a multi-cell deployment, the proposed shared router reads the verified organization assignment before forwarding to the selected cell.",[],"proposal","Multi-cell"],["partition","ingress","load-balancer","Route to the home cell","The directory gives the verified organization one home cell. The router sends to that cell’s ingress pool and preserves ownership for both reads and writes.",[],"proposal","Cell route","label-left"],["other-tenant","ingress","peer","Route another tenant separately","Separate cells scale and fail independently. Their existing ownership and queues remain isolated.",[],"proposal","Peer","below-target"],["balance-api","load-balancer","api","Choose a ready API replica","HAProxy sends the request to a healthy Axum replica in the selected cell. The replica reaches the same PostgreSQL database and artifact store as its peers.",["v:deploy/haproxy/cell-api.cfg:47-54","v:docs/deployment.md:226-261"],"normal","Ready replica"],["dispatch-http","api","handler","Invoke the endpoint handler","Axum chooses the HTTP handler. Scoped media and text handlers normalize their own wire contracts into shared admission input.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178","v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447"],"normal","Method + path"],["persist","handler","db","Commit admission","The request transaction commits before a media or native receipt goes to the caller. A text response is served from the accepted request.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653","v:crates/bin/api-gateway/src/gateway_demo/handlers.rs:126-186","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:448-525"],"normal","Atomic commit"],["claim","db","worker","Worker polls and claims","The worker initiates a SQL claim on its timer. PostgreSQL locks a ready row with SKIP LOCKED, updates the dispatch lease in the same transaction, and returns the claimed run to the worker.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253","v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108"],"normal","Worker polls SQL"],["compute-link","worker","compute","Send to the cell’s inference pool","For a self-hosted route, the worker sends the request to a configured endpoint assigned to its cell. The current text adapter can try another eligible target after a confirmed pre-acceptance failure.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488","v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:146-184","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244"],"normal","Self-hosted"],["infer","worker","upstream","Submit through a connector to the provider","For a managed route, the worker uses the pinned binding and upstream model. The connector submits to the provider’s API. Acknowledged queued work remains attached to the original handle.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545","v:crates/bin/api-gateway/src/gateway_demo/providers/connector.rs:356-432"],"normal","Outsource"],["bytes","compute","storage","Persist text response","The worker consumes upstream text and writes chunks or a buffered result under the current lease.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"],"normal","Text output"],["health","compute","capacity","Report target health and headroom","The proposed control loop watches readiness and capacity for the cell’s own inference pool. Outsourced inference follows the managed provider’s connector contract.",[],"proposal","Signals","label-left"],["media-result","upstream","storage","Persist provider output","For text, the worker stores buffered or streamed output. A claimed media poll observes completion, retrieves and verifies artifacts, then commits metadata and the terminal result.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/artifacts.rs:123-178","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"],"normal","Provider output"],["record-result","storage","db","Record the result on the request","After verifying the output, the worker uses its active lease to commit the result against the original request ID. PostgreSQL records the request status, result metadata, artifact records, and available usage in the same transaction. Media bytes can live on disk or in object storage.",["v:crates/db-queries/src/gateway_requests/provider_runs.rs:135-214"],"normal","Record result","return-left"],["serve","storage","delivery","Serve durable results","The API or delivery worker uses committed state to produce client reads, SSE or terminal notification.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/gateway_demo/chat/stream.rs:28-104","v:crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs:11-75"],"normal","Committed result"]]},{"id":"single-api","tab":"Single API replica","parent":"overview","title":"One cell with one API replica","summary":"HTTPS ingress forwards directly to a private Axum listener. A separately running worker can still claim committed work from PostgreSQL while the API replica is unavailable.","question":"What happens to new HTTP requests and jobs already committed to PostgreSQL if the only API replica goes down?","links":[["overview/direct-http","See a cell with an API pool"]],"drills":{"direct":[["overview/public-ingress","Inspect the HTTPS ingress"]],"claim":[["workers/claim","Inspect claim and lease"]]},"nodes":[["caller",0,1,"Craft app or SDK","HTTP request","A media caller posts an endpoint-specific task, prompt and optional model, dimensions, duration, format, cost cap or policy preferences. Text supplies a model, messages or input, generation limits and optional streaming. Send a scoped bearer key and preserve the idempotency key for retries.","Optional client and app references, webhook subscription ID and provider preferences depend on the endpoint. The handler resolves identity and authorization server-side.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:47-75","v:crates/bin/api-gateway/src/gateway_demo/media.rs:153-215","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184"]],["public-ingress",1,1,"HTTPS ingress","Trusted edge","The deployment supplies TLS ingress. It replaces incoming forwarding headers with a verified client address and forwards streaming responses as they arrive.","A single cell with one API replica can forward straight to the private Axum listener. A cell with an API pool can forward to its load balancer.",["v:docs/deployment.md:146-163"]],["api",2,1,"Axum API","One private API listener","Axum maps POST routes to scoped media middleware, text handlers, or native request handlers. Hosted mode has verified PostgreSQL TLS and a private listener behind HTTPS ingress.","API and worker process roles can run separately. Axum handles HTTP extraction, auth, scoped reads, and responses.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178","v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/hosted.rs:14-51","v:docs/deployment.md:146-167"]],["db",3,1,"PostgreSQL","Queue + request state","For executable work, one transaction persists the request, selected quote and policy evidence, estimate reservation, and a provider run with an encrypted input and pinned binding. Commit precedes the receipt.","The database is authoritative for the request and its lease. Hosted multi-AZ placement is a design proposal.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"]],["worker",4,1,"Worker processes","Poll · claim · dispatch","A home-cell worker polls PostgreSQL and claims the job under a lease. It rechecks policy and runs the selected binding: either the cell’s inference pool or a connector to the managed provider.","The SQL claim assigns one owner. The active lease fences state changes. A missing upstream acknowledgment can still leave execution uncertain.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253","v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:284-358","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"]]],"edges":[["http","caller","public-ingress","Enter through trusted HTTPS ingress","The external ingress terminates TLS and sanitizes forwarding information before sending to a private cell endpoint.",["v:docs/deployment.md:146-163"],"normal","HTTPS"],["direct","public-ingress","api","Forward directly to the API replica","The public HTTPS ingress terminates TLS, replaces incoming forwarding headers with the verified client address, and streams responses. It forwards directly to the cell’s single private Axum listener.",["v:docs/deployment.md:146-163"],"normal","Direct to Axum"],["admit","api","db","Commit the request and queued run","The API validates and admits the request. PostgreSQL commits the request and provider run together before the API sends the receipt.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"],"normal","Atomic commit"],["claim","db","worker","Worker polls and claims","The worker initiates a SQL claim on its timer. PostgreSQL locks a ready row with SKIP LOCKED, updates the dispatch lease in the same transaction, and returns the claimed run to the worker.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253","v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108"],"normal","Worker polls SQL"]]},{"id":"admission","tab":"Admit & route","title":"From an intent to a durable receipt","summary":"An idempotency check runs before a fresh route selection. A single commit publishes the queued request and its provider work.","question":"The client loses the receipt, and an administrator changes routing policy. What should the client send next?","nodes":[["input",0,1,"Submit request","Scope + workload + key","The request carries a workload and provider-facing input. Native calls can supply a quote or run automatic media routing through the relevant profile. The application or SDK supplies an Idempotency-Key.","Authentication and caller permissions resolve the account and project. When client scope applies, it constrains the request and later reads.",["g:handlers.rs:104-150","g:requests.rs:206-244"]],["replay",1,1,"Resolve intent","Account + project + actor","The gateway normalizes workload and fingerprints content. Under the account admission lock it looks up the scoped idempotency digest before evaluating current routing rules.","Matching intent returns the original request ID. A changed intent on the same key returns HTTP 409.",["g:requests.rs:238-332","g:requests.rs:722-736","q:insert_request.rs:29-41"]],["receipt",2,0,"Return prior receipt","Existing request ID","The native endpoint returns the original request ID and status URL for a matching scoped key and intent. Replay is checked before current routing policy. Fresh admission returns 202, and an accepted replay returns 200.","Repeat the same endpoint, scoped caller, idempotency key, and submitted body and relevant headers. A changed effective intent returns 409.",["g:handlers.rs:150-164","g:requests.rs:325-342","g:requests.rs:722-736"]],["choose",2,2,"Resolve a route","Eligible offer + price","A fresh request evaluates workload shape, catalog offers, policy, price, provider availability, and scoped performance evidence. A declared quote is compared against the current scoped quote.","A changed quote yields 409. Saved provider credentials pin their scope and version. Missing selected credentials can exclude a route.",["g:requests.rs:334-412","g:requests.rs:584-603","g:quote.rs:469-599"]],["commit",3,2,"Commit admission","Request + provider run","Insert the request, check organization and project capacity and monthly estimated-budget limits, and create a provider run with encrypted payload when executing an adapter. All share the same PostgreSQL transaction.","The request records a reservation in USD nanos. fal image reserves for the highest estimate among its preapproved fallback choices. Limit rejection rolls back admission.",["g:requests.rs:502-527","g:requests.rs:584-646","q:insert_request.rs:29-36"]],["accepted",4,2,"Return new receipt","202 + status location","A new native admission responds with a gateway ID, project ID, and status URL. Once committed, the worker can claim the row independently of the HTTP connection.","Receiving 202 means admission committed. The lifecycle still has provider dispatch, acceptance, and completion ahead.",["g:requests.rs:646-653","g:requests.rs:714-719","g:handlers.rs:150-164"]]],"edges":[["normalize","input","replay","Resolve scope","The actor and scoped key namespace gate the lookup. The digest includes effective inputs and applicable client, app, subscription, and offer references.",["g:requests.rs:216-332"]],["same","replay","receipt","Same intent","The original native receipt is replayed. A different intent under the same scoped key conflicts and ends the flow.",["g:requests.rs:722-736"]],["new","replay","choose","New key","Admission reads current policy and availability, then checks the declared quote, if supplied, against the newly computed one.",["g:requests.rs:329-375"]],["reserve","choose","commit","Pin & reserve","The selected model, estimate, quote evidence, credential pin, and encrypted work payload are attached to the new request.",["g:requests.rs:403-415","g:requests.rs:573-645"]],["ack","commit","accepted","After commit","A client timeout after commit can be recovered by replaying the same key and intent. Provider acceptance is tracked on a separate boundary.",["g:requests.rs:646-653","g:requests.rs:722-736"]]]},{"id":"media","tab":"Generate media","title":"Queue submission, recovery, and media publication","summary":"The worker records provider acceptance as a separate step. It publishes success after fetching and preparing the media.","question":"fal accepted the job, but the worker died before saving its handle. What evidence can safely move it forward?","nodes":[["claim",0,1,"Claim queued work","Provider submit lane","A PostgreSQL claim picks the least recently served eligible project, then the oldest ready request in that project. A lane lock, row lock, and recorded turn coordinate replicas. The claim sets dispatched_at and a lease before network I/O.","The provider worker rechecks provider policy. A leased write must match the current lease and be within its deadline.",["q:provider_runs.rs:41-98","q:queue_turns.rs:17-38","g:providers/mod.rs:426-456"]],["send",1,1,"Submit to binding","fal or Kinovi","The worker unseals input and resolves the pinned binding and credential. A configured fal submission registers a callback URL. Provider contact can return a handle, a definite rejection, bounded rate-limit handling, or uncertainty.","For the fal image route, a suitable 429 can trigger a bounded retry or eligible fallback. Cross-binding fallback stays within the operator credential boundary.",["g:providers/mod.rs:628-743","g:providers/mod.rs:746-797","g:requests.rs:675-711"]],["uncertain",2,0,"Await reconciliation","Acceptance unknown","An ambiguous transport response or an expired unacknowledged dispatch can leave the upstream outcome unknown. This preserves the possibility of upstream work and keeps it in active-request accounting.","A signed, request-bound fal callback can recover a missing handle for specific permitted states. This recovery path is adapter-specific.",["q:provider_runs.rs:199-239","q:active_requests.rs:23-46","q:fal_callbacks.rs:11-76"]],["poll",2,2,"Poll accepted job","Persisted upstream handle","The ACK records handle, acceptance time, and scheduled polling. New workers claim due polls and use the original handle after restart. An optional verified fal callback records evidence and can bring the next poll forward or recover an allowed missing handle.","Polling uses its own turn lane. A pending provider result schedules the next read. A polling deadline can end in an unconfirmed outcome.",["q:queued_runs.rs:20-96","q:provider_runs.rs:199-239","q:fal_callbacks.rs:60-84"]],["prepare",3,2,"Fetch & seal media","Bytes + checked metadata","The adapter fetches and validates its workload-specific output. The gateway hashes bytes, encrypts them, and prepares artifact rows for inline data or a local file, with request, slot, type, and digest as binding data.","A storage failure can defer the next poll using the same upstream handle. Measure the time from observed provider completion to artifact commit.",["g:providers/mod.rs:873-905","g:artifacts.rs:118-212"]],["publish",4,2,"Commit success","Manifest + artifacts + usage","A guarded PostgreSQL transaction changes request state, inserts artifact rows, and records provider usage where available. Clients can read the manifest then fetch an authorized slot. Media result rows get a 24-hour expiry in this path.","A provider reporting completed is an upstream observation. The client sees succeeded after the gateway publishes its result.",["q:provider_runs.rs:122-196","g:handlers.rs:260-286","g:artifacts.rs:259-316"]]],"edges":[["leased","claim","send","Claim committed","The durable claim is committed before external HTTP and includes the lease needed to accept or finish the attempt.",["q:provider_runs.rs:70-98"]],["lost","send","uncertain","Unknown outcome","An ambiguous response is classified as uncertain. The row preserves the possibility that the provider accepted the work.",["g:providers/mod.rs:714-743","q:provider_runs.rs:199-239"],"attention"],["handle","send","poll","Handle saved","Acknowledgment records the provider handle and establishes the poll schedule. Later polling claims use that stored handle.",["q:queued_runs.rs:20-96"]],["recover","uncertain","poll","Recover","The callback must verify its request and binding proof plus the provider signature. Database guards decide whether the callback may attach the handle or bring polling forward. The worker then reads the result using the recovered handle.",["g:fal_callbacks.rs:209-254","q:fal_callbacks.rs:11-84"],"recovery","Proof"],["done","poll","prepare","Provider completed","Pending status defers the next poll. A completed result moves through validation and storage. A definitive provider failure can be recorded directly.",["g:providers/mod.rs:853-905"],"normal","Result ready"],["terminal","prepare","publish","Guarded commit","The writer checks the lease and current state before publishing the manifest, media rows, and applicable usage. A stale lease cannot publish a terminal transition.",["q:provider_runs.rs:138-196"],"normal","Commit"]]},{"id":"chat","tab":"Stream chat","title":"Streaming text through a durable chunk buffer","summary":"The provider worker stores encrypted deltas. A separate API reader translates those records into the client’s SSE format.","question":"A caller disconnects after a few deltas. What keeps running, and what will a replay return?","nodes":[["post",0,1,"Compatible text API","Chat Completions / Responses","The compatible handlers accept a supported text workload in buffered or streaming form. They route and admit using the persisted request lifecycle and return request headers for correlation.","Buffered handlers wait for durable terminal state. Streaming returns a live reader tied to the admitted request ID.",["g:mod.rs:210-211","g:chat/mod.rs:349-453","g:chat/responses.rs:177-219"]],["stream",1,1,"Provider worker","Upstream SSE","An adapter issues the upstream text request. Its parser bounds bytes and frame sizes, validates stream identity and deltas, and tracks finish reason, upstream handle, and reported usage.","For the inspected SSE parser, a valid finish reason plus the upstream done marker is required for success. A truncated stream can retain partial usage and yield uncertainty.",["g:providers/mod.rs:575-612","g:providers/openrouter/stream.rs:22-89","g:providers/openrouter/stream.rs:129-234"]],["chunks",2,1,"PostgreSQL chunks","Request ID + ordinal","The worker seals each accepted text fragment and appends it with a lease guard. The durable order is by chunk ordinal. Worker completion records status and available usage separately.","A saved delta proves that fragment was received. Completion still needs the provider's terminal evidence.",["g:providers/openrouter/stream.rs:169-233","q:chat_streams.rs:1-83","q:provider_runs.rs:122-196"]],["reader",3,1,"Gateway SSE reader","Scoped reads + wire format","The API reader reauthorizes the caller on its read loop, loads chunks after its last ordinal, and emits protocol-specific events. Client detachment can be recorded while the worker continues independently.","Repeat the original compatible request and key to replay retained chunks from ordinal zero. Replace the local partial transcript with the replay. Content expiry or removal can make replay unavailable.",["g:chat/stream.rs:25-89","g:chat/stream.rs:101-168","g:chat/mod.rs:368-453"]],["client",4,1,"Client stream or status","Deltas + final state","The client can consume SSE or follow the request location for authoritative status. After an interrupted upstream stream, it can see partial deltas and an unconfirmed outcome.","Retry a lost client connection with the original key and intent to reattach within retention. Submitting a new key creates another admission.",["g:chat/stream.rs:209-289","g:requests.rs:722-736"]]],"edges":[["job","post","stream","Durable admission","The compatible route passes messages and stream intent into the same idempotent admission, which persists provider work ahead of dispatch.",["g:chat/mod.rs:368-453","g:requests.rs:618-646"]],["append","stream","chunks","Append encrypted deltas","For each accepted delta, the worker seals the text under the request and ordinal before appending. An expired lease prevents further valid appends.",["g:providers/openrouter/stream.rs:169-198","q:chat_streams.rs:1-83"],"normal","Store deltas"],["read","chunks","reader","Read after ordinal","The reader fetches committed chunks after its current ordinal under resolved authorization. It can continue to observe terminal state and emit the final event.",["g:chat/stream.rs:101-190","g:chat/stream.rs:209-289"]],["deliver","reader","client","SSE / reconnect","A dropped downstream connection releases the reader and records detachment where possible. The durable worker runs outside that task.",["g:chat/stream.rs:53-89","g:providers/mod.rs:406-416"]]]},{"id":"delivery","tab":"Read & operate","title":"Deliver results and operate the queue","summary":"Request status, customer webhook delivery, account usage, and queue health are different views of the same work.","question":"The request shows succeeded and the webhook is dead. Which record should change when an operator retries delivery?","nodes":[["record",0,1,"Request record","Lifecycle source of truth","Request and provider-run rows hold lifecycle state. A visible status can be queued, running, succeeded, canceled, failed, or awaiting_reconciliation. Usage and settlement have independent evidence.","Customer cancellation of a real provider request is guarded before dispatch. The mock has a separate cancellation path.",["g:requests.rs:28-38","q:cancel_request.rs:6-21","g:handlers.rs:291-355"]],["get",1,0,"Status and result API","Scoped pull","Native and model status GETs authorize and read their scoped record before evaluating representation-specific ETags. An unchanged response can be HTTP 304. Queued and running can advertise a one-second poll hint.","An unchanged response saves bytes while the authorization and database read still happen. Artifacts follow a separate scoped request/slot route.",["g:handlers.rs:193-286","g:polling.rs:11-34","g:artifacts.rs:259-316"]],["outbox",1,2,"Webhook queue","Durable delivery records","A database trigger creates one eligible terminal delivery in the transaction that changes the request state. A separate worker claims the persisted delivery and signs the outbound HTTP.","The event has a stable ID and scoped fetch URL. Awaiting reconciliation is a separate request state from the success, failure, and cancellation events sent here.",["m:0008_gateway_provider_runs.sql:75-83","m:0014_gateway_fal_callbacks.sql:15-49","g:webhooks/worker.rs:8-84"]],["ops",2,0,"Client and operator reads","Artifacts · usage · health","Clients can fetch artifact slots. A scoped feed exposes lifecycle and accounting events, including metadata-only content removal. Operators can read readiness and counts and oldest timestamps for queued, unconfirmed, delivery, and export work.","Readiness asks whether configured dependencies work. Backlog age asks how long durable work has waited. Usage distinguishes estimate, provider evidence, and supplier settlement.",["g:mod.rs:191-195","g:mod.rs:230-245","g:readiness.rs:200-226","g:operations.rs:83-114","m:0036_gateway_content_removal_exports.sql:14-37"]],["receiver",2,2,"Customer receiver","Signed delivery","The worker sends a stable delivery ID, timestamp, signature, and event body. It records the attempt independently. Selected network and HTTP failures can retry. Operators can redrive eligible deliveries.","Verify the signature and deduplicate by webhook-id. Record the ID and your side effect before returning 2xx. Redrive eligible dead deliveries after fixing the receiver.",["g:webhooks/worker.rs:44-84","w:queue.rs:112-154","w:deliveries.rs:1-90"]]],"edges":[["status","record","get","Conditional GET","Each status representation computes its validator from the authorized response bytes. Reuse the validator only for the same endpoint representation.",["g:handlers.rs:193-258","g:polling.rs:11-34"]],["deliver","record","outbox","Terminal event","PostgreSQL inserts the terminal event when a subscribed request changes to a supported terminal state. A worker can claim the delivery once the transaction commits.",["m:0008_gateway_provider_runs.sql:75-83","m:0014_gateway_fal_callbacks.sql:15-49"]],["look","get","ops","Authorized reads","The scoped API serves status and artifacts and separately exposes exports, usage, and operating endpoints. Usage or delivery states can advance without changing the inference result.",["g:mod.rs:191-195","g:mod.rs:230-245","g:operations.rs:83-114"],"normal","Read"],["send","outbox","receiver","Sign & send","Once claim commits, the worker sends the signed body and then records delivery or retry. An HTTP response and its durable recording are distinct boundaries.",["g:webhooks/worker.rs:23-84","w:queue.rs:17-95","w:queue.rs:112-154"],"normal","Deliver"]]},{"id":"studio","tab":"ArtCraft Studio","title":"ArtCraft Studio and the PostgreSQL migration","summary":"The current fal route and the proposed TokenCraft route serve the same Studio API. The migration preserves one execution owner per job.","question":"How does Studio recover a lost acknowledgment on each route, and what changes once new jobs use PostgreSQL?","nodes":[["client",0,1,"Studio application","Image generation request","The application route receives model inputs and an idempotency token. The handler authenticates the session and resolves request inputs before going through the image pipeline.","This is the application image route on the preserved ArtCraft Services snapshot. Other models and Omni API have their own branches.",["s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:63-125"]],["bridge",1,1,"Compatibility adapter","Owner lookup and read merge","Known tokens go to one owner. History reads both stores. A genuinely new pilot request gets a durable PostgreSQL route before credits are touched.","A rollout flag selects an owner only at first admission. A retry follows the stored owner.",[]],["fal",2,0,"Submit to fal","Validate and debit","Studio checks the idempotency token, deducts wallet credits when applicable, then sends the fal request with a callback. It records the provider ID in a later job transaction.","The image pipeline releases its billing connection before remote I/O. Provider acceptance can arrive before the MySQL job mapping exists.",["s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:101-119","s:omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs:46-110","s:omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs:68-110","s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:174-211","s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:328-362"]],["handoff",2,2,"Record handoff","Reserve credits once","Persist a stable Studio alias, owner and retry key. Confirm the MySQL wallet outcome once before admitting the request to TokenCraft.","An ambiguous debit is resolved against the original ledger entry before continuing. A retry follows the saved owner after rollback.",[]],["mapping",3,0,"Save job mapping","MySQL job + fal ID","The later transaction inserts the generic inference job and commits. The application can use the local job token for status. The callback lookup uses the fal request ID.","A callback that reaches the lookup before the row is visible can fail that attempt.",["s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:328-362","s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:24-51"]],["postgres",3,2,"Admit to TokenCraft","PostgreSQL request owner","Keep scoped access to existing PostgreSQL requests. Newly migrated Studio jobs use TokenCraft admission, queue, provider handle, and lifecycle records.","The Studio alias maps to the gateway request ID. Replay preserves that mapping after rollout flags change.",[]],["callback",4,0,"Process callback","Lookup + media I/O","The success callback holds a pooled MySQL connection while looking up the job and processing supported output types. The media branch writes object bytes and inserts a media record before marking the job successful.","Hypothesis. A media-heavy burst can tie up connections needed for status and submission. Confirm with connection wait, hold time, and artifact readiness lag.",["s:webhooks/fal/fal_webhook_handler.rs:40-80","s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:24-181","s:webhooks/fal/process_success/process_video_payload.rs:36-154","s:webhooks/fal/process_success/process_image_payload.rs:141-179"]],["studio-domain",4,2,"Publish Studio asset","Verified result copy","After TokenCraft completes, the adapter fetches and verifies the media. Studio records its own asset and publishes its media reference.","Stable handoff and output-slot IDs make publication retryable. Studio continues to own the wallet and media catalog.",[]],["status",5,1,"Studio status and result","One client-facing view","Resolve point reads through the recorded owner and merge history from both stores. Each route exposes the Studio job token and the Studio asset after publication.","For the current route, status follows the MySQL job and its published media. The proposed adapter extends this view to TokenCraft jobs.",[]]],"edges":[["authorize","client","bridge","Resolve owner","Authenticate the caller before resolving a Studio job token. Existing jobs and retries follow their durable owner.",[]],["submit","bridge","fal","Current route","The wallet deduction happens before this pipeline sends the remote request. The provider response is used later to write the job mapping. The proposed adapter can leave this route in place for legacy-owned jobs.",["s:omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs:68-110"]],["pilot-route","bridge","handoff","Pilot route","Only an eligible new admission can choose the PostgreSQL pilot. Record its owner before touching the wallet.",[]],["save","fal","mapping","Persist provider ID","The handler commits the fal mapping in a separate post-submission transaction. Process death before commit is the important gap to trace.",["s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:328-362"],"normal","Save"],["admit","handoff","postgres","Admit","After the wallet outcome is confirmed, admit work with the saved scoped key. A lost receipt reuses that key.",[]],["lookup","mapping","callback","Job lookup","The callback reads the mapping by fal request ID. A missing row raises an error in the inspected success branch.",["s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:24-51"],"recovery","Find"],["copy-asset","postgres","studio-domain","Copy result","Fetch and verify a retained TokenCraft artifact, then commit the Studio asset under a stable output-slot ID.",[],"normal","Copy"],["materialize","callback","status","Publish result","The backend moves from provider output through object storage and media metadata to the final job update. The client can retrieve the resulting media reference on a later read.",["s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:72-181","s:inference_job/list/list_session_jobs_handler.rs:104-165"],"normal","MySQL result"],["project","studio-domain","status","PG result","Project status and the durable Studio media reference into the existing client-facing API.",[]]]},{"id":"cells","tab":"Cell design","title":"Home-cell ownership and compute fallback","summary":"The home cell owns its API replicas, workers, database, and self-hosted inference pool. A provided proxy balances API traffic within the cell. Hosted cell assignment and compute provisioning remain proposals.","question":"Which failures let a home cell switch endpoints, and when must the cell itself recover before work can continue?","nodes":[["ingress",0,1,"API ingress","Authenticate and route","Resolve organization scope for submissions and reads. Application callbacks and provider callbacks need a stable route to the owning request.","A provider callback resolves to the owning request cell. Preserve signed request and binding verification across a planned move.",[]],["directory",1,1,"Cell directory","Organization → home cell","A single-cell instance can use configuration. A hosted router uses a durable directory that records the owning cell and an assignment version.","Cell assignment controls admission and dispatch. An endpoint fallback uses the same cell assignment. Promote a replacement owner only after fencing the old one.",[]],["cell-a",2,0,"Home cell","API · workers · PostgreSQL","This cell owns request state, idempotency, budget, queue leases and artifacts. HTTPS ingress can reach a single private API replica directly. For multiple API replicas, the cell load balancer selects a ready API. The API and workers share the cell’s PostgreSQL primary.","The default plan places cell-owned inference in the primary region. An approved standby can run in another zone, region, or provider while staying assigned to the same logical cell.",[]],["cell-b",2,2,"Cell recovery standby","Same logical cell","Recover a failed home cell by fencing its old writer and dispatch, then promote the standby with the same logical cell ID.","Restore PostgreSQL, artifacts, credentials and callbacks. Reconcile upstream work that could be missing from the recovered state before resuming dispatch.",[]],["offer",3,1,"Model binding","Eligible endpoint order","The binding tries lower priority values first. Equal priority endpoints share requests using a stable hash of the request and endpoint IDs.","Self-hosted targets belong to the cell’s pool in this design. The current adapter checks declared locations and pins a binding digest.",["v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:51-121","v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:146-184"]],["primary",4,0,"Primary endpoint","Home-cell compute","The worker tries one eligible endpoint and classifies the outcome. On success, the home cell commits the result. Accepted work continues on the same endpoint or its documented observation API.","A dropped connection after sending or an interrupted response can leave acceptance unknown, even before the client sees a token.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244","v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:51-121"]],["backup",4,2,"Standby endpoint","Same cell’s reserve","After a connection-establishment failure or a guaranteed pre-acceptance 429 that the operator opted into, the worker can choose the next eligible endpoint within its fallback deadline and lease.","The standby target is configured for the same cell. The proposed controller keeps model replicas ready ahead of failures and replenishes the reserve asynchronously.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244"]],["uncertain",5,0,"Reconciliation","Original attempt","Keep an ambiguous attempt under the original request and reconcile with available provider evidence. An interrupted stream keeps its existing record.","Only a proven safe failure opens the alternate route. An acknowledged queued job keeps its existing handle.",["v:crates/db-queries/src/gateway_requests/provider_runs.rs:216-244","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244","v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125"]],["result",5,2,"Home cell result","Primary or standby output","The home cell stores the completion and usage from the successful attempt. For chat, the API reads and streams the chunks committed by the worker.","This path changes compute location. It keeps the same request identity, budget, and data owner.",["v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91"]]],"edges":[["scope","ingress","directory","Find home cell","Routing uses the authorized organization or verified callback context. Keep client-visible request IDs stable.",[]],["route-a","directory","cell-a","Pin owner","All writes and worker claims for organization A resolve to one cell assignment. Inference can execute in an allowlisted pool while PostgreSQL ownership stays here.",[]],["cell-outage","cell-a","cell-b","Recover cell","Fence the old writer and workers before promoting the standby for the same logical cell. This transition recovers ownership and state.",[],"recovery","Fence"],["plan","cell-a","offer","Select binding","Use the model offer and eligible endpoints for the current cell. The provider call follows the durable worker claim.",[]],["start","offer","primary","First choice","Try the preferred eligible endpoint. A successful response follows the regular completion path.",[]],["safe","primary","backup","Safe fallback","Connection establishment failed, or an opted-in 429 guarantees rejection before acceptance, execution, or billing. The worker can then try the next destination under the existing lease.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244"],"recovery","Retry"],["unclear","primary","uncertain","Unknown","A timeout or disconnect after the request may have arrived is handled by the original request’s recovery rules.",[],"attention"],["commit","backup","result","Commit result","When fallback succeeds, publish through the original home cell and record the execution evidence there.",[]]],"links":[["overview/ingress","Back to System map"]],"drills":{"offer":[["workers/text","See the text worker"]],"safe":[["overview/compute","See the compute boundary"]],"directory":[["overview/peer","See peer-cell isolation"]],"backup":[["overview/compute","See the compute boundary"]],"cell-a":[["single-api/direct","Inspect a cell with one API replica"],["overview/load-balancer","Inspect the cell API load balancer"]]},"planned":["ingress","directory","cell-a","cell-b"]},{"id":"handlers","tab":"Handlers","parent":"overview","title":"Handler pipeline by API primitive","summary":"Follow normalized input into scoped policy and a committed receipt. Select media or text for the wire contract.","question":"Where are unsupported fields rejected, how do customer policies resolve, and when does quality affect selection?","links":[["overview/handler","Back to System map"],["workers/poll","Next: worker execution"]],"drills":{"replay":[["admission/replay","Inspect idempotent replay"]],"commit":[["workers/claim","Inspect the worker claim"]],"reply":[["chat/reader","Inspect SSE recovery"]]},"nodes":[["inputs",0,1,"Axum routes","Path + caller scope","Axum selects the typed endpoint from method and path. The media routes use project-key middleware. Text compatibility routes authenticate and require read and submit capability for project keys. Native POST /v1/requests admits quoted intent.","Authorization, project ownership and any client restriction are resolved before new work is admitted.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178","v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447","v:crates/bin/api-gateway/src/gateway_demo/handlers.rs:126-186"]],["media-input",1,0,"Media primitives","Image · video · audio · 3D","Image defaults to 1:1 and accepts PNG and 1–8 outputs. Video needs duration, ratio and resolution and returns MP4. Audio needs duration and defaults to WAV. 3D defaults to GLB. Each task must match its endpoint.","The scoped body is bounded at 8 KiB and rejects unknown or incompatible settings. A dry run returns a quote without creating a run.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:47-75","v:crates/bin/api-gateway/src/gateway_demo/media.rs:77-150","v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269","v:crates/bin/api-gateway/src/gateway_demo/media.rs:270-323"]],["text-input",1,2,"Text primitives","Chat and Responses","Chat accepts text messages, a model alias, one output token limit, optional sampling and stream options. Responses maps its supported input to the same admission path.","Unsupported chat parameters return a named error. Responses has a bounded, strict input schema.",["v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184","v:crates/bin/api-gateway/src/gateway_demo/chat/responses.rs:38-94","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447"]],["normalize",2,1,"Validate and normalize","Typed workload and options","Check primitive, format, message roles, prompt, limits and option combinations. Apply documented defaults and aliases. Convert media cost units and reject duplicate cap inputs. Forward only fields in the selected adapter contract.","The inspected scoped media and compatible text routes reject unsupported inputs. They do not silently drop user-supplied generation fields.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:77-150","v:crates/bin/api-gateway/src/gateway_demo/media.rs:153-215","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:479-565"]],["replay",3,1,"Check prior intent","Scope + key + fingerprint","Normalize and fingerprint the request and any retained content. Look up the idempotency key under account, project and actor. A matching intent returns the original request. A changed intent conflicts.","The fresh admission path reads policy under the admission lock after checking replay. Advised requests also check replay before invoking the Advisor.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:233-365"]],["policy",4,1,"Resolve customer policy","Defaults, limits and sharing","Request preferences take precedence over project, organization and applicable model defaults. Tighten both sets of hard caps, intersect provider allowlists and data requirements, and enforce connection sharing and project exclusions.","Scope can also carry a client-specific monthly budget. Credential availability, quote freshness and queue cooldowns affect which offers qualify.",["v:crates/bin/api-gateway/src/gateway_demo/routing_policy.rs:150-205","v:crates/bin/api-gateway/src/gateway_demo/routing_policy.rs:207-317","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:365-452","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"]],["select",5,1,"Choose eligible offer","Quality gates, then rank","A configured automatic quality floor uses existing community ratings. The observed threshold needs at least 10 ratings and compares their average to the floor. A usage floor counts distinct qualifying accounts. Eligible routes use the applicable provider preference and price, or configured performance ranking where supported.","Output validation is a later worker responsibility. Explicit model requests follow their chosen model and applicable hard constraints.",["v:crates/bin/api-gateway/src/gateway_demo/availability.rs:134-171","v:crates/bin/api-gateway/src/model_reviews.rs:19-25","v:crates/bin/api-gateway/src/gateway_demo/quote.rs:427-511","v:crates/bin/api-gateway/src/gateway_demo/route_performance.rs:70-112"]],["commit",6,1,"Persist accepted run","Quote + binding + budget","Check active limits and available estimated budget at the applicable organization, project and client scopes. Persist the accepted request, policy evidence, selected model and binding, pinned credential, and encrypted input in PostgreSQL.","A declared quote is checked for freshness. A failed validation or failed transaction admits no new run.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:365-452","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:479-565","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"]],["reply",7,1,"Return to caller","Receipt, JSON or SSE","Media and native submit return a request receipt after commit. Compatible text uses the same accepted request and can wait for the buffered result or stream retained chunks.","The client can reuse the same authorized key and intent to recover the original request after a dropped receipt.",["v:crates/bin/api-gateway/src/gateway_demo/handlers.rs:126-186","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:448-525","v:crates/bin/api-gateway/src/gateway_demo/chat/stream.rs:28-104"]]],"edges":[["to-media","inputs","media-input","Match a media route","A scoped media route binds a media primitive and task to typed inputs.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178","v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269"],"normal","Media"],["to-text","inputs","text-input","Match a text route","Chat Completions and Responses normalize compatible text inputs.",["v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447"],"normal","Text"],["media-validation","media-input","normalize","Validate media inputs","The typed media contract enforces required values and rejects incompatible settings before building admission input.",["v:crates/bin/api-gateway/src/gateway_demo/media.rs:77-150","v:crates/bin/api-gateway/src/gateway_demo/media.rs:153-215"],"normal","Media checks"],["text-validation","text-input","normalize","Validate text inputs","The text parser rejects unsupported fields or contradictory options and normalizes valid values.",["v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184","v:crates/bin/api-gateway/src/gateway_demo/chat/responses.rs:38-94"],"normal","Text checks"],["intent","normalize","replay","Look up original intent","Canonical parameters and fingerprint bind the replay key to one request.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:233-365"],"normal","Same intent?"],["policy-link","replay","policy","Load policy for new work","A replay can return earlier. New admissions read effective revisions and eligibility evidence.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:233-365","v:crates/bin/api-gateway/src/gateway_demo/requests.rs:365-452"],"normal","New work"],["eligible","policy","select","Apply gates before ranking","Filter candidate offers by requested capability, access, price, quality floor and live eligibility before selecting.",["v:crates/bin/api-gateway/src/gateway_demo/quote.rs:427-511","v:crates/bin/api-gateway/src/gateway_demo/availability.rs:134-171","v:crates/bin/api-gateway/src/gateway_demo/route_performance.rs:70-112"],"normal","Eligible offers"],["reserve","select","commit","Fence admission and reserve cost","The accepted offer, reservation and provider run are committed together.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653"],"normal","Reserve and pin"],["ack","commit","reply","Respond after commit","The stored request identity is the basis for the receipt, buffered response or SSE.",["v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653","v:crates/bin/api-gateway/src/gateway_demo/handlers.rs:126-186","v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:448-525"],"normal","Commit first"]]},{"id":"workers","tab":"Workers","parent":"overview","title":"Worker execution after a durable claim","summary":"Follow PostgreSQL scheduling, pre-submit checks, adapter-specific execution and publication.","question":"What does the lease protect, and what evidence allows a retry, poll, or final result?","links":[["overview/worker","Back to System map"],["cells/offer","Explore compute failover"]],"drills":{"claim":[["overview/db","See the database boundary"]],"text":[["cells/safe","Inspect compute fallback safety"],["chat/stream","Inspect the text stream"]],"connector":[["media/send","Earlier provider flow"]],"publish":[["overview/delivery","See the delivery boundary"]]},"nodes":[["poll",0,1,"Poll PostgreSQL","250 ms worker tick","The worker starts a timed SQL claim loop with up to four active provider tasks per process in the inspected source. It alternates submission and connector polling when queue bindings exist. Idle results wait for another cycle and query errors back off.","The worker initiates these reads. The claim loop uses SQL polling rather than a PostgreSQL notification subscription.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253"]],["claim",1,1,"Claim ready work","SKIP LOCKED + lease","The claim filters by compatible binding digest, readiness, dispatch age, controls and cooldown. It uses project turns for fair scheduling and SKIP LOCKED for contention. It marks dispatch and returns a 40-second submission lease in one transaction. Poll work uses a separate 20-second lease.","A worker sends only after its claim returns a row. A conditional write checks the exact active lease so an expired worker cannot commit a newer owner’s result.",["v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108","v:crates/db-queries/src/gateway_requests/queued_runs.rs:28-76","v:crates/db-queries/src/gateway_requests/queue_turns.rs:11-52","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"]],["preflight",2,1,"Verify current access","Connection + credential pin","Reload organization and project policy, recheck the selected offer and connection sharing, and intersect current data requirements with admitted rules before first outbound submission. Find the pinned adapter and binding, decrypt the typed input, and resolve the pinned credential version if required.","Deny pre-submit work when policy, binding or credentials cannot be verified. Accepted connector jobs keep their original handle for observation.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:284-358","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545"]],["text",3,0,"Run text","Buffered or SSE","Send a typed request through the compatible chat adapter. Configured self-hosted compute can fail over before acceptance under the original dispatch lease. Buffered results and streamed chunks are stored by the worker.","Cell-owned compute serves self-hosted text. A managed route delegates model execution to its provider. In either case, the home-cell worker writes the result or stream.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244","v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91"]],["connector",3,2,"Submit media","Image · video · audio · 3D","The selected connector receives the pinned model and normalized primitive-specific input. Persist a confirmed handle. A guaranteed pre-acceptance capacity response can schedule a bounded retry. An uncertain submission needs recovery evidence.","The connector submits to the external provider, and the home-cell worker retains the original handle for processing and recovery.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545","v:crates/bin/api-gateway/src/gateway_demo/providers/connector.rs:356-432","v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125"]],["text-result",4,0,"Persist text","Chunks + observed usage","Stream chunks are saved under a valid lease. Buffered replies or terminal outcomes are committed with usage evidence when available. The client-facing SSE handler reads the retained stream.","The stream client can disconnect without becoming the owner of the upstream request.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91","v:crates/bin/api-gateway/src/gateway_demo/chat/stream.rs:28-104","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"]],["observe",4,2,"Observe original job","ACK · poll · fetch","Store the provider handle and poll when due using a separate lease. A completion hint or recheck correlates to the original request and binding. Poll and fetch observe the existing job.","An expired unacknowledged submission can move to an unconfirmed outcome. Do not infer that upstream work never started.",["v:crates/db-queries/src/gateway_requests/queued_runs.rs:79-117","v:crates/db-queries/src/gateway_requests/queued_runs.rs:28-76","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125","v:crates/db-queries/src/gateway_requests/provider_runs.rs:216-244"]],["publish",5,1,"Publish or finalize","Commit durable outcome","For media, validate content and slots, prepare artifact storage, and commit the manifest and terminal status under the lease. Text already stores the output or stream. The API and webhook workers act on committed state.","A slow artifact store is a separate stage after provider completion. Shared object storage publication can renew the lease within its deadline.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/artifacts.rs:123-178","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176","v:crates/bin/api-gateway/src/gateway_demo/debug_trace.rs:199-268"]]],"edges":[["timer","poll","claim","Run the SQL claim","Timer ticks and available worker capacity trigger a claim in PostgreSQL.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253","v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108"],"normal","Claim query"],["lease","claim","preflight","Pass the claimed run","Use the returned lease and pinned routing metadata for execution and later writes.",["v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:284-358","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"],"normal","Claim returned"],["text-execute","preflight","text","Execute text adapter","Resolve a matching binding and the credential pinned by admission, then call the text adapter.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488"],"normal","Text"],["media-execute","preflight","connector","Submit a connector job","Send the typed workload through the pinned connector.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545","v:crates/bin/api-gateway/src/gateway_demo/providers/connector.rs:356-432"],"normal","Queued media"],["chunks","text","text-result","Write text and usage evidence","The worker writes chunks or result data and observed token counts.",["v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91","v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"],"normal","Chunks"],["acknowledge","connector","observe","Record acceptance and poll","An acknowledged handle anchors future polling or verified completion lookup.",["v:crates/db-queries/src/gateway_requests/queued_runs.rs:79-117","v:crates/db-queries/src/gateway_requests/queued_runs.rs:28-76","v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125"],"normal","ACK"],["final-text","text-result","publish","Commit final text state","A terminal observation and durable response complete the state transition.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448","v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176"],"normal","Final state"],["final-media","observe","publish","Validate, store and publish media","Fetch and validate media, then publish result and artifacts in the request’s authoritative store.",["v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646","v:crates/bin/api-gateway/src/gateway_demo/artifacts.rs:123-178"],"normal","Publish media"]]}];
+  if (flows.length === 0) {
+    root.querySelector(".bd-main").hidden = true;
+    return;
+  }
+  const sources = {"v:crates/bin/api-gateway/src/gateway_demo/media.rs:47-75":{"short":"media.rs","path":"crates/bin/api-gateway/src/gateway_demo/media.rs","lineLabel":":47–75","href":"","origin":"TokenCraft gateway snapshot","sha256":"a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae"},"v:crates/bin/api-gateway/src/gateway_demo/media.rs:153-215":{"short":"media.rs","path":"crates/bin/api-gateway/src/gateway_demo/media.rs","lineLabel":":153–215","href":"","origin":"TokenCraft gateway snapshot","sha256":"a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae"},"v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:83-184":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/mod.rs","lineLabel":":83–184","href":"","origin":"TokenCraft gateway snapshot","sha256":"e1004c8b4bec7333c7768d1e7bd28a1308ab092048e50efe3cd92cc3980f0f12"},"v:docs/deployment.md:146-163":{"short":"deployment.md","path":"docs/deployment.md","lineLabel":":146–163","href":"","origin":"TokenCraft gateway snapshot","sha256":"a986ebd67dea9cc7993538a25da0c2fa82e7d5f97cf7408d6e520c1e83b29d80"},"v:deploy/haproxy/cell-api.cfg:1-45":{"short":"cell-api.cfg","path":"deploy/haproxy/cell-api.cfg","lineLabel":":1–45","href":"","origin":"TokenCraft gateway snapshot","sha256":"0305038c644cd9804e293ff08b21bcdade8071d02e3f0f962cc2fecc56cf8f77"},"v:deploy/haproxy/cell-api.cfg:47-54":{"short":"cell-api.cfg","path":"deploy/haproxy/cell-api.cfg","lineLabel":":47–54","href":"","origin":"TokenCraft gateway snapshot","sha256":"0305038c644cd9804e293ff08b21bcdade8071d02e3f0f962cc2fecc56cf8f77"},"v:docs/deployment.md:226-261":{"short":"deployment.md","path":"docs/deployment.md","lineLabel":":226–261","href":"","origin":"TokenCraft gateway snapshot","sha256":"a986ebd67dea9cc7993538a25da0c2fa82e7d5f97cf7408d6e520c1e83b29d80"},"v:crates/bin/api-gateway/src/gateway_demo/mod.rs:156-178":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/mod.rs","lineLabel":":156–178","href":"","origin":"TokenCraft gateway snapshot","sha256":"06f1378048882a797de1d76bfcb6ad48f3e56c36fe2e0f1b1f9ffcaead389366"},"v:crates/bin/api-gateway/src/gateway_demo/mod.rs:269-292":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/mod.rs","lineLabel":":269–292","href":"","origin":"TokenCraft gateway snapshot","sha256":"06f1378048882a797de1d76bfcb6ad48f3e56c36fe2e0f1b1f9ffcaead389366"},"v:crates/bin/api-gateway/src/hosted.rs:14-51":{"short":"hosted.rs","path":"crates/bin/api-gateway/src/hosted.rs","lineLabel":":14–51","href":"","origin":"TokenCraft gateway snapshot","sha256":"31e77be586b332f26ce9ff86e3af7cfaafe6c08f60447cdcb5638ebd98ed235c"},"v:docs/deployment.md:146-167":{"short":"deployment.md","path":"docs/deployment.md","lineLabel":":146–167","href":"","origin":"TokenCraft gateway snapshot","sha256":"a986ebd67dea9cc7993538a25da0c2fa82e7d5f97cf7408d6e520c1e83b29d80"},"v:crates/bin/api-gateway/src/gateway_demo/media.rs:227-269":{"short":"media.rs","path":"crates/bin/api-gateway/src/gateway_demo/media.rs","lineLabel":":227–269","href":"","origin":"TokenCraft gateway snapshot","sha256":"a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae"},"v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:371-447":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/mod.rs","lineLabel":":371–447","href":"","origin":"TokenCraft gateway snapshot","sha256":"e1004c8b4bec7333c7768d1e7bd28a1308ab092048e50efe3cd92cc3980f0f12"},"v:crates/bin/api-gateway/src/gateway_demo/requests.rs:233-365":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":233–365","href":"","origin":"TokenCraft gateway snapshot","sha256":"29b08eb75f0f1c0ffd6caf7aa2ad1abc143de9b14ff3e4ef360039095ce5a054"},"v:crates/bin/api-gateway/src/gateway_demo/requests.rs:365-452":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":365–452","href":"","origin":"TokenCraft gateway snapshot","sha256":"29b08eb75f0f1c0ffd6caf7aa2ad1abc143de9b14ff3e4ef360039095ce5a054"},"v:crates/bin/api-gateway/src/gateway_demo/requests.rs:566-653":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":566–653","href":"","origin":"TokenCraft gateway snapshot","sha256":"29b08eb75f0f1c0ffd6caf7aa2ad1abc143de9b14ff3e4ef360039095ce5a054"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:199-253":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":199–253","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"v:crates/db-queries/src/gateway_requests/provider_runs.rs:50-108":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":50–108","href":"","origin":"TokenCraft gateway snapshot","sha256":"54b56857de72173c90ca7bde6be41b16a221f7ab191a95a9cbbd9493d983065e"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:284-358":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":284–358","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"v:crates/db-queries/src/gateway_requests/provider_runs.rs:134-176":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":134–176","href":"","origin":"TokenCraft gateway snapshot","sha256":"54b56857de72173c90ca7bde6be41b16a221f7ab191a95a9cbbd9493d983065e"},"v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:51-121":{"short":"compute.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs","lineLabel":":51–121","href":"","origin":"TokenCraft gateway snapshot","sha256":"c0fe2226bb7939b46ca68dbdfb7fb87de191e033bb66ca43faeb9200d10e7249"},"v:crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs:146-184":{"short":"compute.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs","lineLabel":":146–184","href":"","origin":"TokenCraft gateway snapshot","sha256":"c0fe2226bb7939b46ca68dbdfb7fb87de191e033bb66ca43faeb9200d10e7249"},"v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs:168-244":{"short":"chat_transport.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs","lineLabel":":168–244","href":"","origin":"TokenCraft gateway snapshot","sha256":"238292f59fef83dafe3de326373b9983ab76065533bc6aaec56f10606a97fe5a"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:491-545":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":491–545","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"v:crates/bin/api-gateway/src/gateway_demo/providers/connector.rs:356-432":{"short":"connector.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/connector.rs","lineLabel":":356–432","href":"","origin":"TokenCraft gateway snapshot","sha256":"bfa55154a1bccfc3684f9d1fd1f9edda0805026c8204cb7f767162f2be1e56cd"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:448-488":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":448–488","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"v:crates/bin/api-gateway/src/gateway_demo/providers/completion.rs:65-125":{"short":"completion.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/completion.rs","lineLabel":":65–125","href":"","origin":"TokenCraft gateway snapshot","sha256":"a071a1852689d39d8f2fa31563169eb41d5ac0c65f2b25406401859621c10663"},"v:crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs:28-91":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs","lineLabel":":28–91","href":"","origin":"TokenCraft gateway snapshot","sha256":"0931bb416df40ec06885d2050e61371f59c75d197ff1b36259cfbc5a08caf860"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:549-646":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":549–646","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"v:crates/bin/api-gateway/src/gateway_demo/artifacts.rs:123-178":{"short":"artifacts.rs","path":"crates/bin/api-gateway/src/gateway_demo/artifacts.rs","lineLabel":":123–178","href":"","origin":"TokenCraft gateway snapshot","sha256":"5de86d71f61db41c382a434474cda9af106d846b29c0c5c3b6c60d4c42aab04f"},"v:crates/bin/api-gateway/src/gateway_demo/chat/stream.rs:28-104":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":28–104","href":"","origin":"TokenCraft gateway snapshot","sha256":"95cbb495db0ba9ce8f0d3a3f56769e6b2687355a5c03ecc7285b200a416d902e"},"v:crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs:11-75":{"short":"worker.rs","path":"crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs","lineLabel":":11–75","href":"","origin":"TokenCraft gateway snapshot","sha256":"491df8240d78a11a95493c385ddfedaae84f32c420dfd7864207697fb540c466"},"v:crates/bin/api-gateway/src/gateway_demo/handlers.rs:126-186":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":126–186","href":"","origin":"TokenCraft gateway snapshot","sha256":"25943c304bc851a640fb9a0694778f70d6fef3b6910cc16109e9d9c872771d2b"},"v:crates/bin/api-gateway/src/gateway_demo/chat/mod.rs:448-525":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/mod.rs","lineLabel":":448–525","href":"","origin":"TokenCraft gateway snapshot","sha256":"e1004c8b4bec7333c7768d1e7bd28a1308ab092048e50efe3cd92cc3980f0f12"},"v:crates/bin/api-gateway/src/gateway_demo/providers/mod.rs:360-448":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":360–448","href":"","origin":"TokenCraft gateway snapshot","sha256":"bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477"},"g:handlers.rs:104-150":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":104–150","href":"","origin":"TokenCraft"},"g:requests.rs:206-244":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":206–244","href":"","origin":"TokenCraft"},"g:requests.rs:238-332":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":238–332","href":"","origin":"TokenCraft"},"g:requests.rs:722-736":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":722–736","href":"","origin":"TokenCraft"},"q:insert_request.rs:29-41":{"short":"insert_request.rs","path":"crates/db-queries/src/gateway_requests/insert_request.rs","lineLabel":":29–41","href":"","origin":"TokenCraft"},"g:handlers.rs:150-164":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":150–164","href":"","origin":"TokenCraft"},"g:requests.rs:325-342":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":325–342","href":"","origin":"TokenCraft"},"g:requests.rs:334-412":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":334–412","href":"","origin":"TokenCraft"},"g:requests.rs:584-603":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":584–603","href":"","origin":"TokenCraft"},"g:quote.rs:469-599":{"short":"quote.rs","path":"crates/bin/api-gateway/src/gateway_demo/quote.rs","lineLabel":":469–599","href":"","origin":"TokenCraft"},"g:requests.rs:502-527":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":502–527","href":"","origin":"TokenCraft"},"g:requests.rs:584-646":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":584–646","href":"","origin":"TokenCraft"},"q:insert_request.rs:29-36":{"short":"insert_request.rs","path":"crates/db-queries/src/gateway_requests/insert_request.rs","lineLabel":":29–36","href":"","origin":"TokenCraft"},"g:requests.rs:646-653":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":646–653","href":"","origin":"TokenCraft"},"g:requests.rs:714-719":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":714–719","href":"","origin":"TokenCraft"},"g:requests.rs:216-332":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":216–332","href":"","origin":"TokenCraft"},"g:requests.rs:329-375":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":329–375","href":"","origin":"TokenCraft"},"g:requests.rs:403-415":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":403–415","href":"","origin":"TokenCraft"},"g:requests.rs:573-645":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":573–645","href":"","origin":"TokenCraft"},"q:provider_runs.rs:41-98":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":41–98","href":"","origin":"TokenCraft"},"q:queue_turns.rs:17-38":{"short":"queue_turns.rs","path":"crates/db-queries/src/gateway_requests/queue_turns.rs","lineLabel":":17–38","href":"","origin":"TokenCraft"},"g:providers/mod.rs:426-456":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":426–456","href":"","origin":"TokenCraft"},"g:providers/mod.rs:628-743":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":628–743","href":"","origin":"TokenCraft"},"g:providers/mod.rs:746-797":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":746–797","href":"","origin":"TokenCraft"},"g:requests.rs:675-711":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":675–711","href":"","origin":"TokenCraft"},"q:provider_runs.rs:199-239":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":199–239","href":"","origin":"TokenCraft"},"q:active_requests.rs:23-46":{"short":"active_requests.rs","path":"crates/db-queries/src/gateway_requests/active_requests.rs","lineLabel":":23–46","href":"","origin":"TokenCraft"},"q:fal_callbacks.rs:11-76":{"short":"fal_callbacks.rs","path":"crates/db-queries/src/gateway_requests/fal_callbacks.rs","lineLabel":":11–76","href":"","origin":"TokenCraft"},"q:queued_runs.rs:20-96":{"short":"queued_runs.rs","path":"crates/db-queries/src/gateway_requests/queued_runs.rs","lineLabel":":20–96","href":"","origin":"TokenCraft"},"q:fal_callbacks.rs:60-84":{"short":"fal_callbacks.rs","path":"crates/db-queries/src/gateway_requests/fal_callbacks.rs","lineLabel":":60–84","href":"","origin":"TokenCraft"},"g:providers/mod.rs:873-905":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":873–905","href":"","origin":"TokenCraft"},"g:artifacts.rs:118-212":{"short":"artifacts.rs","path":"crates/bin/api-gateway/src/gateway_demo/artifacts.rs","lineLabel":":118–212","href":"","origin":"TokenCraft"},"q:provider_runs.rs:122-196":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":122–196","href":"","origin":"TokenCraft"},"g:handlers.rs:260-286":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":260–286","href":"","origin":"TokenCraft"},"g:artifacts.rs:259-316":{"short":"artifacts.rs","path":"crates/bin/api-gateway/src/gateway_demo/artifacts.rs","lineLabel":":259–316","href":"","origin":"TokenCraft"},"q:provider_runs.rs:70-98":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":70–98","href":"","origin":"TokenCraft"},"g:providers/mod.rs:714-743":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":714–743","href":"","origin":"TokenCraft"},"g:fal_callbacks.rs:209-254":{"short":"fal_callbacks.rs","path":"crates/bin/api-gateway/src/gateway_demo/fal_callbacks.rs","lineLabel":":209–254","href":"","origin":"TokenCraft"},"q:fal_callbacks.rs:11-84":{"short":"fal_callbacks.rs","path":"crates/db-queries/src/gateway_requests/fal_callbacks.rs","lineLabel":":11–84","href":"","origin":"TokenCraft"},"g:providers/mod.rs:853-905":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":853–905","href":"","origin":"TokenCraft"},"q:provider_runs.rs:138-196":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":138–196","href":"","origin":"TokenCraft"},"g:mod.rs:210-211":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/mod.rs","lineLabel":":210–211","href":"","origin":"TokenCraft"},"g:chat/mod.rs:349-453":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/mod.rs","lineLabel":":349–453","href":"","origin":"TokenCraft"},"g:chat/responses.rs:177-219":{"short":"responses.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/responses.rs","lineLabel":":177–219","href":"","origin":"TokenCraft"},"g:providers/mod.rs:575-612":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":575–612","href":"","origin":"TokenCraft"},"g:providers/openrouter/stream.rs:22-89":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/openrouter/stream.rs","lineLabel":":22–89","href":"","origin":"TokenCraft"},"g:providers/openrouter/stream.rs:129-234":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/openrouter/stream.rs","lineLabel":":129–234","href":"","origin":"TokenCraft"},"g:providers/openrouter/stream.rs:169-233":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/openrouter/stream.rs","lineLabel":":169–233","href":"","origin":"TokenCraft"},"q:chat_streams.rs:1-83":{"short":"chat_streams.rs","path":"crates/db-queries/src/gateway_requests/chat_streams.rs","lineLabel":":1–83","href":"","origin":"TokenCraft"},"g:chat/stream.rs:25-89":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":25–89","href":"","origin":"TokenCraft"},"g:chat/stream.rs:101-168":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":101–168","href":"","origin":"TokenCraft"},"g:chat/mod.rs:368-453":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/mod.rs","lineLabel":":368–453","href":"","origin":"TokenCraft"},"g:chat/stream.rs:209-289":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":209–289","href":"","origin":"TokenCraft"},"g:requests.rs:618-646":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":618–646","href":"","origin":"TokenCraft"},"g:providers/openrouter/stream.rs:169-198":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/openrouter/stream.rs","lineLabel":":169–198","href":"","origin":"TokenCraft"},"g:chat/stream.rs:101-190":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":101–190","href":"","origin":"TokenCraft"},"g:chat/stream.rs:53-89":{"short":"stream.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/stream.rs","lineLabel":":53–89","href":"","origin":"TokenCraft"},"g:providers/mod.rs:406-416":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/providers/mod.rs","lineLabel":":406–416","href":"","origin":"TokenCraft"},"g:requests.rs:28-38":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":28–38","href":"","origin":"TokenCraft"},"q:cancel_request.rs:6-21":{"short":"cancel_request.rs","path":"crates/db-queries/src/gateway_requests/cancel_request.rs","lineLabel":":6–21","href":"","origin":"TokenCraft"},"g:handlers.rs:291-355":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":291–355","href":"","origin":"TokenCraft"},"g:handlers.rs:193-286":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":193–286","href":"","origin":"TokenCraft"},"g:polling.rs:11-34":{"short":"polling.rs","path":"crates/bin/api-gateway/src/gateway_demo/polling.rs","lineLabel":":11–34","href":"","origin":"TokenCraft"},"m:0008_gateway_provider_runs.sql:75-83":{"short":"0008_gateway_provider_runs.sql","path":"crates/db/migrations/0008_gateway_provider_runs.sql","lineLabel":":75–83","href":"","origin":"TokenCraft"},"m:0014_gateway_fal_callbacks.sql:15-49":{"short":"0014_gateway_fal_callbacks.sql","path":"crates/db/migrations/0014_gateway_fal_callbacks.sql","lineLabel":":15–49","href":"","origin":"TokenCraft"},"g:webhooks/worker.rs:8-84":{"short":"worker.rs","path":"crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs","lineLabel":":8–84","href":"","origin":"TokenCraft"},"g:mod.rs:191-195":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/mod.rs","lineLabel":":191–195","href":"","origin":"TokenCraft"},"g:mod.rs:230-245":{"short":"mod.rs","path":"crates/bin/api-gateway/src/gateway_demo/mod.rs","lineLabel":":230–245","href":"","origin":"TokenCraft"},"g:readiness.rs:200-226":{"short":"readiness.rs","path":"crates/bin/api-gateway/src/gateway_demo/readiness.rs","lineLabel":":200–226","href":"","origin":"TokenCraft"},"g:operations.rs:83-114":{"short":"operations.rs","path":"crates/bin/api-gateway/src/gateway_demo/operations.rs","lineLabel":":83–114","href":"","origin":"TokenCraft"},"m:0036_gateway_content_removal_exports.sql:14-37":{"short":"0036_gateway_content_removal_exports.sql","path":"crates/db/migrations/0036_gateway_content_removal_exports.sql","lineLabel":":14–37","href":"","origin":"TokenCraft"},"g:webhooks/worker.rs:44-84":{"short":"worker.rs","path":"crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs","lineLabel":":44–84","href":"","origin":"TokenCraft"},"w:queue.rs:112-154":{"short":"queue.rs","path":"crates/db-queries/src/gateway_webhooks/queue.rs","lineLabel":":112–154","href":"","origin":"TokenCraft"},"w:deliveries.rs:1-90":{"short":"deliveries.rs","path":"crates/db-queries/src/gateway_webhooks/deliveries.rs","lineLabel":":1–90","href":"","origin":"TokenCraft"},"g:handlers.rs:193-258":{"short":"handlers.rs","path":"crates/bin/api-gateway/src/gateway_demo/handlers.rs","lineLabel":":193–258","href":"","origin":"TokenCraft"},"g:webhooks/worker.rs:23-84":{"short":"worker.rs","path":"crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs","lineLabel":":23–84","href":"","origin":"TokenCraft"},"w:queue.rs:17-95":{"short":"queue.rs","path":"crates/db-queries/src/gateway_webhooks/queue.rs","lineLabel":":17–95","href":"","origin":"TokenCraft"},"s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:63-125":{"short":"omni_gen_image_generate_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs","lineLabel":":63–125","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs#L63-L125","origin":"ArtCraft Services"},"s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:101-119":{"short":"omni_gen_image_generate_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs","lineLabel":":101–119","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs#L101-L119","origin":"ArtCraft Services"},"s:omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs:46-110":{"short":"run_pipeline_v2.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs","lineLabel":":46–110","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs#L46-L110","origin":"ArtCraft Services"},"s:omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs:68-110":{"short":"run_pipeline_v2.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs","lineLabel":":68–110","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/pipeline_v2/run_pipeline_v2.rs#L68-L110","origin":"ArtCraft Services"},"s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:174-211":{"short":"omni_gen_image_generate_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs","lineLabel":":174–211","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs#L174-L211","origin":"ArtCraft Services"},"s:omni_gen/generate/image/omni_gen_image_generate_handler.rs:328-362":{"short":"omni_gen_image_generate_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs","lineLabel":":328–362","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/omni_gen/generate/image/omni_gen_image_generate_handler.rs#L328-L362","origin":"ArtCraft Services"},"s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:24-51":{"short":"handle_successful_fal_webhook.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs","lineLabel":":24–51","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs#L24-L51","origin":"ArtCraft Services"},"s:webhooks/fal/fal_webhook_handler.rs:40-80":{"short":"fal_webhook_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/fal_webhook_handler.rs","lineLabel":":40–80","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/fal_webhook_handler.rs#L40-L80","origin":"ArtCraft Services"},"s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:24-181":{"short":"handle_successful_fal_webhook.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs","lineLabel":":24–181","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs#L24-L181","origin":"ArtCraft Services"},"s:webhooks/fal/process_success/process_video_payload.rs:36-154":{"short":"process_video_payload.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/process_video_payload.rs","lineLabel":":36–154","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/process_video_payload.rs#L36-L154","origin":"ArtCraft Services"},"s:webhooks/fal/process_success/process_image_payload.rs:141-179":{"short":"process_image_payload.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/process_image_payload.rs","lineLabel":":141–179","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/process_image_payload.rs#L141-L179","origin":"ArtCraft Services"},"s:webhooks/fal/process_success/handle_successful_fal_webhook.rs:72-181":{"short":"handle_successful_fal_webhook.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs","lineLabel":":72–181","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/webhooks/fal/process_success/handle_successful_fal_webhook.rs#L72-L181","origin":"ArtCraft Services"},"s:inference_job/list/list_session_jobs_handler.rs:104-165":{"short":"list_session_jobs_handler.rs","path":"crates/service/web/storyteller_web/src/http_server/endpoints/inference_job/list/list_session_jobs_handler.rs","lineLabel":":104–165","href":"https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/inference_job/list/list_session_jobs_handler.rs#L104-L165","origin":"ArtCraft Services"},"v:crates/db-queries/src/gateway_requests/provider_runs.rs:216-244":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":216–244","href":"","origin":"TokenCraft gateway snapshot","sha256":"54b56857de72173c90ca7bde6be41b16a221f7ab191a95a9cbbd9493d983065e"},"v:crates/bin/api-gateway/src/gateway_demo/media.rs:77-150":{"short":"media.rs","path":"crates/bin/api-gateway/src/gateway_demo/media.rs","lineLabel":":77–150","href":"","origin":"TokenCraft gateway snapshot","sha256":"a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae"},"v:crates/bin/api-gateway/src/gateway_demo/media.rs:270-323":{"short":"media.rs","path":"crates/bin/api-gateway/src/gateway_demo/media.rs","lineLabel":":270–323","href":"","origin":"TokenCraft gateway snapshot","sha256":"a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae"},"v:crates/bin/api-gateway/src/gateway_demo/chat/responses.rs:38-94":{"short":"responses.rs","path":"crates/bin/api-gateway/src/gateway_demo/chat/responses.rs","lineLabel":":38–94","href":"","origin":"TokenCraft gateway snapshot","sha256":"82da67164fe3116ab9186ae0259bdbd5a6471977bf5eae3db17edd367c02dd35"},"v:crates/bin/api-gateway/src/gateway_demo/requests.rs:479-565":{"short":"requests.rs","path":"crates/bin/api-gateway/src/gateway_demo/requests.rs","lineLabel":":479–565","href":"","origin":"TokenCraft gateway snapshot","sha256":"29b08eb75f0f1c0ffd6caf7aa2ad1abc143de9b14ff3e4ef360039095ce5a054"},"v:crates/bin/api-gateway/src/gateway_demo/routing_policy.rs:150-205":{"short":"routing_policy.rs","path":"crates/bin/api-gateway/src/gateway_demo/routing_policy.rs","lineLabel":":150–205","href":"","origin":"TokenCraft gateway snapshot","sha256":"3c3d79ad1aacc233601655d69ba256ca23ca37c597334482b6856b7c8e6036c1"},"v:crates/bin/api-gateway/src/gateway_demo/routing_policy.rs:207-317":{"short":"routing_policy.rs","path":"crates/bin/api-gateway/src/gateway_demo/routing_policy.rs","lineLabel":":207–317","href":"","origin":"TokenCraft gateway snapshot","sha256":"3c3d79ad1aacc233601655d69ba256ca23ca37c597334482b6856b7c8e6036c1"},"v:crates/bin/api-gateway/src/gateway_demo/availability.rs:134-171":{"short":"availability.rs","path":"crates/bin/api-gateway/src/gateway_demo/availability.rs","lineLabel":":134–171","href":"","origin":"TokenCraft gateway snapshot","sha256":"ebe77e24cc75e160a6482fa66f92873e1eca21de3a1b0bd767b3bd8a2ba1edb6"},"v:crates/bin/api-gateway/src/model_reviews.rs:19-25":{"short":"model_reviews.rs","path":"crates/bin/api-gateway/src/model_reviews.rs","lineLabel":":19–25","href":"","origin":"TokenCraft gateway snapshot","sha256":"e3fc992c291809c175280435f862b959b74200334992f4906ab68fb06bed65c2"},"v:crates/bin/api-gateway/src/gateway_demo/quote.rs:427-511":{"short":"quote.rs","path":"crates/bin/api-gateway/src/gateway_demo/quote.rs","lineLabel":":427–511","href":"","origin":"TokenCraft gateway snapshot","sha256":"924894910fcfa735e6c89dca51b485ff8de78c3c327793a48753b0c2dfed0067"},"v:crates/bin/api-gateway/src/gateway_demo/route_performance.rs:70-112":{"short":"route_performance.rs","path":"crates/bin/api-gateway/src/gateway_demo/route_performance.rs","lineLabel":":70–112","href":"","origin":"TokenCraft gateway snapshot","sha256":"6f6738fc1fbb5158f391e2d2fd40b14516644d021e2490d1f3a201e32b80f373"},"v:crates/db-queries/src/gateway_requests/queued_runs.rs:28-76":{"short":"queued_runs.rs","path":"crates/db-queries/src/gateway_requests/queued_runs.rs","lineLabel":":28–76","href":"","origin":"TokenCraft gateway snapshot","sha256":"b622b345c13ace227638d9630eb577ec3e75dec1e715bcb81b09b348916d74dc"},"v:crates/db-queries/src/gateway_requests/queue_turns.rs:11-52":{"short":"queue_turns.rs","path":"crates/db-queries/src/gateway_requests/queue_turns.rs","lineLabel":":11–52","href":"","origin":"TokenCraft gateway snapshot","sha256":"e32490da582b64723c7a63e38557e41915960e19a67febc2fa518007a8ede4e8"},"v:crates/db-queries/src/gateway_requests/queued_runs.rs:79-117":{"short":"queued_runs.rs","path":"crates/db-queries/src/gateway_requests/queued_runs.rs","lineLabel":":79–117","href":"","origin":"TokenCraft gateway snapshot","sha256":"b622b345c13ace227638d9630eb577ec3e75dec1e715bcb81b09b348916d74dc"},"v:crates/bin/api-gateway/src/gateway_demo/debug_trace.rs:199-268":{"short":"debug_trace.rs","path":"crates/bin/api-gateway/src/gateway_demo/debug_trace.rs","lineLabel":":199–268","href":"","origin":"TokenCraft gateway snapshot","sha256":"c71a9928181e931220e4f1e4219b8123ca92b2737f7970ffbe53432322e629f9"},"v:crates/db-queries/src/gateway_requests/provider_runs.rs:135-214":{"short":"provider_runs.rs","path":"crates/db-queries/src/gateway_requests/provider_runs.rs","lineLabel":":135–214","href":"","origin":"TokenCraft gateway snapshot","sha256":"88d7ccd75b412b3b1e64dc2fd75ad42beef40b68d7f42830558998edc0ea619e"}};
+  const embedded = false;
+  const nav = root.querySelector(".bd-flow-nav");
+  const graph = root.querySelector(".bd-graph");
+  const grid = root.querySelector(".bd-node-grid");
+  const wires = root.querySelector(".bd-wires");
+  const labels = root.querySelector(".bd-wire-labels");
+  const refs = root.querySelector(".bd-sources");
+  const flowLinks = root.querySelector(".bd-flow-links");
+  const drillLinks = root.querySelector(".bd-drill-links");
+  const ask = root.querySelector(".bd-ask");
+  const back = root.querySelector(".bd-back");
+  const inspector = root.querySelector(".bd-inspector");
+  const copyStatus = root.querySelector(".bd-copy-status");
+  const promptField = root.querySelector(".bd-prompt");
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  let flow = flows[0];
+  let selected;
+  let animation = 0;
+  let hashTimer;
+  let topicNotes = [];
+  const formerFlows = new Map([
+    ["compute", { target: "cells", defaultItem: "offer", items: new Map([["worker", "cell-a"]]) }],
+    ["migration", { target: "studio", defaultItem: "bridge", items: new Map([
+      ["studio-api", "client"], ["mysql", "mapping"], ["legacy", "submit"],
+      ["scoped", "admit"], ["domain-effects", "copy-asset"],
+    ]) }],
+  ]);
+  const formerSections = new Map([["artcraft-port", "studio-dual-store"], ["recovery", "receipt-recovery"]]);
+  const formerItems = new Map([
+    ["cells", new Map([["store-a", "cell-a"], ["store-b", "cell-b"], ["route-b", "directory"], ["write-a", "result"], ["write-b", "cell-b"]])],
+    ["studio", new Map([["credits", "fal"], ["auth", "fal"], ["event", "callback"]])],
+  ]);
+
+  function control(text, className) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = className;
+    button.textContent = text;
+    return button;
+  }
+
+  function svgElement(tag, attributes) {
+    const element = document.createElementNS(svgNamespace, tag);
+    for (const [key, value] of Object.entries(attributes)) {
+      element.setAttribute(key, value);
+    }
+    return element;
+  }
+
+  function classify(id) {
+    const node = flow.nodes.find((item) => item[0] === id);
+    if (node) {
+      const [, , , name, , description, boundary, references] = node;
+      return { name, description, boundary, references, kind: "Component", proposal: flow.proposal || flow.planned?.includes(id) || !references.length };
+    }
+
+    const edge = flow.edges.find((item) => item[0] === id);
+    if (!edge) return;
+    const [, from, to, name, description, references] = edge;
+    const title = (key) => flow.nodes.find((item) => item[0] === key)[3];
+    return { name, description, boundary: title(from) + " → " + title(to), references, kind: "Connection", proposal: flow.proposal || flow.planned?.includes(id) || !references.length };
+  }
+
+  function renderLinks(container, links = []) {
+    container.replaceChildren(...links.map(([target, label]) => {
+      const link = document.createElement("a");
+      link.href = "#" + target;
+      link.textContent = label;
+      link.className = "text-small";
+      link.addEventListener("click", (event) => {
+        if (!embedded && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
+        event.preventDefault();
+        jump(target);
+      });
+      return link;
+    }));
+    container.hidden = links.length === 0;
+  }
+
+  function jump(target) {
+    const [flowId, item] = target.split("/");
+    clearTimeout(hashTimer);
+    if (!embedded && location.hash !== "#" + target) history.pushState(null, "", "#" + target);
+    show(flowId, item, embedded);
+    root.querySelector(".bd-graph button[aria-pressed='true']")?.focus({ preventScroll: true });
+    if (!embedded) root.scrollIntoView({ block: "start" });
+  }
+
+  function sourceList(references) {
+    const items = references.map((key) => {
+      const source = sources[key];
+      const li = document.createElement("li");
+      const label = document.createElement("code");
+      label.textContent = source.short + source.lineLabel;
+      if (embedded || !source.href) {
+        li.append(label);
+      } else {
+        const link = document.createElement("a");
+        link.href = source.href;
+        if (source.origin === "ArtCraft Services") {
+          link.target = "_blank";
+          link.rel = "noopener noreferrer";
+        }
+        link.append(label);
+        li.append(link);
+      }
+      li.setAttribute("data-source", source.path + source.lineLabel);
+      li.setAttribute("data-tooltip", source.path + source.lineLabel);
+      return li;
+    });
+    refs.querySelector("ul").replaceChildren(...items);
+  }
+
+  function storeSelection() {
+    if (embedded) {
+      const api = window.openai;
+      if (api?.setWidgetState) {
+        const item = classify(selected);
+        Promise.resolve(api.setWidgetState({
+          modelContent: { backendFlow: flow.tab, backendSelection: item.name, reference: item.references.map((key) => sources[key].path + sources[key].lineLabel) },
+          privateContent: { flow: flow.id, item: selected },
+        })).catch(() => {});
+      }
+      return;
+    }
+
+    clearTimeout(hashTimer);
+    hashTimer = setTimeout(() => history.replaceState(null, "", "#" + flow.id + "/" + selected), 80);
+  }
+
+  function select(id, persist = false) {
+    const item = classify(id);
+    if (!item) return;
+    selected = id;
+    for (const button of graph.querySelectorAll("button[data-item]")) {
+      button.setAttribute("aria-pressed", String(button.dataset.item === selected));
+    }
+    for (const wire of wires.children) {
+      wire.classList.toggle("is-current", wire.dataset.item === selected);
+    }
+    root.querySelector(".bd-item-kind").textContent = item.kind + (item.proposal ? " · Design proposal" : " · Source observation");
+    root.querySelector("#craft-item-title").textContent = item.name;
+    root.querySelector(".bd-detail").textContent = item.description;
+    const boundary = root.querySelector(".bd-boundary");
+    boundary.replaceChildren();
+    if (item.boundary.startsWith("Hypothesis. ")) {
+      const emphasis = document.createElement("strong");
+      emphasis.textContent = "Hypothesis. ";
+      boundary.append(emphasis, item.boundary.slice(12));
+    } else {
+      boundary.textContent = item.boundary;
+    }
+    boundary.hidden = !item.boundary;
+    refs.hidden = item.references.length === 0;
+    sourceList(item.references);
+    renderLinks(drillLinks, flow.drills?.[id]);
+    copyStatus.textContent = "";
+    promptField.hidden = true;
+    if (persist) storeSelection();
+  }
+
+  function inspectFromDiagram(id, event) {
+    select(id, true);
+    const narrow = graph.clientWidth < 600;
+    if (!event.isTrusted || !narrow || embedded) return;
+    if (inspector.getBoundingClientRect().top > window.innerHeight - 150) {
+      back.hidden = false;
+      inspector.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  back.addEventListener("click", () => {
+    const button = graph.querySelector('button[data-item="' + selected + '"]');
+    button.focus({ preventScroll: true });
+    button.scrollIntoView({ block: "center" });
+    back.hidden = true;
+  });
+
+  function makeNode(node) {
+    const [id, row, column, title, subtitle] = node;
+    const position = document.createElement("div");
+    position.className = "bd-node";
+    position.dataset.node = id;
+    position.dataset.column = column;
+    position.dataset.proposal = String(Boolean(flow.planned?.includes(id)));
+    position.dataset.crossing = String(flow.edges.some(([, from, to]) => {
+      if (from !== id && to !== id) return false;
+      const other = flow.nodes.find((item) => item[0] === (from === id ? to : from));
+      return other[1] === row;
+    }));
+    position.style.gridRow = row + 1;
+    const button = control("", "btn btn-block");
+    button.dataset.item = id;
+    const content = document.createElement("span");
+    content.className = "bd-node-content";
+    const label = document.createElement("span");
+    label.className = "bd-node-title";
+    label.textContent = title;
+    const sub = document.createElement("span");
+    sub.className = "text-small";
+    sub.textContent = subtitle;
+    content.append(label, sub);
+    button.append(content);
+    button.addEventListener("click", (event) => inspectFromDiagram(id, event));
+    position.append(button);
+    return position;
+  }
+
+  function makeZone([firstRow, lastRow, label]) {
+    const zone = document.createElement("div");
+    zone.className = "bd-zone text-small";
+    zone.style.gridRow = (firstRow + 1) + " / " + (lastRow + 2);
+    const title = document.createElement("span");
+    title.className = "bd-zone-label";
+    title.textContent = label;
+    zone.append(title);
+    return zone;
+  }
+
+  function makeWireLabel(edge) {
+    const [id, from, to, title, , , , caption = title] = edge;
+    const position = document.createElement("div");
+    position.className = "bd-wire-item";
+    position.dataset.edge = id;
+    const button = control("", "btn btn-ghost");
+    button.dataset.item = id;
+    const text = document.createElement("span");
+    text.className = "bd-wire-text text-small";
+    text.textContent = caption;
+    button.append(text);
+    const name = (key) => flow.nodes.find((item) => item[0] === key)[3];
+    button.setAttribute("aria-label", title + ", " + name(from) + " to " + name(to));
+    button.addEventListener("click", (event) => inspectFromDiagram(id, event));
+    position.append(button);
+    return position;
+  }
+
+  function drawWires() {
+    const bounds = graph.getBoundingClientRect();
+    const centerX = (rect) => rect.left + rect.width / 2 - bounds.left;
+    const centerY = (rect) => rect.top + rect.height / 2 - bounds.top;
+    const rows = new Map(flow.nodes.map(([id, row]) => [id, row]));
+
+    const groups = flow.edges.map(([id, from, to, , , , style = "normal", , lane]) => {
+      const fromNode = grid.querySelector('[data-node="' + from + '"]');
+      const toNode = grid.querySelector('[data-node="' + to + '"]');
+      const start = fromNode.querySelector("button").getBoundingClientRect();
+      const end = toNode.querySelector("button").getBoundingClientRect();
+      const returnLeft = lane === "return-left";
+      const side = lane === "left" || returnLeft;
+      const labelLeft = lane === "label-left";
+      const belowTarget = lane === "below-target";
+      const leftStart = start.left - bounds.left - 4;
+      const leftEnd = end.left - bounds.left - 4;
+      const leftLaneX = returnLeft ? 2 : Math.min(leftStart, leftEnd) / 2;
+      const horizontal = fromNode.style.gridRow === toNode.style.gridRow;
+      const sourceX = side ? leftStart : horizontal ? start.right - bounds.left + 4 : centerX(start);
+      const joining = !horizontal && flow.edges.some(([other, origin, destination]) =>
+        other !== id && destination === to && rows.get(origin) === rows.get(from));
+      const targetCenter = centerX(end);
+      const joinOffset = joining ? Math.sign(sourceX - targetCenter) * Math.min(18, end.width * .14) : 0;
+      const targetX = side || horizontal ? leftEnd : targetCenter + joinOffset;
+      const sourceY = side || horizontal ? centerY(start) : start.bottom - bounds.top + 3;
+      const targetY = side || horizontal ? centerY(end) : end.top - bounds.top - 3;
+      const middleY = (sourceY + targetY) / 2;
+      const corner = 12;
+      const path = (returnLeft ? [
+        "M", sourceX, sourceY, "H", leftLaneX + corner,
+        "Q", leftLaneX, sourceY, leftLaneX, sourceY - corner,
+        "V", targetY + corner, "Q", leftLaneX, targetY, leftLaneX + corner, targetY,
+        "H", targetX,
+      ] : side ? [
+        "M", sourceX, sourceY, "C", leftLaneX, sourceY, leftLaneX, sourceY, leftLaneX, middleY,
+        "C", leftLaneX, targetY, leftLaneX, targetY, targetX, targetY,
+      ] : [
+        "M", sourceX, sourceY, "C", sourceX, middleY, targetX, middleY, targetX, targetY,
+      ]).join(" ");
+      const arrow = side || horizontal
+        ? [targetX - 7, targetY - 4, targetX, targetY, targetX - 7, targetY + 4]
+        : [targetX - 4, targetY - 7, targetX, targetY, targetX + 4, targetY - 7];
+      const group = svgElement("g", { class: "bd-edge", "data-style": style, "data-item": id });
+      group.classList.toggle("is-current", id === selected);
+      const hit = svgElement("path", { class: "bd-hit cursor-interaction", d: path, "data-wire": id });
+      hit.addEventListener("click", (event) => inspectFromDiagram(id, event));
+      group.append(svgElement("path", { class: "bd-curve", d: path }), svgElement("polyline", { class: "bd-arrow", points: arrow.join(" ") }), hit);
+
+      const label = labels.querySelector('[data-edge="' + id + '"]');
+      const straight = !horizontal && Math.abs(sourceX - targetX) < 1;
+      label.dataset.horizontal = String(horizontal);
+      label.dataset.branch = String(side || (!straight && !horizontal));
+      const leftLane = targetX < bounds.width / 3;
+      const room = leftLane || labelLeft ? targetX : bounds.width - targetX;
+      const useInside = room < 82 && !labelLeft;
+      const direction = labelLeft ? -1 : leftLane === useInside ? 1 : -1;
+      if (returnLeft) {
+        label.style.maxWidth = Math.min(110, targetX - leftLaneX - 8) + "px";
+      } else if (side) {
+        label.style.maxWidth = (2 * leftLaneX - 4) + "px";
+      } else if (belowTarget) {
+        label.style.maxWidth = "70px";
+      } else if (horizontal) {
+        label.style.maxWidth = Math.min(125, targetX - sourceX + 6) + "px";
+      } else if (straight) {
+        label.style.maxWidth = (useInside ? Math.min(88, bounds.width / 3 - 9) : Math.min(142, room - 9)) + "px";
+      } else {
+        label.style.maxWidth = Math.min(125, bounds.width * (joining ? .30 : .34)) + "px";
+      }
+      const halfLabel = label.offsetWidth / 2;
+      const offset = (halfLabel + 8) * direction;
+      const labelX = returnLeft ? (leftLaneX + targetX) / 2 : side ? leftLaneX : belowTarget ? targetCenter : horizontal ? (sourceX + targetX) / 2
+        : straight ? targetX + offset : sourceX + (targetX - sourceX) * (joining ? .33 : .75);
+      label.style.left = labelX + "px";
+      const labelY = returnLeft ? targetY - 20 : belowTarget ? Math.max(start.bottom, end.bottom) - bounds.top + 16
+        : middleY + (horizontal ? 16 : 0);
+      label.style.top = labelY + "px";
+      return group;
+    });
+    wires.replaceChildren(...groups);
+  }
+
+  function scheduleDraw() {
+    if (!selected) return;
+    cancelAnimationFrame(animation);
+    animation = requestAnimationFrame(drawWires);
+  }
+
+  function show(flowId, item, persist = false) {
+    const prior = formerFlows.get(flowId);
+    if (prior) {
+      flowId = prior.target;
+      item = prior.items.get(item) ?? item ?? prior.defaultItem;
+    }
+    item = formerItems.get(flowId)?.get(item) ?? item;
+    flow = flows.find((candidate) => candidate.id === flowId) || flows[0];
+    for (const note of topicNotes) {
+      note.hidden = note.dataset.flow !== flow.id;
+    }
+    root.querySelector("#craft-flow-title").textContent = flow.title;
+    root.querySelector("#craft-flow-summary").textContent = flow.summary;
+    root.querySelector(".bd-main").dataset.depth = flow.layout === "overview" ? "long" : "standard";
+    renderLinks(flowLinks, flow.links);
+    for (const tab of nav.children) {
+      tab.setAttribute("aria-pressed", String(tab.dataset.flow === (flow.parent ?? flow.id)));
+    }
+
+    back.hidden = true;
+    grid.dataset.density = flow.layout ?? ((flow.id === "cells" || flow.id === "studio") ? "compact" : "normal");
+    grid.dataset.crossing = String(flow.edges.some(([, from, to]) =>
+      flow.nodes.find((node) => node[0] === from)[1] === flow.nodes.find((node) => node[0] === to)[1]));
+    grid.replaceChildren(...(flow.zones ?? []).map(makeZone), ...flow.nodes.map(makeNode));
+    labels.replaceChildren(...flow.edges.map(makeWireLabel));
+    refs.open = false;
+    select(classify(item) ? item : flow.nodes[0][0], persist);
+    drawWires();
+    scheduleDraw();
+  }
+
+  function discussionPrompt() {
+    const item = classify(selected);
+    const sourceRefs = item.references.map((key) => sources[key].origin + " " + sources[key].path + sources[key].lineLabel);
+    return [
+      "Walk me through " + flow.title + " in the backend low-level design.",
+      "Selected " + item.kind.toLowerCase() + " is " + item.name + ". " + item.description,
+      item.proposal
+        ? "Discuss the proposed design and make me reason through the trade-off before giving the answer."
+        : "Use the inspected source and make me reason through the failure case before giving the answer.",
+      "Start with this question. " + flow.question,
+      ...(sourceRefs.length ? ["Source references", ...sourceRefs] : []),
+    ].join("\n");
+  }
+
+  ask.addEventListener("click", async () => {
+    const prompt = discussionPrompt();
+    const followUp = embedded && window.openai?.sendFollowUpMessage;
+    if (followUp) {
+      try {
+        await window.openai.sendFollowUpMessage({ prompt, title: "Discuss " + classify(selected).name });
+        return;
+      } catch {
+        copyStatus.textContent = "Copy or select the prompt below.";
+      }
+    }
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(prompt);
+        copyStatus.textContent = "Prompt copied.";
+        return;
+      } catch {
+        copyStatus.textContent = "Select and copy the prompt below.";
+      }
+    } else {
+      copyStatus.textContent = "Select and copy the prompt below.";
+    }
+    promptField.value = prompt;
+    promptField.hidden = false;
+    promptField.focus();
+    promptField.select();
+  });
+
+  for (const diagram of flows.filter((diagram) => !diagram.parent)) {
+    const tab = control(diagram.tab, "btn btn-ghost");
+    tab.dataset.flow = diagram.id;
+    tab.setAttribute("aria-controls", embedded ? "craft-diagram-panel" : "craft-diagram-panel craft-topic-notes");
+    tab.addEventListener("click", () => show(diagram.id, null, true));
+    nav.append(tab);
+  }
+
+  if (embedded) {
+    const saved = window.openai?.widgetState?.privateContent;
+    show(saved?.flow, saved?.item);
+    window.addEventListener("openai:set_globals", (event) => {
+      const incoming = event.detail?.globals?.widgetState?.privateContent;
+      if (incoming?.flow) show(incoming.flow, incoming.item);
+    });
+  } else {
+    function fromLocation() {
+      clearTimeout(hashTimer);
+      const [flowId, item] = location.hash.slice(1).split("/");
+      if (formerFlows.has(flowId) || flows.some((candidate) => candidate.id === flowId)) {
+        show(flowId, item);
+        return;
+      }
+      const section = document.getElementById(formerSections.get(flowId) ?? flowId);
+      if (topicNotes.includes(section)) {
+        if (!selected || flow.id !== section.dataset.flow) show(section.dataset.flow);
+        section.open = true;
+        section.scrollIntoView({ block: "start" });
+      } else if (!selected || !flowId) {
+        show();
+      }
+    }
+
+    function startStandalone() {
+      topicNotes = Array.from(document.querySelectorAll("#craft-topic-notes > details[data-flow]"));
+      ask.textContent = "Copy discussion prompt";
+      fromLocation();
+      window.addEventListener("hashchange", fromLocation);
+      for (const link of document.querySelectorAll("a[data-diagram-link]")) {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          const [flowId, item] = link.hash.slice(1).split("/");
+          show(flowId, item, true);
+          const selectedControl = graph.querySelector('button[aria-pressed="true"]');
+          selectedControl?.focus({ preventScroll: true });
+          root.scrollIntoView({ block: "start" });
+        });
+      }
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", startStandalone, { once: true });
+    } else {
+      startStandalone();
+    }
+  }
+
+  const observer = new ResizeObserver(scheduleDraw);
+  observer.observe(graph);
+})();
+</script>
+
+    <section class="notes" id="craft-topic-notes" aria-label="Design notes">
+      <details id="request-contract" data-flow="overview">
+        <summary>What a request carries</summary>
+        <pre><code>POST /v1/image
+Authorization: Bearer &lt;TokenCraft project key&gt;
+Idempotency-Key: artcraft-render-42
+Content-Type: application/json
+
+{
+  "task": "text_to_image",
+  "prompt": "A studio photograph of a paper sculpture",
+  "model": "auto",
+  "aspect_ratio": "1:1",
+  "count": 1,
+  "min_quality": 6
+}</code></pre>
+        <p>That is a scoped image request. The media API also accepts workload-specific dimensions, duration, and format. The text APIs instead take messages or input, a model, limits, and optional streaming. Client and app references can attribute usage. An optional authorized subscription selects terminal webhook delivery. <a href="#handlers/inputs" data-diagram-link>Inspect the endpoint contracts</a></p>
+      </details>
+      <details id="request-state" data-flow="overview">
+        <summary>State, identity, and storage</summary>
+        <dl>
+          <dt>Gateway request</dt><dd>Account + project + actor scope the idempotency key. The request ID scopes the customer-facing lifecycle. Client scope applies when present.</dd>
+          <dt>Provider run</dt><dd>The gateway request identifies the run. Binding, upstream model, credential pin, lease, and provider handle govern execution. The handle can arrive after gateway admission.</dd>
+          <dt>Results</dt><dd>Media slots bind bytes and metadata to the gateway request. Chat chunks add an ordinal. The turn lane coordinates fair scheduling with each claim.</dd>
+          <dt>Lifecycle</dt><dd>Queued work can start, expire, or be canceled. Running work can succeed, fail, or await reconciliation. Verified fal evidence can return some unconfirmed runs to polling. A successful gateway result follows result persistence.</dd>
+          <dt>Accounting</dt><dd>Admission reserves an estimate. Provider observations and supplier settlements keep their own evidence. Webhook delivery also advances independently.</dd>
+        </dl>
+      </details>
+      <details id="handler-details" data-flow="handlers" hidden>
+        <summary>Validation, quality, and customer settings</summary>
+        <dl>
+          <dt>Unsupported fields</dt><dd>Scoped media uses a strict request schema. Chat recognizes unsupported field names and returns an error. Supported aliases and defaults normalize to typed input. Provider-specific request construction forwards the fields the adapter accepts.</dd>
+          <dt>Customer policy</dt><dd>Resolve request preferences, then project settings, then organization settings, then applicable defaults. Both sets of hard bounds apply. Provider access also checks organization sharing, project exclusions, and applicable region and retention requirements. A client can have a separate monthly budget.</dd>
+          <dt>Quality</dt><dd>A configured quality floor can gate automatic selection using the community average and at least 10 ratings. Six on the 10-point scale represents three out of five stars. An optional usage floor adds a separate distinct-account test. Those are pre-dispatch signals. The worker checks output type and integrity during publication.</dd>
+          <dt>Already admitted</dt><dd>A matching authorized replay returns the existing request. A queued, unsubmitted run still faces the current provider and connection policy before sending.</dd>
+        </dl>
+        <p><a href="#handlers/policy" data-diagram-link>Inspect policy resolution</a> · <a href="#workers/preflight" data-diagram-link>Inspect the pre-submit worker checks</a></p>
+      </details>
+      <details id="worker-details" data-flow="workers" hidden>
+        <summary>Lease, fallback, and what to measure</summary>
+        <dl>
+          <dt>Work ownership</dt><dd>PostgreSQL grants a run in one claim transaction. A 40-second submission lease and a separate 20-second connector polling lease guard state changes. An expired, unacknowledged run can become unconfirmed.</dd>
+          <dt>Compute failure</dt><dd>Configured chat targets have process-local cooldowns. A connection-establishment failure or guaranteed pre-acceptance 429 can advance to an allowed target within the retry window. A lost response after possible acceptance or interrupted stream preserves the original evidence.</dd>
+          <dt>Provider failure</dt><dd>Use the adapter’s accepted handle and status or recovery API. Observe acknowledged work at its original connector. A provider-side outage can require reconciliation even while every compute target is healthy.</dd>
+          <dt>Optimization proposal</dt><dd>Measure claim wait and database pool pressure, dispatch to provider acceptance, acceptance to first token or completed job, artifact publication, and customer delivery separately. Keep the claim transaction short and bound concurrency. Consider wakeup hints with periodic polling as a recovery path only if measured queue wait or empty polls justify them.</dd>
+        </dl>
+        <p><a href="#workers/claim" data-diagram-link>Inspect the SQL claim</a> · <a href="#cells/safe" data-diagram-link>Inspect the fallback boundary</a></p>
+      </details>
+      <details id="database-decision" data-flow="cells" hidden>
+        <summary>Cell architecture and failover</summary>
+        <p><strong>Decision.</strong> Standardize TokenCraft’s transactional store on PostgreSQL. Use the same schema and request lifecycle in the self-hosted single-cell install and each hosted cell. Use a supported major that passes TokenCraft’s migration and recovery suite.</p>
+        <p><strong>Why PostgreSQL.</strong> Admission commits request identity, idempotency, estimated spend reservation, and queued work together. Row locks and leases coordinate claims. Relational constraints and queries fit project scope, usage, settlements, and audit. Its permissive open-source license and standard deployment let operators run it themselves or use managed PostgreSQL. TokenCraft already uses these transactions and migrations. TokenCraft design · <a href="https://www.postgresql.org/about/licence/">PostgreSQL license</a> · <a href="https://www.postgresql.org/docs/current/tutorial-transactions.html">Transactions</a> · <a href="https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE">Row locking</a></p>
+        <dl>
+          <dt>MySQL / InnoDB</dt><dd>Suitable for the same transactional queue pattern and familiar to Studio. Porting TokenCraft’s queries and migrations buys operational consolidation. A Studio API adapter can integrate while each service keeps its existing database. <a href="https://dev.mysql.com/doc/refman/8.4/en/innodb-locking-reads.html">MySQL locking reads</a></dd>
+          <dt>DynamoDB</dt><dd>Viable for predictable key-based access in a managed deployment. TokenCraft would have to remodel fair job selection, organization limits, and usage queries around keys and maintained projections. A dependency on the managed service would change the standalone distribution. <a href="https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/transaction-apis.html">DynamoDB transactions</a></dd>
+          <dt>CockroachDB / Spanner</dt><dd>Revisit if one organization needs strongly consistent writes across regions in one logical database. Validate SQL behavior, regional write latency, and operating cost against the same workload. <a href="https://docs.cockroachlabs.com/docs/stable/multiregion-overview">CockroachDB placement</a> · <a href="https://docs.cloud.google.com/spanner/docs/instance-configurations">Spanner configurations</a></dd>
+        </dl>
+        <h3>Home cell and compute placement</h3>
+        <p><strong>Intended flow.</strong> Axum commits the request in the home cell’s PostgreSQL database. A worker in that cell claims it. For a self-hosted route, the worker calls the cell’s inference pool. For a managed route, the worker submits through a connector to an external provider such as fal or Kinovi. The cell worker records the result and publishes any artifacts in either case. <a href="#overview/compute-link" data-diagram-link>Inspect the self-hosted path</a> · <a href="#overview/infer" data-diagram-link>Inspect the outsourced path</a></p>
+        <p><strong>Proposal.</strong> Use a static cell assignment for self-hosting and a durable <code>account_id → cell_id</code> directory for hosted routing. Spread a hosted cell’s API and workers across independent availability zones or equivalent failure domains. Its highly available PostgreSQL writer and reachable artifact store own request identity, budget, leases, status, artifacts, and delivery. Add cells for capacity or residency. Each owns its organizations’ work and gets an explicit share of shared provider quotas. <a href="#cells/directory" data-diagram-link>Inspect cell routing</a></p>
+        <p><strong>Single-cell deployment with one API replica.</strong> Trusted HTTPS ingress can send traffic directly to the private Axum listener. New HTTP requests can fail while the only API replica is unavailable. Separately running workers can keep claiming committed jobs while PostgreSQL is reachable. <a href="#single-api/direct" data-diagram-link>Inspect direct ingress</a></p>
+        <p><strong>Cell API load balancing.</strong> The supplied private HAProxy configuration sits after trusted HTTPS ingress and discovers one cell’s API replicas through DNS. It sends requests to replicas that pass <code>/ready</code>, streams responses, and returns <code>503</code> when the pool is unavailable. Run redundant proxy instances across the cell’s failure domains. The proposed organization router selects the cell. PostgreSQL still distributes queued work, and model routing still selects compute. <a href="#overview/load-balancer" data-diagram-link>Inspect the load balancer</a> · Deployment and validation</p>
+        <p><strong>Observed in the compute worktree.</strong> One self-hosted OpenAI-compatible text offer can name up to four endpoints in the cell’s configuration. Lower priority numbers come first. Equal-priority destinations share requests by a stable hash of the request and target IDs. Both the API and workers need the same binding revision because admission pins its digest. Keep the logical offer and quote stable across endpoints. Validate that every target serves the same model contract and that the quote covers its cost. Compute routing design and configuration</p>
+        <p><strong>Placement contract.</strong> Assign self-hosted inference capacity to the same home cell as its workers, typically in the primary region. Workers and model replicas can run in separate services and scale independently. A warm target in another approved zone, region, or infrastructure provider can be reserved for the same logical cell. The current binding checks the declared provider and region pair, with the provider ID recorded in the <code>cloud</code> field. Operators verify the processing location and enforce tenant placement policy. <a href="#cells/offer" data-diagram-link>Inspect compute placement</a></p>
+        <p><strong>Capacity control proposal.</strong> Manage the home cell’s own model replicas and keep ready capacity across independent zones. Use readiness probes, queue age, spare slots, and classified compute failures to guide scaling. Shift eligible work to ready targets first, then replenish the reserve asynchronously through the cluster or infrastructure autoscaler. Admit new targets after model readiness, policy, quota, and binding checks. Keep the last known good binding available for admitted work. Managed inference providers scale their own compute. <a href="#overview/capacity" data-diagram-link>Inspect capacity control</a></p>
+        <p><strong>Safe fallback.</strong> The current text path can advance after connection establishment fails or a target returns an explicitly opted-in <code>429</code> that guarantees rejection before execution or billing. It starts fallback attempts within a bounded deadline and honors the worker lease. Cooldowns are process-local. Ambiguous transport, a <code>5xx</code>, or interrupted SSE follows the original outcome rules. An acknowledged fal or Kinovi job retains its original handle. Deploy matching binding revisions and drain pinned work before replacing a stack. <a href="#cells/safe" data-diagram-link>Inspect the fallback boundary</a> · Retry rules and deadlines</p>
+
+        <h3>Read the request’s execution path</h3>
+        <p>In Requests or Compare, the trace extension records each self-hosted chat compute attempt. Select a target to see the worker’s submission timing, configured priority, and response status when recorded. The first successful response headers mark the start of a response. The request outcome records completion separately. <a href="#cells/backup" data-diagram-link>Inspect endpoint fallback</a> · Trace extension source</p>
+        <dl>
+          <dt>Provider offer</dt><dd>The model contract and price selected at admission. Offer retries can change it.</dd>
+          <dt>Home cell</dt><dd>The configured owner of the request, PostgreSQL state, and lease. Endpoint fallback keeps the same owner.</dd>
+          <dt>Compute target</dt><dd>The chosen endpoint within a stack. Its compute provider, execution region, and zone come from operator configuration at dispatch.</dd>
+          <dt>Inference provider</dt><dd>The identity reported by the upstream service when available. Older requests and managed providers may have no recorded compute placement.</dd>
+        </dl>
+
+        <h3>Failure boundaries</h3>
+        <dl>
+          <dt>Compute endpoint or zone</dt><dd>The home cell stays active. Use another approved endpoint if the adapter classifies the attempt as safe. Reserve ready capacity in surviving zones.</dd>
+          <dt>Compute region</dt><dd>A reachable home cell can use a warm, approved regional standby assigned to that cell. Verify model readiness, quota, residency, and connectivity ahead of time.</dd>
+          <dt>Home-cell region</dt><dd>Fence the old writer and dispatch, then promote the standby for the same logical cell and move ingress. Recover PostgreSQL, artifacts, keys, and callback routes. Asynchronous replication can leave acknowledged writes behind. Reconcile provider attempts that may be missing after the verified recovery checkpoint before resuming dispatch.</dd>
+          <dt>Compute provider outage</dt><dd>A reachable home cell can use approved standby capacity reserved for it with another infrastructure provider. If the outage also takes down the home cell, recover its database and artifacts, plus ingress, DNS, identity, secrets, and observability, in a separate failure domain before resuming dispatch.</dd>
+        </dl>
+        <p><strong>Capacity and verification.</strong> Keep enough warm model capacity to absorb the planned loss. Use cold scaling to replenish it. Before setting availability targets, drill endpoint loss, compute-region loss, fenced cell recovery, and recovery across providers. Measure admission availability, time to first token, completion rate, duplicate upstream jobs, and recovery time and recovery point for acknowledged requests. Track queue and pool waits separately so persistent dispatch pressure can justify a dedicated wakeup queue while PostgreSQL remains authoritative.</p>
+        <details>
+          <summary>Deployment pattern references</summary>
+          <p><a href="https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/cell-routing.html">AWS cell routing</a> · <a href="https://docs.aws.amazon.com/wellarchitected/latest/reducing-scope-of-impact-with-cell-based-architecture/multi-az-cells.html">AWS multi-AZ cells</a> · <a href="https://docs.aws.amazon.com/wellarchitected/latest/framework/rel11-bp05.html">AWS static stability</a> · <a href="https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html">AWS disaster recovery</a></p>
+        </details>
+      </details>
+      <details id="studio-dual-store" data-flow="studio" hidden>
+        <summary>Studio pilot and dual-store transition</summary>
+        <p><strong>Proposal.</strong> Keep both request readers active. Route each new eligible Studio request to TokenCraft’s PostgreSQL at admission. Read older Studio jobs from MySQL and existing TokenCraft requests from PostgreSQL. Each job keeps one execution and status owner for its lifetime. Studio’s API continues to expose the compatibility view. <a href="#studio/bridge" data-diagram-link>Explore the transition</a></p>
+        <p><strong>Observed.</strong> Studio’s session-job reader uses MySQL. The scoped TokenCraft gateway exposes authorized request detail, history, results, and artifacts. Its migrations include both the earlier jobs schema and the scoped gateway requests schema. Inventory which PostgreSQL request families are populated and visible to Studio before enabling their readers. Keep their current APIs and IDs available. <a href="https://github.com/storytold/artcraft-services/blob/e57ee3d63ac478a24149384bf1473ef97aa067f8/crates/service/web/storyteller_web/src/http_server/endpoints/inference_job/list/list_session_jobs_handler.rs#L104">Studio session reads</a> · Scoped TokenCraft reads</p>
+
+        <p><strong>Pilot scope.</strong> Start with one approved Studio image workflow behind a per-project flag. Studio owns customer credits and media visibility. TokenCraft records estimates and supplier evidence. Confirm status and error compatibility, asset lifetime, and one wallet outcome per request before expanding. Pilot plan</p>
+
+        <section class="migration-part">
+          <h3>Ownership during coexistence</h3>
+          <dl>
+            <dt>Existing MySQL jobs</dt><dd>Continue to read updates, status, and result links through the Studio reader. Existing workers and callbacks complete and reconcile their original jobs in MySQL.</dd>
+            <dt>Existing PostgreSQL requests</dt><dd>Keep their current request ID, scope, and supported readers. Link a request into Studio history only when a verified Studio identity and request alias establish ownership. If an older PostgreSQL request family is in use, give it its own reader and origin value.</dd>
+            <dt>New migrated Studio requests</dt><dd>Keep the request, queue lease, provider handle, and result state in TokenCraft’s PostgreSQL. Retain the external Studio token through an explicit alias. PostgreSQL holds the new job record. MySQL remains responsible for Studio sessions, wallet entries, and Studio media metadata.</dd>
+          </dl>
+          <p>Store a durable routing and handoff record scoped to the Studio tenant and operation. It links the Studio token, stable submission key, intent digest, execution owner, and gateway request ID when available. For hosted cells, associate it with the organization’s home cell. Both the legacy and PostgreSQL admission paths for the covered workflow must use the same ownership guard before evaluating rollout flags. The guard serializes concurrent decisions for the same scoped key. Historical tokens with no verified mapping retain their existing duplicate behavior until reconciled.</p>
+        </section>
+
+        <section class="migration-part">
+          <h3>Point reads, batch status, and history</h3>
+          <p><strong>Point reads.</strong> Authorize the Studio session or API caller, then resolve the typed request ID or scoped alias through the verified route. Query one owner when known. Resolve an unknown historical token through the bounded set of authorized readers. A confirmed absence can return the existing missing response. A timeout for an unresolved source is retryable. A conflicting alias is an invariant violation for operators to investigate.</p>
+          <p><strong>Batch and recent jobs.</strong> Group known tokens by owner and keep the current item ordering and per-item response contract. For unified history, run bounded indexed reads from both stores in parallel with the same authorization and filters, then merge by immutable creation time and a deterministic origin-and-ID tie-breaker. Deduplicate by verified logical ID and filter declared mirrors before paging. Use a common read model for the fields Studio needs, then map it to the existing response. Keep an uncertain provider outcome visible as pending or as an explicitly supported reconciliation state.</p>
+          <p><strong>Pagination and outage behavior.</strong> Preserve the existing bounded recent-jobs response. A paginated unified list uses an opaque, signed cursor with scope, filters, an age cutoff, and the last consumed position for each reader. Each reader must support the same sort and cutoff contract. Live statuses can change between pages. If either reader fails, return a retryable error to clients expecting a complete list. A versioned partial-result contract may expose source coverage and keep the prior cursor. An independently confirmed point read can still succeed when the other store is unavailable. <a href="https://www.postgresql.org/docs/current/transaction-iso.html">PostgreSQL snapshot semantics</a></p>
+        </section>
+
+        <section class="migration-part">
+          <h3>New requests through PostgreSQL</h3>
+          <ol>
+            <li><strong>Record ownership before side effects.</strong> Check for an existing owner or a consumed legacy key. For an eligible, genuinely new submission, persist the Studio alias and PostgreSQL route with a scoped uniqueness constraint. Store the intent digest and a retention-governed replay reference. The rollout flag chooses the owner only for a new admission.</li>
+            <li><strong>Confirm Studio credits.</strong> Reserve or deduct in the MySQL wallet once per durable handoff. Persist the ledger reference. After an ambiguous wallet response, resolve that handoff’s ledger entry before proceeding. An idempotent refund or release follows a definitive rejection under Studio’s policy.</li>
+            <li><strong>Admit to TokenCraft.</strong> Use the scoped service identity, verified client mapping, and saved TokenCraft idempotency key. Admission then creates PostgreSQL work eligible for dispatch. Persist the returned gateway ID against the Studio token. If the receipt is lost, replay the same admission instead of re-entering routing. Return the existing Studio response shape at the agreed acceptance boundary.</li>
+            <li><strong>Publish a Studio result.</strong> TokenCraft finishes the original provider run. The adapter fetches output within its retention window, verifies it, and commits the Studio asset with a stable key per job and output slot. Record publication in the compatibility view. Studio exposes success and its own media reference once publication is durable.</li>
+          </ol>
+          <p>Use a durable next action for each cross-store step. The step’s owner commits its state and next action together. Repeat transport and record reconciliation independently of the provider invocation. Acknowledged work stays with its existing worker and callback routes during retries and deployment changes. <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html">Transactional outbox</a></p>
+        </section>
+
+        <section class="migration-part">
+          <h3>Cutover, rollback, and retirement</h3>
+          <ol>
+            <li><strong>Inventory and shadow.</strong> Confirm the live request families, ID and status contracts, wallet deduplication, and artifact retention. Deploy owner lookup and both readers before enabling new PostgreSQL admissions. Drain writers that can still bypass the ownership guard for the pilot workflow. Compare normalized records and shadow quotes without provider submissions.</li>
+            <li><strong>Canary one image workflow.</strong> Route only brand-new admissions for an approved cohort to PostgreSQL. Retain the legacy readers, provider callback routes, and reconciliation workers. Compare history, point and batch status, asset access and lifetime, and the customer ledger before expanding.</li>
+            <li><strong>Roll back new traffic independently.</strong> Turn off PostgreSQL routing for brand-new submissions. Already recorded owners retain their route. Keep PostgreSQL reads and workers available for those jobs. An unresolved ownership lookup pauses admission for that request with a retryable response, including during rollback.</li>
+            <li><strong>Drain and prove coverage.</strong> Retire legacy execution only after pending and unconfirmed MySQL jobs and ledger entries reconcile. Continue MySQL request reads through the required history window. If terminal history is later copied, use checkpoints plus late-update catch-up, validate identity and result parity, and switch the read location explicitly. Keep MySQL serving the Studio domains it still owns.</li>
+          </ol>
+          <p><strong>Release gates.</strong> Pass a mixed-store history test with equal timestamps, duplicate aliases, and multiple pages. Interrupt each reader independently and confirm there is no false missing response. Drop acknowledgments at the wallet, gateway, and publication steps. Replay across flag changes and verify one owner, one credit outcome, and one provider submission. Roll back with jobs active in both stores and confirm both can finish.</p>
+          <p><strong>Track during rollout.</strong> Record route choice, source read latency and timeouts, missing or conflicting mappings, handoff age by stage, publication lag, and unresolved ledger items. Join the Studio token, gateway ID, and upstream handle in scoped traces. Expand only after compatibility and recovery checks pass.</p>
+        </section>
+      </details>
+      <details id="receipt-recovery" data-flow="admission" hidden>
+        <summary>Receipt replay and idempotency</summary>
+        <p><strong>Observed.</strong> A committed native request can be replayed under the same account, project, actor, key, and effective intent. Replay returns the original request ID and status URL with <code>200</code>, even after routing policy changes. A different intent with the same key returns <code>409</code>. If the first transaction rolled back, a retry goes through fresh admission under current policy.</p>
+        <p><strong>Caller action.</strong> Persist the original endpoint, key, scoped identity, body, and intent-bearing headers until the receipt is recovered. Preserve the prompt or input, workload, original quote and offer pin if supplied, client and app references, and delivery choice. Use the saved status URL once known.</p>
+        <p><strong>Pilot pass.</strong> Drop the response after commit, change policy, and retry. Expect the same ID, one reservation, and one provider submission. Change an intent field and expect <code>409</code>. <a href="#admission/receipt" data-diagram-link>Inspect receipt replay</a></p>
+      </details>
+      <details id="media-recovery" data-flow="media" hidden>
+        <summary>Provider acknowledgment and artifact recovery</summary>
+        <article class="failure-case">
+          <h3>Provider ACK lost</h3>
+          <p><strong>Observed.</strong> A configured fal callback can recover a missing handle within 15 minutes of dispatch when its provider signature and request/binding proof verify. The database requires a dispatched, eligible fal run, an unclaimed handle, and either no uncertainty or a supported ambiguous-submission code. The commit records the evidence, attaches the handle, and resumes polling. A callback response can acknowledge a no-op, so verify recovery in the request trace.</p>
+          <p><strong>Operator action.</strong> Hold ambiguous acceptance in <code>awaiting_reconciliation</code>. Resolve the existing provider job using verified evidence. An older or unauthenticated event, conflicting handle, or missing correlation requires investigation. A new submission requires proof of non-acceptance or a documented provider idempotency guarantee. The inspected Studio branch saves its fal-to-job mapping after submission. Its callback lookup fails when the mapping is missing, so record the Studio handoff before crossing the provider boundary in the pilot.</p>
+          <p><strong>Pilot pass.</strong> Drop the ACK after provider acceptance. Exercise a valid callback, duplicate delivery, and invalid or mismatched evidence. Only the valid evidence recovers the original run. Count one upstream submission. <a href="#media/recover" data-diagram-link>Inspect fal recovery</a> · <a href="#studio/lookup" data-diagram-link>Inspect Studio lookup</a></p>
+        </article>
+        <article class="failure-case">
+          <h3>Storage stalls</h3>
+          <p><strong>Observed.</strong> A provider-completed result stays pending until output bytes are stored and the gateway commits the manifest and succeeded state. Preparation failures defer polling on the existing handle. A poll deadline can move the request to reconciliation. An eligible acknowledged fal or Kinovi job can get one audited recheck within 24 hours of its first polling timeout, using its original binding and available credential.</p>
+          <p><strong>Operator action.</strong> Check <strong>Queue backlog → Artifact publication</strong>. Provider acknowledgment to observed completion is the provider and polling window. Observed completion to publication is the media and storage window. Compare download, validation, and storage timings with PostgreSQL pool wait and final commit time. This distinguishes expensive output handling from slow provider progress and database saturation.</p>
+          <p><strong>Pilot pass.</strong> Stall output storage and kill a worker after a file write but before result commit. Keep success hidden until publication, recover the original handle, and expose one result manifest. Verify that a temporary file without committed metadata is eventually cleaned up. <a href="#media/prepare" data-diagram-link>Inspect artifact preparation</a> · Publication report · Provider recheck</p>
+        </article>
+      </details>
+      <details id="stream-recovery" data-flow="chat" hidden>
+        <summary>SSE reconnect and replay</summary>
+        <p><strong>Observed.</strong> The provider worker owns upstream execution and appends encrypted chunks with an ordinal. An API reader reauthorizes each read and streams committed chunks to the client. Losing that reader leaves the worker running.</p>
+        <p><strong>Caller action.</strong> Follow the request’s <code>Location</code> for lifecycle status. To recover retained text, send the same streaming request and idempotency key. Replay starts at the beginning, so replace the partial transcript with the replay. After expiry or removal, report content unavailable and retain the same request for status and usage.</p>
+        <p><strong>Pilot pass.</strong> Disconnect mid-stream, reconnect with the original key, and confirm the same request and one upstream invocation. Check that the rebuilt transcript matches the completed text. <a href="#chat/reader" data-diagram-link>Inspect the SSE reader</a></p>
+      </details>
+      <details id="delivery-recovery" data-flow="delivery" hidden>
+        <summary>Webhook delivery recovery</summary>
+        <p><strong>Observed.</strong> Eligible terminal events are committed with stable delivery IDs. Retries and redrive preserve <code>webhook-id</code> and the payload. Delivery and inference have independent states.</p>
+        <p><strong>Receiver and operator action.</strong> Verify the signed raw body and timestamp. Use <code>webhook-id</code> as a unique key and commit it with the receiver’s side effect before returning <code>2xx</code>. Check the scoped request status for the inference outcome. For delivery, inspect pending/dead counts and oldest age in <strong>Queue backlog</strong>, then open the project’s delivery attempts. Fix the destination and redrive an eligible dead delivery with an active subscription.</p>
+        <p><strong>Pilot pass.</strong> Commit the receiver’s side effect and drop its response. Confirm that retry and redrive carry the same ID, the side effect happens once, and inference stays succeeded. <a href="#delivery/receiver" data-diagram-link>Inspect webhook delivery</a> · Queue backlog</p>
+      </details>
+      <details id="pilot" data-flow="delivery" hidden>
+        <summary>Pilot measurements and release gates</summary>
+        <p><strong>Use the current trace.</strong> Studio sends W3C <code>traceparent</code>. Log the Studio job token with the returned TokenCraft request ID and <code>TokenCraft-Trace-Id</code>. Correlate provider binding and handle once available, plus the webhook delivery ID. Keep those identifiers in scoped traces rather than metric labels. Trace correlation · <a href="https://www.w3.org/TR/trace-context/">W3C Trace Context</a></p>
+        <dl>
+          <dt>Admitted → claimed</dt><dd>Gateway wait. Compare oldest queued age with claim query and database pool waits.</dd>
+          <dt>Claimed → ACK</dt><dd>Submission latency. Track provider timeouts, throttles, and unresolved acceptance.</dd>
+          <dt>ACK → completion observed</dt><dd>Provider time plus observation lag. Track scheduled poll lateness separately and use an authenticated provider completion timestamp when available.</dd>
+          <dt>Observed → published</dt><dd>Track artifact-publication latency. Break it down into download, validation, store, pool acquisition, and final commit.</dd>
+          <dt>Terminal commit → delivered</dt><dd>Track delivery queue age, attempts, and terminal delivery failures separately from inference latency.</dd>
+        </dl>
+        <p><strong>Release gate.</strong> Run the five failure drills and a concurrent-claim test against provider fixtures. Load-test a single cell with realistic tenant skew and a stalled provider and storage backend. Record per-cell p95/p99 latency, queue age, and DB pool and lock waits. Before enabling multi-cell writes, rehearse backup/restore and ownership failover with half-finished provider work. Verify that stale cell assignments cannot dispatch, replay still resolves to one request, and unaffected cells keep serving. Choose regional recovery time and acceptable data loss from product requirements and measure both in the drill. This review established the test criteria. Pilot execution remains open.</p>
+      </details>
+      <details id="evidence" data-flow="overview">
+        <summary>Evidence and verification</summary>
+        <p><strong>Current System map, Handlers, and Workers.</strong> These diagrams use the November 25 TokenCraft standalone staging sources. The core supports split API and worker roles, a guarded hosted profile, shared object storage via an S3-compatible interface, and connector-backed media. Hosted cell assignment, multi-zone placement, and automated compute provisioning are proposals.</p>
+        <p><strong>Earlier implementation diagrams.</strong> Admission, media, chat, and delivery preserve earlier scoped gateway examples from <code>codex/tokencraft-foundation</code>, based on <code>5ce340af6e74bc9be41c145854ee28750e9f1309</code>. The earlier built-in fal flow is useful for ACK recovery. The current standalone core uses the connector path described in the worker diagram. Local source references identify the reviewed snapshots. Public source links are included where available.</p>
+        <p><strong>ArtCraft Studio.</strong> The application image-to-fal branch is from the preserved ArtCraft Services checkout <code>e57ee3d63ac478a24149384bf1473ef97aa067f8</code>.</p>
+        <p><strong>Verification.</strong> This update reviewed source and exercised diagram navigation. Hosted deployment behavior, provider quotas, load behavior, and actual cross-region failover require separate verification.</p>
+        <p class="evidence-id">System map source set <code>sha256:55238324f6d2d264bbfa3f3184b7c0356aa5bf9e5d9734e988d63d37401951aa</code></p>
+        <details>
+          <summary>System map source files and digests</summary>
+          <ul class="source-files"><li><code>crates/bin/api-gateway/src/gateway_demo/artifacts.rs</code> <code>5de86d71f61db41c382a434474cda9af106d846b29c0c5c3b6c60d4c42aab04f</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/availability.rs</code> <code>ebe77e24cc75e160a6482fa66f92873e1eca21de3a1b0bd767b3bd8a2ba1edb6</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/chat/mod.rs</code> <code>e1004c8b4bec7333c7768d1e7bd28a1308ab092048e50efe3cd92cc3980f0f12</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/chat/responses.rs</code> <code>82da67164fe3116ab9186ae0259bdbd5a6471977bf5eae3db17edd367c02dd35</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/chat/stream.rs</code> <code>95cbb495db0ba9ce8f0d3a3f56769e6b2687355a5c03ecc7285b200a416d902e</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/debug_trace.rs</code> <code>c71a9928181e931220e4f1e4219b8123ca92b2737f7970ffbe53432322e629f9</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/handlers.rs</code> <code>25943c304bc851a640fb9a0694778f70d6fef3b6910cc16109e9d9c872771d2b</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/media.rs</code> <code>a85287fd6d0bc321f38000213fcb21ceb989cbadc340952e71fd39d3a62821ae</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/mod.rs</code> <code>06f1378048882a797de1d76bfcb6ad48f3e56c36fe2e0f1b1f9ffcaead389366</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/chat_transport.rs</code> <code>238292f59fef83dafe3de326373b9983ab76065533bc6aaec56f10606a97fe5a</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/chat_transport/stream.rs</code> <code>0931bb416df40ec06885d2050e61371f59c75d197ff1b36259cfbc5a08caf860</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/completion.rs</code> <code>a071a1852689d39d8f2fa31563169eb41d5ac0c65f2b25406401859621c10663</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/connector.rs</code> <code>bfa55154a1bccfc3684f9d1fd1f9edda0805026c8204cb7f767162f2be1e56cd</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/local_chat/compute.rs</code> <code>c0fe2226bb7939b46ca68dbdfb7fb87de191e033bb66ca43faeb9200d10e7249</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/providers/mod.rs</code> <code>bc0e1ad8a70699bd97484f09c1c0af53959fab8484213e01a996600f57772477</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/quote.rs</code> <code>924894910fcfa735e6c89dca51b485ff8de78c3c327793a48753b0c2dfed0067</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/requests.rs</code> <code>29b08eb75f0f1c0ffd6caf7aa2ad1abc143de9b14ff3e4ef360039095ce5a054</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/route_performance.rs</code> <code>6f6738fc1fbb5158f391e2d2fd40b14516644d021e2490d1f3a201e32b80f373</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/routing_policy.rs</code> <code>3c3d79ad1aacc233601655d69ba256ca23ca37c597334482b6856b7c8e6036c1</code></li><li><code>crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs</code> <code>491df8240d78a11a95493c385ddfedaae84f32c420dfd7864207697fb540c466</code></li><li><code>crates/bin/api-gateway/src/hosted.rs</code> <code>31e77be586b332f26ce9ff86e3af7cfaafe6c08f60447cdcb5638ebd98ed235c</code></li><li><code>crates/bin/api-gateway/src/model_reviews.rs</code> <code>e3fc992c291809c175280435f862b959b74200334992f4906ab68fb06bed65c2</code></li><li><code>crates/db-queries/src/gateway_requests/provider_runs.rs</code> <code>54b56857de72173c90ca7bde6be41b16a221f7ab191a95a9cbbd9493d983065e</code></li><li><code>crates/db-queries/src/gateway_requests/queue_turns.rs</code> <code>e32490da582b64723c7a63e38557e41915960e19a67febc2fa518007a8ede4e8</code></li><li><code>crates/db-queries/src/gateway_requests/queued_runs.rs</code> <code>b622b345c13ace227638d9630eb577ec3e75dec1e715bcb81b09b348916d74dc</code></li><li><code>deploy/haproxy/cell-api.cfg</code> <code>0305038c644cd9804e293ff08b21bcdade8071d02e3f0f962cc2fecc56cf8f77</code></li><li><code>docs/deployment.md</code> <code>a986ebd67dea9cc7993538a25da0c2fa82e7d5f97cf7408d6e520c1e83b29d80</code></li></ul>
+        </details>
+        <p class="evidence-id">Earlier TokenCraft source set <code>sha256:910f18e8913783ff70c948141e7695e3ab5bc9cfccd2cb0ed86143b910f6fc0d</code></p>
+        <details>
+          <summary>Inspected TokenCraft files and digests</summary>
+          <ul class="source-files"><li><code>crates/bin/api-gateway/src/gateway_demo/artifacts.rs</code> <span class="evidence-id"><code>a9d303ac31febf77d2b792c8273305f8ce4415eb8be54c768bef54a360779bb0</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/chat/mod.rs</code> <span class="evidence-id"><code>5b8ae34938106c31def7eeb936ea24c1dfb020003e29aefb66b77545b06ed08d</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/chat/responses.rs</code> <span class="evidence-id"><code>82da67164fe3116ab9186ae0259bdbd5a6471977bf5eae3db17edd367c02dd35</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/chat/stream.rs</code> <span class="evidence-id"><code>95cbb495db0ba9ce8f0d3a3f56769e6b2687355a5c03ecc7285b200a416d902e</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/fal_callbacks.rs</code> <span class="evidence-id"><code>d78a2757bceba7202345635ec4daac33946d51e9f9efd5d9bfeff5983dd1698a</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/handlers.rs</code> <span class="evidence-id"><code>42726b0c3052c891765d9944c466f939dc083b2e72b5e4191d0e36eea1591581</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/mod.rs</code> <span class="evidence-id"><code>bf041196010ff57c8d7edeca9059dab7bf8ba8f7cbbd28c0fca2b87f80b61f48</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/operations.rs</code> <span class="evidence-id"><code>04ed008ffcc1e69fa2e2b7aa2c8d1f9ddfaa9a49fc517a0dfb0dbe7cc1802518</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/polling.rs</code> <span class="evidence-id"><code>85429f07912cfa5b7857f74d32780807f2c9ca74489c3112a76994e02a54a540</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/process.rs</code> <span class="evidence-id"><code>2da343fbfe17c84412f9457202ea4607842bccc27bda752dddab926c813131e0</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/providers/mod.rs</code> <span class="evidence-id"><code>5226a28f8a3136247f9fe2feed57244b88bc494a20bfa4a142e817f480ea89d2</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/providers/openrouter/stream.rs</code> <span class="evidence-id"><code>95e23b9bd0d0cc0843c796e87a2535d6b065fdb9be83cda98c220f29ebdbd462</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/quote.rs</code> <span class="evidence-id"><code>bd32985b677b04c10478446300f08580d5c05dc98d600a4d6d927a054ba3065f</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/readiness.rs</code> <span class="evidence-id"><code>f8d6a28b5d77c7ba3895d72a18dddecd011c3b588195f23ea159138770e47cf7</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/requests.rs</code> <span class="evidence-id"><code>4d30500456f24cf3ba6513c55294bcb400a2084a46f7fabae4dd5c0d08ffbed6</code></span></li>
+<li><code>crates/bin/api-gateway/src/gateway_demo/webhooks/worker.rs</code> <span class="evidence-id"><code>f8085988f091df5d2f11cc75186970a9b25b8c926006e845e90cc0a7ca7fba71</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/active_requests.rs</code> <span class="evidence-id"><code>c5fa5172d6c69c4feb346c0467310ffb3198d61d17031596d30c9c0a8508b85e</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/cancel_request.rs</code> <span class="evidence-id"><code>3dd68cd87596f4d953ce6f0c48ea7abcbcdc89dec3055962b84cf6f94d90a047</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/chat_streams.rs</code> <span class="evidence-id"><code>3e4aab93dc78ee7c9b8d2f7d3ca32fd21e762b0062dd83ed1b75688a27a9d725</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/fal_callbacks.rs</code> <span class="evidence-id"><code>abf9195b2fbda91615734fa5f5070ee19d24a9252be2a2743133508a8d60df80</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/insert_request.rs</code> <span class="evidence-id"><code>3b18e8fee2f1d8c54ef33a387911c5236348191eaa3f4e483d977f274c3c3fd9</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/provider_runs.rs</code> <span class="evidence-id"><code>3fcc976630df8ce23dff121b997a364f5ebcf19d67a7cc2cf186e3c029be93a6</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/queue_turns.rs</code> <span class="evidence-id"><code>79f6863b516cf4a4f121a58c7ef8f4f34ec5e991d9bcde5a96a81bb2bd5a6340</code></span></li>
+<li><code>crates/db-queries/src/gateway_requests/queued_runs.rs</code> <span class="evidence-id"><code>970e645903c3799c9059d9610363f11dd873731bb76338523ca39a0e47a628f2</code></span></li>
+<li><code>crates/db-queries/src/gateway_webhooks/deliveries.rs</code> <span class="evidence-id"><code>c6b9a83d077f072b4247fb4a0194a76bf33b38393570b6a77da33bd6401e4d77</code></span></li>
+<li><code>crates/db-queries/src/gateway_webhooks/queue.rs</code> <span class="evidence-id"><code>8cdc9d7dee8bba3430709833779a8210e99d05f86bc53bc149df3578b5e11fa9</code></span></li>
+<li><code>crates/db/migrations/0008_gateway_provider_runs.sql</code> <span class="evidence-id"><code>ca12c492f3e320100cd7773487b6d7149f2f0c5b623d47b74b024db445638931</code></span></li>
+<li><code>crates/db/migrations/0014_gateway_fal_callbacks.sql</code> <span class="evidence-id"><code>021bec5fb1a84c42a33214ce6ed366f603972b28874799a786b4c0e595e37445</code></span></li>
+<li><code>crates/db/migrations/0036_gateway_content_removal_exports.sql</code> <span class="evidence-id"><code>cfab15ead02e8488f826fefee2224ed3ee50ac4949b8ae529b312a3d509470d7</code></span></li></ul>
+        </details>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

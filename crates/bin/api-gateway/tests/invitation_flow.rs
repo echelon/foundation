@@ -2,7 +2,9 @@
 //! `foundation_test`: the join page's resolve, invited signup (new user), signup-as-login
 //! redemption (existing user), and the no-double-invites rules.
 
-use std::sync::Arc;
+mod common;
+
+use common::{app_and_pool, body_json, delete, get, post, session_cookie, unique_email};
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
@@ -10,77 +12,6 @@ use axum::Router;
 use serde_json::{json, Value};
 use tower::ServiceExt; // oneshot
 
-use api_gateway::auth::token::JwtKeys;
-use api_gateway::AppState;
-
-async fn app_and_pool() -> (Router, db::PgPool) {
-  let pool = db::test_fixtures::create_test_pool().await;
-  let state = AppState {
-    pool: pool.clone(),
-    jwt: Arc::new(JwtKeys::new("test-secret")),
-    cookie_domain: "localhost".into(),
-    cookie_secure: false,
-    app_base_url: "http://localhost:3000".into(),
-    email_from: "Foundation <noreply@localhost>".into(),
-    resend_api_key: None,
-    bucket: None,
-    cdn_base_url: "http://localhost:9000/foundation".into(),
-    environment: config::Environment::Test,
-    status_message: None,
-    google: None,
-    github: None,
-    openai: None,
-    openai_webhook_secret: None,
-  };
-  (api_gateway::build_router(state), pool)
-}
-
-fn unique_email() -> String {
-  format!("user-{}@example.com", id_core::mint("t"))
-}
-
-fn post(uri: &str, body: Value, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("POST").uri(uri).header("content-type", "application/json");
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::from(serde_json::to_vec(&body).unwrap())).unwrap()
-}
-
-fn delete(uri: &str, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("DELETE").uri(uri);
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::empty()).unwrap()
-}
-
-fn get(uri: &str, cookie: Option<&str>) -> Request<Body> {
-  let mut b = Request::builder().method("GET").uri(uri);
-  if let Some(c) = cookie {
-    b = b.header(header::COOKIE, c);
-  }
-  b.body(Body::empty()).unwrap()
-}
-
-fn session_cookie(resp: &axum::response::Response) -> Option<String> {
-  for v in resp.headers().get_all(header::SET_COOKIE) {
-    let s = v.to_str().ok()?;
-    if let Some(rest) = s.strip_prefix("foundation_session=") {
-      let token = rest.split(';').next().unwrap_or("");
-      if token.is_empty() {
-        return None;
-      }
-      return Some(format!("foundation_session={token}"));
-    }
-  }
-  None
-}
-
-async fn body_json(resp: axum::response::Response) -> Value {
-  let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
-  serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-}
 
 /// Sign up a fresh owner and invite `invitee_email`; returns (app, pool, owner account id,
 /// invite response body).

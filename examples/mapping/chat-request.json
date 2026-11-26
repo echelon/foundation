@@ -1,0 +1,7 @@
+{
+  "model": "fixture/custom-chat",
+  "messages": [{"role": "user", "content": "Map this message"}],
+  "max_tokens": 16,
+  "stream": false,
+  "temperature": 0.4
+}

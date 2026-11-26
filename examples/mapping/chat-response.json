@@ -1,0 +1,5 @@
+{
+  "answer": "Mapped through custom chat",
+  "completion_kind": "stop",
+  "usage": {"prompt": 3, "output": 4}
+}

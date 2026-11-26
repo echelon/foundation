@@ -43,21 +43,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anthropic_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -73,7 +58,6 @@ dependencies = [
  "base64",
  "bucket_client",
  "bucket_paths",
- "catalog",
  "chrono",
  "client_core",
  "config",
@@ -81,21 +65,24 @@ dependencies = [
  "db_queries",
  "email_client",
  "enums",
- "foundation_router",
+ "flate2",
  "hex",
+ "hmac",
  "id_core",
  "ids",
  "image",
  "jsonwebtoken",
  "money",
- "openai_client",
+ "provider_mapping",
  "rand 0.8.7",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
  "sqlx",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tracing",
@@ -287,6 +274,8 @@ name = "bucket_client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
+ "hmac",
  "rust-s3",
  "tokio",
 ]
@@ -335,13 +324,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
 dependencies = [
  "rustversion",
-]
-
-[[package]]
-name = "catalog"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -560,6 +542,7 @@ dependencies = [
  "enums",
  "id_core",
  "ids",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",
@@ -751,19 +734,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "foundation_router"
-version = "0.1.0"
-dependencies = [
- "catalog",
- "client_core",
- "google_gemini_api_client",
- "openai_client",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "futures"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -917,85 +887,6 @@ checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
 dependencies = [
  "color_quant",
  "weezl",
-]
-
-[[package]]
-name = "google_gemini_api_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "google_gemini_dispatch"
-version = "0.1.0"
-dependencies = [
- "bucket_client",
- "bucket_paths",
- "catalog",
- "chrono",
- "db_queries",
- "enums",
- "foundation_router",
- "google_gemini_api_client",
- "hex",
- "ids",
- "reqwest",
- "serde_json",
- "sha2",
- "sqlx",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "google_gemini_outbound_job"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bucket_client",
- "catalog",
- "client_core",
- "config",
- "db",
- "db_queries",
- "enums",
- "google_gemini_api_client",
- "google_gemini_dispatch",
- "ids",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "google_gemini_polling_job"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bucket_client",
- "catalog",
- "client_core",
- "config",
- "db",
- "db_queries",
- "enums",
- "google_gemini_api_client",
- "google_gemini_dispatch",
- "ids",
- "sqlx",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1417,37 +1308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kinovi_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "kling_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "test_data",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1706,24 +1566,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
-name = "openai_client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64",
- "client_core",
- "money",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "test_data",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "ordered-multimap"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1881,6 +1723,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "provider_mapping"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2748,6 +2599,7 @@ dependencies = [
  "image",
  "reqwest",
  "sha2",
+ "sqlx",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2794,10 +2646,6 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
-
-[[package]]
-name = "test_data"
-version = "0.1.0"
 
 [[package]]
 name = "thiserror"
@@ -2911,6 +2759,44 @@ name = "tinyvec_macros"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
+
+[[package]]
+name = "tokencraft"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "db",
+ "hex",
+ "hmac",
+ "image",
+ "mime_guess",
+ "percent-encoding",
+ "provider_mapping",
+ "rand 0.8.7",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "subtle",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
+name = "tokencraft_sdk"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.19",
+ "tokio",
+]
 
 [[package]]
 name = "tokio"
