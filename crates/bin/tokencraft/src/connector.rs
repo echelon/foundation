@@ -1,4 +1,4 @@
-use std::{fs, io::ErrorKind, path::PathBuf, sync::Arc};
+use std::{ffi::OsString, fs, io::ErrorKind, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use anyhow::{ensure, Context, Result};
 use axum::{
@@ -15,12 +15,30 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 
-use crate::state::write_private;
+use crate::state::{private_dir, write_private};
 
 const PROVIDER: &str = "self_hosted";
 const MODEL: &str = "example-image";
 const EXAMPLE_MAPPING: &[u8] =
     include_bytes!("../../../../examples/mapping/example-image.map.json");
+
+pub(crate) fn serve_example(mut args: impl Iterator<Item = OsString>) -> Result<()> {
+    let directory = PathBuf::from(args.next().context("Usage: tokencraft example-connector STATE_DIR")?);
+    ensure!(args.next().is_none(), "Usage: tokencraft example-connector STATE_DIR");
+    let token = std::env::var("TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE")
+        .context("set TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE for the example connector")?;
+    ensure!(token.len() >= 32, "the example connector requires a strong bearer token");
+    private_dir(&directory)?;
+    let app = router(directory, &token)?;
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 4019)).await?;
+            axum::serve(listener, app).await?;
+            Ok(())
+        })
+}
 
 pub(crate) fn router(directory: PathBuf, token: &str) -> Result<Router> {
     let registry = Registry::builtin()?;

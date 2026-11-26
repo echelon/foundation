@@ -200,6 +200,14 @@ To compare in USD, pass `--usd-nanos-per-credit` with an integer from your Kinov
 
 ## Run behind an HTTPS ingress
 
+### Render demo
+
+The repository Dockerfile runs the hosted gateway and the bundled image fixture in one Render web service. The connector listens on loopback and generates sample PNGs without sending requests to an inference vendor. PostgreSQL stores request records and the fixture output. The Docker build uses a temporary PostgreSQL instance for SQLx compile-time checks.
+
+Set the service health check to `/ready` and configure `APP_BASE_URL` with the HTTPS origin that serves the console. Pass `DATABASE_URL` using the external Render Postgres hostname with `sslmode=verify-full`. Allow the service's outbound IP ranges on the database. Provide separate random values for `SESSION_SECRET`, `TOKENCRAFT_DEMO_PAYLOAD_KEY`, and `TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE`, each generated with `openssl rand -hex 32`. Use Render's environment settings or a `tokencraft.env` secret file.
+
+The entry point applies migrations before starting the gateway. Keep the payload key with the database across redeploys. The fixture's temporary job files are discarded when Render replaces the service instance.
+
 Set `FOUNDATION_ENV=production` or `FOUNDATION_ENV=staging` and set `TOKENCRAFT_CORE_CATALOG` to your operator-reviewed catalog. Both environments use the same hosted safeguards.
 
 | Hosted configuration | Value |

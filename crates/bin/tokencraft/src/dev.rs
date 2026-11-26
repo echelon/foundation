@@ -84,6 +84,7 @@ pub(crate) fn main() -> Result<()> {
         Some("backup") => crate::backup::run(args, crate::backup::Action::Backup)?,
         Some("restore") => crate::backup::run(args, crate::backup::Action::Restore)?,
         Some("checkpoint") => crate::backup::run(args, crate::backup::Action::Checkpoint)?,
+        Some("example-connector") => connector::serve_example(args)?,
         Some("dev") => {
             if let Some(options) = parse(args)? {
                 tokio::runtime::Builder::new_multi_thread()
