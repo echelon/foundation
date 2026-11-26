@@ -214,7 +214,7 @@ pub(crate) fn startup_config(
         );
         return Ok(None);
     };
-    let hosted = crate::hosted::enabled(environment);
+    let hosted = environment.is_hosted();
     if !hosted {
         anyhow::ensure!(environment.is_dev(), "set FOUNDATION_ENV to development, staging, or production");
         let db: sqlx::postgres::PgConnectOptions = database_url.parse()

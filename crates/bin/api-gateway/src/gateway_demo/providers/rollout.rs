@@ -62,7 +62,7 @@ pub(in crate::gateway_demo) async fn run(mut args: impl Iterator<Item = OsString
             .parse::<IpAddr>()
             .is_ok_and(|host| host.is_loopback());
     if !local {
-        crate::hosted::verify_database(&url)?;
+        db::verify_hosted_url(&url)?;
     }
     let pool = PgPoolOptions::new()
         .max_connections(1)

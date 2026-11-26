@@ -12,13 +12,13 @@ async fn main() -> Result<()> {
 
     match cmd.as_str() {
         "migrate" => {
-            let pool = db::connect(&cfg.database_url).await?;
+            let pool = connect(&cfg).await?;
             db::migrate(&pool).await?;
             let n = db::table_count(&pool).await?;
             println!("migrations applied · {n} application tables in {}", db_name(&cfg.database_url));
         }
         "db-info" => {
-            let pool = db::connect(&cfg.database_url).await?;
+            let pool = connect(&cfg).await?;
             let up = db::ping(&pool).await;
             let n = db::table_count(&pool).await?;
             println!("database: {}", db_name(&cfg.database_url));
@@ -31,6 +31,13 @@ async fn main() -> Result<()> {
         other => bail!("unknown command: {other} (try `help`)"),
     }
     Ok(())
+}
+
+async fn connect(cfg: &config::Config) -> Result<db::PgPool> {
+    if cfg.environment.is_hosted() {
+        db::verify_hosted_url(&cfg.database_url)?;
+    }
+    db::connect(&cfg.database_url).await
 }
 
 fn db_name(url: &str) -> String {

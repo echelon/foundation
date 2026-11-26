@@ -5,18 +5,13 @@ use axum::extract::{Request, State};
 use axum::http::{HeaderValue, header::ORIGIN};
 use axum::middleware::Next;
 use axum::response::Response;
-use config::{Config, Environment};
+use config::Config;
 use reqwest::Url;
-use sqlx::postgres::{PgConnectOptions, PgSslMode};
 
 use crate::{auth::cookie, error::ApiError};
 
-pub(crate) fn enabled(environment: &Environment) -> bool {
-  matches!(environment, Environment::Stage | Environment::Prod)
-}
-
 pub(crate) fn configure(cfg: &mut Config) -> anyhow::Result<IpAddr> {
-  verify_database(&cfg.database_url)?;
+  db::verify_hosted_url(&cfg.database_url)?;
   verify_origin(&cfg.app_base_url)?;
   ensure!(cfg.cookie_secure, "the hosted gateway requires COOKIE_SECURE=true");
   strong_session_secret(&cfg.session_secret)?;
@@ -39,16 +34,6 @@ pub(crate) fn configure(cfg: &mut Config) -> anyhow::Result<IpAddr> {
     Some(ip) => ip.to_str().and_then(|value| value.parse().ok())
       .context("TOKENCRAFT_LISTEN_IP must be a literal IPv4 or IPv6 address"),
   }
-}
-
-pub(crate) fn verify_database(raw: &str) -> anyhow::Result<()> {
-  let options: PgConnectOptions = raw.parse()
-    .map_err(|_| anyhow::anyhow!("invalid hosted database connection settings"))?;
-  ensure!(
-    options.get_socket().is_none() && matches!(options.get_ssl_mode(), PgSslMode::VerifyFull),
-    "the hosted database requires TCP and DATABASE_URL with sslmode=verify-full"
-  );
-  Ok(())
 }
 
 fn verify_origin(raw: &str) -> anyhow::Result<()> {
@@ -89,11 +74,11 @@ mod tests {
 
   #[test]
   fn hosted_database_requires_verified_tls_over_tcp() {
-    assert!(verify_database("postgres://database.example/tokencraft?sslmode=verify-full").is_ok());
+    assert!(db::verify_hosted_url("postgres://database.example/tokencraft?sslmode=verify-full").is_ok());
     for mode in ["disable", "allow", "prefer", "require", "verify-ca"] {
-      assert!(verify_database(&format!("postgres://database.example/tokencraft?sslmode={mode}")).is_err());
+      assert!(db::verify_hosted_url(&format!("postgres://database.example/tokencraft?sslmode={mode}")).is_err());
     }
-    assert!(verify_database("postgres://database.example/tokencraft?host=%2Ftmp&sslmode=verify-full").is_err());
+    assert!(db::verify_hosted_url("postgres://database.example/tokencraft?host=%2Ftmp&sslmode=verify-full").is_err());
   }
 
   #[test]

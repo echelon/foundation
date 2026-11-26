@@ -37,6 +37,10 @@ impl Environment {
     pub fn is_dev(&self) -> bool {
         matches!(self, Environment::Dev)
     }
+
+    pub fn is_hosted(&self) -> bool {
+        matches!(self, Environment::Stage | Environment::Prod)
+    }
 }
 
 #[derive(Clone, Debug)]

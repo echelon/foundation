@@ -75,7 +75,7 @@ docker build --file deploy/container/Dockerfile --target gateway \
 
 Run the image on your private ingress network. Supply the [hosted configuration](#run-behind-an-https-ingress) and mount the operator's catalog, binding files, and any private PostgreSQL CA read-only. The gateway runs as UID and GID 65532. Set `TOKENCRAFT_LISTEN_IP` to the private address or `0.0.0.0` inside its container so the ingress can reach it. A connector in another container uses a configured HTTPS origin.
 
-Use the same image with `--entrypoint admin-cli` and the argument `migrate` as a one-off job with the verified database connection. Then run the API and worker roles from that image. The [Compose quickstart](setup.md#start-with-docker-compose) provides local synthetic inference with its own disposable state.
+Use the same image with `--entrypoint admin-cli` and the argument `migrate` as a one-off job. Set `FOUNDATION_ENV` to the hosted environment and use the migration owner's verified database connection. Then run the API and worker roles from that image. The [Compose quickstart](setup.md#start-with-docker-compose) provides local synthetic inference with its own disposable state.
 
 The **Container smoke** workflow builds both targets on pull requests, pushes to `main`, version tags, and manual runs. It verifies the Linux image architecture, source revision, release profile, and matching package versions. A version tag must match the package version, for example `v0.1.0`. The workflow applies migrations with the gateway image and starts two API replicas and a separate worker using restricted PostgreSQL credentials. It checks that the replicas share the organization quota, accepted requests replay across replicas, and the worker completes the original request and records its usage once. It also exercises the demo's bundled connector, persistence across container recreation, and the optional console mount. Version tags and manual runs reload the archived gateway image and verify its image ID before upload. In the extracted CI artifact, run `sha256sum -c SHA256SUMS`, then load the tarball with `docker load -i tokencraft-gateway-0.1.0-linux-amd64.tar.gz` using the file's actual version.
 
@@ -269,10 +269,10 @@ Apply migrations and grant runtime access before starting any hosted process. Th
 
 Terminate public TLS at your ingress and keep the gateway's HTTP listener private. Forward API requests and streaming response bodies without buffering. Set `X-Forwarded-For` to the client address observed at the trusted ingress. Route worker `/ready` probes through the private network. Build the console with `VITE_API_BASE_URL` set to the public HTTPS gateway origin. Serve the console and API on the same site, such as `console.example.com` and `api.example.com`. Browsers send the session cookie to the API host. Credentialed CORS and session writes require the configured console origin. API keys work for non-browser clients.
 
-When serving the API on the console origin, forward `/ready` and `/openapi.json` to the gateway alongside `/v1/`. Run the read-only check from the release checkout after deployment. It verifies readiness, the served OpenAPI contract, and the exact downloadable ArtCraft catalog.
+When proxying the API on the console origin, forward `/ready` and `/v1/` to the gateway. The console can serve the release snapshot at `/openapi.json` and `/docs/openapi.json`. Run the read-only check from the release checkout after deployment. Supply the gateway origin separately so the check verifies the live contract even when the console serves a static snapshot.
 
 ```sh
-bash scripts/smoke_hosted_console.sh https://console.example.com
+bash scripts/smoke_hosted_console.sh https://console.example.com https://api.example.com
 ```
 
 To deliver signed customer webhooks, set `TOKENCRAFT_DEMO_WEBHOOK_CONFIG` to an operator-maintained JSON registry such as `{"destinations":{"customer_updates":"https://events.example.com/tokencraft"}}`. Give the API and workers the same independent 32-byte hex `TOKENCRAFT_DEMO_WEBHOOK_KEY`. Hosts use the standard public certificate roots by default. Set `TOKENCRAFT_WEBHOOK_CA_FILE` to an operator-managed PEM bundle to use a private trust store for all webhook destinations. Tenants select a registry entry by ID. Register reviewed HTTPS destinations and set egress policy for the hosts you allow. TLS verifies the destination hostname and the client rejects redirects.
@@ -283,15 +283,17 @@ Each worker runs up to four delivery attempts at a time. A worker taking over an
 
 Use a dedicated PostgreSQL database whose owner applies migrations and owns the TokenCraft objects in the `public` schema. Give the API and worker a separate login with an independent credential. The runtime login needs no database ownership, elevated role membership, or permission to create objects in `public`. In clusters upgraded from an older PostgreSQL release, check whether `PUBLIC` still has `CREATE` on that schema and revoke it in the dedicated database if needed.
 
-With the migration owner's verified `DATABASE_URL` configured for `admin-cli`, apply migrations. Run the grant script against the same database as the migration owner. The example uses a PostgreSQL service definition called `tokencraft_migration` with `sslmode=verify-full`. Keep the password in your secret configuration.
+With the migration owner's verified `DATABASE_URL` configured for `admin-cli`, apply migrations. In staging and production the CLI requires a TCP connection with `sslmode=verify-full` before it connects. Run the grant script against the same database as the migration owner. The example uses a PostgreSQL service definition called `tokencraft_migration` with `sslmode=verify-full`. Keep the password in your secret configuration.
 
 ```sh
-admin-cli migrate
+FOUNDATION_ENV=production admin-cli migrate
 psql -X "service=tokencraft_migration" -v runtime_role=tokencraft_runtime \
   -f deploy/postgres/grant-runtime.sql
 ```
 
 The [grant script](../deploy/postgres/grant-runtime.sql) grants access to the owner's application tables, views, sequences, and invoker functions. It gives the runtime role read-only access to the migration ledger and any schema compatibility declarations. Reapply it after each migration before sending traffic to the new replicas. Configure the API and worker with the runtime login in `DATABASE_URL`. Keep the migration login in the one-off deployment job.
+
+The bundled Render demo migrates during startup by default. For a demo with a separate migration job, apply the matching image's migrations and runtime grants first, then set `TOKENCRAFT_RENDER_MIGRATE_ON_START=false` and configure the service with the runtime login. The gateway opens its listener only after it confirms the matching schema.
 
 ## Shared artifact storage
 

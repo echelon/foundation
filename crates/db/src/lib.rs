@@ -3,7 +3,7 @@
 //! and are applied via `admin-cli migrate`, never on service boot.
 
 use anyhow::Result;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 
 pub use sqlx::PgPool;
 
@@ -12,6 +12,18 @@ pub use schema::migrations_current;
 
 /// Migrations embedded at compile time from `crates/db/migrations`.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
+/// Require TCP and hostname-verified PostgreSQL TLS for hosted processes.
+pub fn verify_hosted_url(database_url: &str) -> Result<()> {
+    let options: PgConnectOptions = database_url
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid hosted database connection settings"))?;
+    anyhow::ensure!(
+        options.get_socket().is_none() && matches!(options.get_ssl_mode(), PgSslMode::VerifyFull),
+        "the hosted database requires TCP and DATABASE_URL with sslmode=verify-full"
+    );
+    Ok(())
+}
 
 /// Open a connection pool.
 pub async fn connect(database_url: &str) -> Result<PgPool> {

@@ -16,15 +16,43 @@ fi
 
 export FOUNDATION_ENV=staging COOKIE_SECURE=true TOKENCRAFT_LISTEN_IP=0.0.0.0
 export API_GATEWAY_PORT="${PORT:-10000}"
-export TOKENCRAFT_CORE_CATALOG=/opt/tokencraft/catalog.json
-export TOKENCRAFT_CONNECTORS=/opt/tokencraft/bindings.json
+bundle_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export TOKENCRAFT_CORE_CATALOG="$bundle_dir/catalog.json"
+export TOKENCRAFT_CONNECTORS="$bundle_dir/bindings.json"
 
-admin-cli migrate
+case "${TOKENCRAFT_RENDER_MIGRATE_ON_START:-true}" in
+    true) admin-cli migrate ;;
+    false) ;;
+    *) echo "Set TOKENCRAFT_RENDER_MIGRATE_ON_START to true or false" >&2; exit 2 ;;
+esac
+
+connector=
+gateway=
+cleanup() {
+    local child
+    for child in "$gateway" "$connector"; do
+        if [[ -n "$child" ]]; then
+            kill "$child" 2>/dev/null || true
+        fi
+    done
+    wait || true
+    rm -rf -- "$state"
+}
+
 state="$(mktemp -d)"
-tokencraft example-connector "$state" &
+trap cleanup EXIT
+trap 'exit 0' TERM INT
+(
+    # The synthetic connector only needs its own service token.
+    while IFS= read -r name; do
+        case "$name" in
+            PATH|TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE) ;;
+            *) export -n "$name" ;;
+        esac
+    done < <(compgen -e)
+    exec tokencraft example-connector "$state"
+) &
 connector=$!
 api-gateway &
 gateway=$!
-trap 'kill "$gateway" "$connector" 2>/dev/null || true; wait || true' EXIT
-trap 'exit 0' TERM INT
 wait -n "$gateway" "$connector"

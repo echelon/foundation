@@ -25,7 +25,7 @@ use crate::state::AppState;
 pub async fn run(mut cfg: config::Config) -> anyhow::Result<()> {
   let role = gateway_demo::ProcessRole::load()?;
   let scoped = std::env::var_os("TOKENCRAFT_CORE_CATALOG").is_some();
-  let is_hosted = scoped && hosted::enabled(&cfg.environment);
+  let is_hosted = scoped && cfg.environment.is_hosted();
   let listen_ip = if is_hosted {
     hosted::configure(&mut cfg)?
   } else {
@@ -168,7 +168,7 @@ fn build_router_inner(
   // Browser calls come from the frontend origin (credentials/cookies included), so CORS must name
   // origins explicitly — wildcard + credentials is forbidden by the spec. We allow the configured
   // app plus the local dev servers.
-  let is_hosted = demo.is_some() && hosted::enabled(&state.environment);
+  let is_hosted = demo.is_some() && state.environment.is_hosted();
   let console_origin = state.app_base_url.trim_end_matches('/').parse::<HeaderValue>().ok();
   let mut origins: Vec<_> = console_origin.iter().cloned().collect();
   if !is_hosted {
