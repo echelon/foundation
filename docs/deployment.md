@@ -49,6 +49,15 @@ Gateway background workers start after the database and schema probes pass. When
 
 The API checks the same database and schema state before handling operational requests, including direct calls that bypass ingress. During a pause it returns HTTP `503` with `Retry-After: 5`. Clients can retry a submission with the same body and idempotency key. The Rust and TypeScript SDKs offer opt-in submission retries and honor the retry hint when polling. The public health, readiness, and API contract endpoints remain reachable for diagnosis.
 
+### Cut over without schema overlap
+
+1. Pause new submissions at ingress while the old API still serves status and results. Let active provider jobs and deliveries drain, then stop the old API and workers so the backup captures a stable recovery point.
+2. Retain the old image and deployment configuration. Back up PostgreSQL and record the corresponding recovery points for artifact storage, connector job state, and retained keys. Verify that the backup can be restored to a separate database before depending on it.
+3. Apply the new image's migrations and [runtime grants](#separate-migration-and-runtime-roles). Start the new API and workers and check readiness. Run the [hosted smoke check](#run-behind-an-https-ingress) against the live gateway origin and verify an existing scoped session or key, request receipt, artifact, and usage before reopening submissions.
+4. If recovery is needed, start the old image against the separately restored database and verify the original request and artifact before switching traffic. Preserve the upgraded database and reconcile any writes accepted after the backup before resuming admissions on the restored database.
+
+Use a drain and restart for the schema 64 to 70 upgrade. The schema-64 hosted binary refuses startup once schema 70 is applied.
+
 ## Connect existing compute endpoints
 
 In the organization console, open **Providers → Compute → Connect endpoint**. Choose AWS, Firebase / Cloud Run, Render, or Custom endpoint. All four templates use the same OpenAI-compatible chat request and response. Supply the deployed endpoint, target name, placement, and priority. Use HTTPS and the name of a bearer token environment variable for a remote endpoint. Local fixtures can use loopback HTTP. The review step validates configuration without calling the endpoint.
