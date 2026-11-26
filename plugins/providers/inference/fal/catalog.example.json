@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "offers": [
+    {
+      "id": "fal_sample",
+      "provider": "fal",
+      "model": "fal_sample",
+      "adapter": "connector_queue",
+      "upstream_model": "fal-ai/flux/dev",
+      "local_binding": "fal",
+      "pricing": {
+        "kind": "image",
+        "usd_nanos_per_image": 0,
+        "aspect_ratios": [
+          "1:1",
+          "4:3",
+          "3:4",
+          "16:9",
+          "9:16"
+        ]
+      }
+    },
+    {
+      "id": "fal_pixverse_v6",
+      "provider": "fal",
+      "model": "pixverse_v6",
+      "adapter": "connector_queue",
+      "upstream_model": "fal-ai/pixverse/v6/text-to-video",
+      "local_binding": "fal",
+      "pricing": {
+        "kind": "video",
+        "usd_nanos_per_second": 0,
+        "durations_seconds": [5],
+        "aspect_ratios": ["16:9"],
+        "resolution": "720p"
+      }
+    },
+    {
+      "id": "fal_stable_audio_25",
+      "provider": "fal",
+      "model": "stable_audio_25",
+      "adapter": "connector_queue",
+      "upstream_model": "fal-ai/stable-audio-25/text-to-audio",
+      "local_binding": "fal",
+      "pricing": {
+        "kind": "audio",
+        "usd_nanos_per_second": 0,
+        "durations_seconds": [5, 10],
+        "format": "wav"
+      }
+    },
+    {
+      "id": "fal_meshy_v6_preview",
+      "provider": "fal",
+      "model": "meshy_v6_preview",
+      "adapter": "connector_queue",
+      "upstream_model": "fal-ai/meshy/v6/text-to-3d",
+      "local_binding": "fal",
+      "pricing": {
+        "kind": "mesh",
+        "usd_nanos_per_mesh": 0,
+        "format": "glb"
+      }
+    }
+  ]
+}

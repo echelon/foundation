@@ -1,0 +1,29 @@
+name: Provider plugins
+on:
+  push:
+    paths:
+      - 'plugins/providers/inference/**'
+      - '.github/workflows/provider-plugins.yml'
+  pull_request:
+    paths:
+      - 'plugins/providers/inference/**'
+      - '.github/workflows/provider-plugins.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [fal, kinovi, openrouter]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test provider plugin
+        working-directory: plugins/providers/inference/${{ matrix.plugin }}
+        run: npm test

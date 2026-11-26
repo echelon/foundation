@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "offers": [
+    {
+      "id": "kinovi_sample",
+      "provider": "kinovi",
+      "model": "kinovi_sample",
+      "adapter": "connector_queue",
+      "upstream_model": "seedance-20",
+      "local_binding": "kinovi",
+      "pricing": {
+        "kind": "video",
+        "usd_nanos_per_second": 0,
+        "durations_seconds": [
+          5
+        ],
+        "aspect_ratios": [
+          "16:9"
+        ],
+        "resolution": "720p"
+      }
+    }
+  ]
+}

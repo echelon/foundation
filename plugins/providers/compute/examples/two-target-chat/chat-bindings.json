@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "cell": "dev-cell",
+  "bindings": [
+    {
+      "name": "local-chat",
+      "allowed_locations": [
+        { "cloud": "local", "region": "workstation" }
+      ],
+      "targets": [
+        {
+          "id": "primary",
+          "location": { "cloud": "local", "region": "workstation" },
+          "zone": "workstation",
+          "priority": 10,
+          "endpoint": "http://127.0.0.1:4031/v1/chat/completions"
+        },
+        {
+          "id": "standby",
+          "location": { "cloud": "local", "region": "workstation" },
+          "zone": "workstation",
+          "priority": 20,
+          "endpoint": "http://127.0.0.1:4032/v1/chat/completions"
+        }
+      ]
+    }
+  ]
+}
