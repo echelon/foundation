@@ -7,13 +7,16 @@ use std::{
 use anyhow::{ensure, Context, Result};
 use serde::Serialize;
 
-use super::{verify_bundle, MAX_BUNDLE_BYTES};
+use super::{verify_bundle, MAX_BUNDLE_BYTES, MAX_BUNDLE_MIB};
 use crate::gateway_demo::{catalog_import::reference_signature::VerifiedReference, local_files};
+
+const CATALOG_FILENAME: &str = "catalog.json";
 
 #[derive(Serialize)]
 pub(super) struct StagedRelease<'a> {
     #[serde(flatten)]
     reference: &'a VerifiedReference,
+    catalog_path: String,
     release_path: String,
     current_path: String,
 }
@@ -22,6 +25,7 @@ pub(super) fn write<'a>(
     directory: &Path,
     reference: &'a VerifiedReference,
     public_key: &[u8],
+    catalog: &[u8],
     bundle: &[u8],
 ) -> Result<StagedRelease<'a>> {
     create_directory(directory)?;
@@ -31,6 +35,8 @@ pub(super) fn write<'a>(
     create_directory(&current)?;
     local_files::sync_directory(directory)?;
 
+    write_catalog(&release, catalog)?;
+
     let filename = format!("{}.json", reference.public_key_sha256);
     let retained;
     let published = match publish_file(&release, &filename, bundle, false) {
@@ -38,7 +44,7 @@ pub(super) fn write<'a>(
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
             retained = local_files::read_bounded(&release.join(&filename), MAX_BUNDLE_BYTES)
                 .context("read the immutable reference bundle")?;
-            ensure!(retained.len() <= MAX_BUNDLE_BYTES, "immutable reference bundle exceeds 96 KiB");
+            ensure!(retained.len() <= MAX_BUNDLE_BYTES, "immutable reference bundle exceeds {MAX_BUNDLE_MIB} MiB");
             let existing = verify_bundle(&retained, public_key)
                 .context("verify the immutable reference bundle")?;
             ensure!(
@@ -52,9 +58,23 @@ pub(super) fn write<'a>(
     publish_file(&current, &filename, published, true).context("update the current reference bundle")?;
     Ok(StagedRelease {
         reference,
+        catalog_path: format!("{}/{CATALOG_FILENAME}", reference.reference_sha256),
         release_path: format!("{}/{filename}", reference.reference_sha256),
         current_path: format!("current/{filename}"),
     })
+}
+
+fn write_catalog(directory: &Path, catalog: &[u8]) -> Result<()> {
+    match publish_file(directory, CATALOG_FILENAME, catalog, false) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            let existing = local_files::read_bounded(&directory.join(CATALOG_FILENAME), catalog.len())
+                .context("read the immutable public catalog")?;
+            ensure!(existing == catalog, "immutable catalog path contains different bytes");
+            Ok(())
+        }
+        Err(error) => Err(error).context("write the immutable public catalog"),
+    }
 }
 
 fn create_directory(path: &Path) -> Result<()> {

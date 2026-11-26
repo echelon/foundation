@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use serde_json::json;
-use tokencraft_sdk::{Error, QuoteInput, RequestStatus, TokenCraftClient, WaitOptions, Workload};
+use tokencraft_sdk::{Error, Quote, QuoteInput, RequestStatus, TokenCraftClient, WaitOptions, Workload};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
@@ -10,6 +10,7 @@ use tokio::{
 };
 
 const REQUEST: &str = "req_01m881w0c8np13xfvetqsbk8m0";
+const TRACEPARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 fn input() -> QuoteInput {
     QuoteInput {
@@ -22,6 +23,14 @@ fn input() -> QuoteInput {
         provider: None,
         max_total_usd_nanos: None,
     }
+}
+
+fn quote_fixture() -> Quote {
+    serde_json::from_value(json!({
+        "id": "quo_fixture", "catalog_revision": "fixture", "input": input(),
+        "currency": "USD", "pinned_offer_id": "image_fixture",
+        "selected_offer_id": "image_fixture", "candidates": []
+    })).unwrap()
 }
 
 async fn reply(status: &str, headers: &str, body: &str) -> (String, JoinHandle<(String, String)>) {
@@ -420,7 +429,137 @@ async fn redirects_are_returned_without_forwarding_bearer() {
 }
 
 #[tokio::test]
-async fn wait_reuses_validator_and_respects_poll_hint() {
+async fn submission_reuses_the_same_wire_intent_after_hinted_failures() {
+    use tokencraft_sdk::SubmitOptions;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let captured = tokio::spawn(async move {
+        let unavailable = wire_response("503 Service Unavailable", "Retry-After: 0\r\n", "{}");
+        let limited = wire_response("429 Too Many Requests", "Retry-After: 0\r\n", "{}");
+        let admitted = wire_response("202 Accepted", "", &json!({
+            "id": REQUEST, "project_id": "fixture", "status_url": format!("/v1/requests/{REQUEST}"),
+        }).to_string());
+        let first = capture_and_reply(&listener, &unavailable).await;
+        let second = capture_and_reply(&listener, &limited).await;
+        let third = capture_and_reply(&listener, &admitted).await;
+        assert_eq!(first, second);
+        assert_eq!(first, third);
+        first
+    });
+    let client = TokenCraftClient::with_timeout(&origin, Some("fixture"), Duration::from_secs(2))
+        .unwrap().with_submit_max_attempts(3).unwrap().with_app_ref("studio")
+        .with_submit_traceparent(TRACEPARENT).unwrap();
+    let mut options = SubmitOptions::new("fixture-retry");
+    options.client_ref = Some("customer-1");
+    options.image_prompt = Some("A violet paper kite");
+    assert_eq!(client.submit(&quote_fixture(), options).await.unwrap().id, REQUEST);
+    let (head, body) = captured.await.unwrap();
+    assert!(head.contains("idempotency-key: fixture-retry\r\n"));
+    assert!(head.contains("authorization: bearer fixture\r\n"));
+    assert!(head.contains(&format!("traceparent: {TRACEPARENT}\r\n")));
+    let body: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["pinned_offer_id"], "image_fixture");
+    assert_eq!(body["app_ref"], "studio");
+    assert_eq!(body["client_ref"], "customer-1");
+    assert_eq!(body["image_prompt"], "A violet paper kite");
+}
+
+#[tokio::test]
+async fn caller_context_is_validated_and_applies_only_to_the_scoped_client_submissions() {
+    use tokencraft_sdk::SubmitOptions;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let catalog = wire_response("200 OK", "", r#"{"revision":"fixture","offers":[]}"#);
+        let receipt = wire_response("202 Accepted", "", &json!({
+            "id": REQUEST, "project_id": "fixture", "status_url": format!("/v1/requests/{REQUEST}"),
+        }).to_string());
+        let (read, _) = capture_and_reply(&listener, &catalog).await;
+        let (linked, _) = capture_and_reply(&listener, &receipt).await;
+        let (unlinked, _) = capture_and_reply(&listener, &receipt).await;
+        (read, linked, unlinked)
+    });
+    let client = TokenCraftClient::new(&origin, Some("fixture")).unwrap();
+    let future = TRACEPARENT.replacen("00-", "01-", 1) + "-extension";
+    for invalid in [
+        TRACEPARENT.replacen("00-", "ff-", 1),
+        TRACEPARENT.replace("00f067aa0ba902b7", "0000000000000000"),
+        TRACEPARENT.replace("4bf92f3577b34da6a3ce929d0e0e4736", "0".repeat(32).as_str()),
+        format!("{TRACEPARENT}, {TRACEPARENT}"),
+        format!("{TRACEPARENT}-extra"),
+        format!("{future}{}", "a".repeat(256)),
+        format!("{TRACEPARENT}\r\nX-Other: discarded"),
+    ] {
+        assert!(matches!(client.clone().with_submit_traceparent(&invalid), Err(Error::InvalidInput(_))));
+    }
+    let traced = client.clone().with_submit_traceparent(&future).unwrap();
+    traced.catalog().await.unwrap();
+    traced.submit(&quote_fixture(), SubmitOptions::new("fixture-linked")).await.unwrap();
+    client.submit(&quote_fixture(), SubmitOptions::new("fixture-unlinked")).await.unwrap();
+    let (read, linked, unlinked) = server.await.unwrap();
+    assert!(!read.contains("traceparent:"));
+    assert!(linked.contains(&format!("traceparent: {future}\r\n")));
+    assert!(!unlinked.contains("traceparent:"));
+    assert!(!linked.contains("tracestate:") && !linked.contains("baggage:"));
+}
+
+#[tokio::test]
+async fn submission_retries_require_opt_in_an_unambiguous_hint_and_remaining_attempts() {
+    use tokencraft_sdk::SubmitOptions;
+
+    let problem = r#"{"error":{"code":"unavailable","message":"try again"}}"#;
+    for (attempts, status, hint, expected) in [
+        (1, "503 Service Unavailable", "Retry-After: 0\r\n", 503),
+        (3, "503 Service Unavailable", "", 503),
+        (3, "503 Service Unavailable", "Retry-After: 0\r\nRetry-After: 1\r\n", 503),
+        (3, "409 Conflict", "Retry-After: 0\r\n", 409),
+    ] {
+        let (origin, captured) = reply(status, hint, problem).await;
+        let client = TokenCraftClient::new(&origin, Some("fixture")).unwrap();
+        let client = if attempts == 1 { client } else {
+            client.with_submit_max_attempts(attempts).unwrap()
+        };
+        let error = client.submit(&quote_fixture(), SubmitOptions::new("fixture-err"))
+            .await.unwrap_err();
+        assert!(matches!(error, Error::Gateway { status, code, .. }
+            if status.as_u16() == expected && code == "unavailable"));
+        captured.await.unwrap();
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let response = wire_response("503 Service Unavailable", "Retry-After: 0\r\n", problem);
+        capture_and_reply(&listener, &response).await;
+        capture_and_reply(&listener, &response).await;
+        assert!(timeout(Duration::from_millis(30), listener.accept()).await.is_err());
+    });
+    let client = TokenCraftClient::with_timeout(&origin, Some("fixture"), Duration::from_secs(2))
+        .unwrap().with_submit_max_attempts(2).unwrap();
+    let error = client.submit(&quote_fixture(), SubmitOptions::new("fixture-err"))
+        .await.unwrap_err();
+    assert!(matches!(error, Error::Gateway { code, .. } if code == "unavailable"));
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn submission_retry_sleep_spends_the_same_deadline() {
+    use tokencraft_sdk::SubmitOptions;
+
+    let (origin, captured) = reply("503 Service Unavailable", "Retry-After: 30\r\n", "{}").await;
+    let client = TokenCraftClient::with_timeout(&origin, Some("fixture"), Duration::from_millis(100))
+        .unwrap().with_submit_max_attempts(3).unwrap();
+    let error = timeout(Duration::from_secs(2),
+        client.submit(&quote_fixture(), SubmitOptions::new("fixture-later")))
+        .await.unwrap().unwrap_err();
+    assert!(matches!(error, Error::Timeout { .. }));
+    captured.await.unwrap();
+}
+
+#[tokio::test]
+async fn wait_reuses_validator_through_rollout_and_respects_poll_hint() {
     use std::time::Instant;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -437,12 +576,14 @@ async fn wait_reuses_validator_and_respects_poll_hint() {
         let queued = wire_response("200 OK", "ETag: W/\"queued\"\r\nRetry-After: 1\r\n", &trace("queued"));
         let (first, _) = capture_and_reply(&listener, &queued).await;
         let started = Instant::now();
-        let no_change = wire_response("304 Not Modified", "", "");
-        let (second, _) = capture_and_reply(&listener, &no_change).await;
+        let rollout = wire_response("503 Service Unavailable", "Retry-After: 0\r\nETag: \"invalidated\"\r\n", "{}");
+        let (second, _) = capture_and_reply(&listener, &rollout).await;
         let elapsed = started.elapsed();
+        let no_change = wire_response("304 Not Modified", "", "");
+        let (third, _) = capture_and_reply(&listener, &no_change).await;
         let succeeded = wire_response("200 OK", "", &trace("succeeded"));
-        let (third, _) = capture_and_reply(&listener, &succeeded).await;
-        (first, second, third, elapsed)
+        let (fourth, _) = capture_and_reply(&listener, &succeeded).await;
+        (first, [second, third, fourth], elapsed)
     });
     let client = TokenCraftClient::new(&origin, Some("fixture")).unwrap();
     let result = client.wait(REQUEST, WaitOptions {
@@ -450,10 +591,11 @@ async fn wait_reuses_validator_and_respects_poll_hint() {
         poll_interval: Duration::from_millis(5),
     }).await.unwrap();
     assert_eq!(result.status, RequestStatus::Succeeded);
-    let (first, second, third, elapsed) = captured.await.unwrap();
+    let (first, later, elapsed) = captured.await.unwrap();
     assert!(!first.contains("if-none-match:"));
-    assert!(second.contains("if-none-match: w/\"queued\""));
-    assert!(third.contains("if-none-match: w/\"queued\""));
+    for head in later {
+        assert!(head.contains("if-none-match: w/\"queued\""));
+    }
     assert!(elapsed >= Duration::from_millis(900));
 }
 

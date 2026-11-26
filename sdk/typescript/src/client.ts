@@ -1,6 +1,7 @@
 import { readArtifact, validateArtifactRef } from "./content.js";
 import type { ContentMetadata, DownloadOptions, RetainedContent, VerifiedArtifact } from "./content.js";
 import { deadline, isRequestId, milliseconds, object, pause, TokenCraftError } from "./http.js";
+import { validateTraceparent } from "./trace.js";
 import type { OtlpTrace, RequestTraceSnapshot, TraceBaseline } from "./trace.js";
 import type {
   ArtifactRef, AudioProviderResult, CallOptions, Catalog, ClientOptions, ImageProviderResult, ListOptions, MeshProviderResult, ModelCatalog, ModelListOptions, ProviderPath, ProviderResult, Quote, QuoteInput, QuoteOptions,
@@ -19,12 +20,15 @@ interface WireOptions extends CallOptions {
   requestId?: string;
   cache?: RequestCache;
   accept?: string;
+  retrySubmission?: boolean;
+  traceparent?: string;
 }
 
 export class TokenCraft {
   readonly #base: URL;
   readonly #apiKey?: string;
   readonly #timeout: number;
+  readonly #submitMaxAttempts: number;
   readonly #fetch: typeof fetch;
 
   constructor(options: ClientOptions) {
@@ -40,6 +44,10 @@ export class TokenCraft {
     this.#base = url;
     this.#apiKey = options.apiKey;
     this.#timeout = milliseconds(options.timeoutMs ?? 30_000, "timeoutMs");
+    this.#submitMaxAttempts = options.submitMaxAttempts ?? 1;
+    if (!Number.isInteger(this.#submitMaxAttempts) || this.#submitMaxAttempts < 1 || this.#submitMaxAttempts > 8) {
+      throw new RangeError("submitMaxAttempts must be an integer from 1 to 8.");
+    }
     this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
@@ -73,6 +81,8 @@ export class TokenCraft {
     }
     return this.#call("POST", "v1/requests", {
       auth: true, key: options.idempotencyKey, signal: options.signal,
+      retrySubmission: true,
+      traceparent: options.traceparent === undefined ? undefined : validateTraceparent(options.traceparent),
       body: {
         quote_id: quote.id,
         pinned_offer_id: quote.pinned_offer_id,
@@ -212,8 +222,7 @@ export class TokenCraft {
           }
           validator = headers.get("etag");
         }
-        const hint = headers.get("retry-after") ?? "";
-        const suggestedDelay = /^\d+$/.test(hint) ? Number(hint) * 1_000 : 0;
+        const suggestedDelay = retryAfter(headers) ?? 0;
         await pause(Math.min(timeout, Math.max(interval, suggestedDelay)), poll.signal);
       }
     } finally {
@@ -227,7 +236,7 @@ export class TokenCraft {
 
   #read<T>(method: string, path: string, options: WireOptions): Promise<GatewayRead<T>>;
   #read<T>(method: string, path: string, options: WireOptions, validator: string | null): Promise<GatewayRead<T | null>>;
-  #read<T>(method: string, path: string, options: WireOptions, validator: string | null = null): Promise<GatewayRead<T | null>> {
+  #read<T>(method: string, path: string, options: WireOptions, validator?: string | null): Promise<GatewayRead<T | null>> {
     return this.#exchange(method, path, options, async (response, requestId) => {
       const payload: unknown = await response.json().catch(() => null);
       if (!object(payload)) throw new TokenCraftError(response.status, "invalid_response", "The gateway did not return a JSON object.", requestId);
@@ -238,10 +247,10 @@ export class TokenCraft {
   #exchange<T>(method: string, path: string, options: WireOptions,
     consume: (response: Response, id?: string) => Promise<T>): Promise<GatewayRead<T>>;
   #exchange<T>(method: string, path: string, options: WireOptions,
-    consume: (response: Response, id?: string) => Promise<T>, validator: string | null): Promise<GatewayRead<T | null>>;
+    consume: (response: Response, id?: string) => Promise<T>, validator: string | null | undefined): Promise<GatewayRead<T | null>>;
   async #exchange<T>(method: string, path: string, options: WireOptions,
-    consume: (response: Response, id?: string) => Promise<T>, validator: string | null = null): Promise<GatewayRead<T | null>> {
-    const { auth, body, key, requestId, signal, cache, accept } = options;
+    consume: (response: Response, id?: string) => Promise<T>, validator?: string | null): Promise<GatewayRead<T | null>> {
+    const { auth, body, key, requestId, signal, cache, accept, retrySubmission, traceparent } = options;
     const headers = new Headers({ Accept: accept ?? "application/json" });
     if (auth) {
       if (!this.#apiKey) throw new TokenCraftError(0, "missing_key", "This operation requires a TokenCraft API key.", requestId);
@@ -249,32 +258,45 @@ export class TokenCraft {
     }
     if (body) headers.set("Content-Type", "application/json");
     if (key) headers.set("Idempotency-Key", key);
-    if (validator !== null) headers.set("If-None-Match", validator);
+    if (traceparent !== undefined) headers.set("traceparent", traceparent);
+    if (typeof validator === "string") headers.set("If-None-Match", validator);
     const encoded = body === undefined ? undefined : JSON.stringify(body);
+    const maxAttempts = retrySubmission ? this.#submitMaxAttempts : 1;
+    const polling = validator !== undefined;
     let id = requestId;
     const request = deadline(signal, this.#timeout, () => id);
     try {
-      request.signal.throwIfAborted();
-      const response = await this.#fetch(new URL(path, this.#base), {
-        method, headers, body: encoded, signal: request.signal, credentials: "omit", redirect: "error", cache,
-      });
-      const observedId = response.headers.get("tokencraft-request-id") ?? response.headers.get("x-request-id");
-      if (isRequestId(observedId)) id = observedId;
-      if (response.status === 304 && validator !== null) {
+      for (let attempt = 1; ; attempt++) {
         request.signal.throwIfAborted();
-        return { value: null, headers: response.headers };
-      }
-      if (!response.ok) {
-        const payload: unknown = await response.json().catch(() => null);
+        const response = await this.#fetch(new URL(path, this.#base), {
+          method, headers: new Headers(headers), body: encoded,
+          signal: request.signal, credentials: "omit", redirect: "error", cache,
+        });
+        const observedId = response.headers.get("tokencraft-request-id") ?? response.headers.get("x-request-id");
+        if (isRequestId(observedId)) id = observedId;
         request.signal.throwIfAborted();
-        const error = object(payload) && object(payload.error) ? payload.error : {};
-        const code = typeof error.code === "string" ? error.code : "http_error";
-        const message = typeof error.message === "string" ? error.message : `Gateway returned HTTP ${response.status}.`;
-        throw new TokenCraftError(response.status, code, message, id);
+        const delay = response.status === 429 || response.status === 503 ? retryAfter(response.headers) : undefined;
+        if (response.status === 304 && typeof validator === "string") {
+          return { value: null, headers: response.headers };
+        }
+        if (delay !== undefined && (polling || attempt < maxAttempts)) {
+          void response.body?.cancel().catch(() => {});
+          if (polling) return { value: null, headers: response.headers };
+          await pause(Math.min(delay, this.#timeout), request.signal);
+          continue;
+        }
+        if (!response.ok) {
+          const payload: unknown = await response.json().catch(() => null);
+          request.signal.throwIfAborted();
+          const error = object(payload) && object(payload.error) ? payload.error : {};
+          const code = typeof error.code === "string" ? error.code : "http_error";
+          const message = typeof error.message === "string" ? error.message : `Gateway returned HTTP ${response.status}.`;
+          throw new TokenCraftError(response.status, code, message, id);
+        }
+        const value = await consume(response, id);
+        request.signal.throwIfAborted();
+        return { value, headers: response.headers };
       }
-      const value = await consume(response, id);
-      request.signal.throwIfAborted();
-      return { value, headers: response.headers };
     } catch (error) {
       request.signal.throwIfAborted();
       if (error instanceof TokenCraftError) throw error;
@@ -283,6 +305,11 @@ export class TokenCraft {
       request.close();
     }
   }
+}
+
+function retryAfter(headers: Headers): number | undefined {
+  const value = headers.get("retry-after");
+  return value && /^\d+$/.test(value) ? Number(value) * 1_000 : undefined;
 }
 
 function requestPath(id: string): string {

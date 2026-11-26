@@ -11,7 +11,7 @@ use axum::{
 };
 use db_queries::{
     gateway_archive_schedule,
-    gateway_archives::{self, Archive, Manifest, NewArchive},
+    gateway_archives::{self, Archive, ArchiveTask, Manifest, NewArchive},
     gateway_exports,
     gateway_requests::RequestScope,
 };
@@ -21,9 +21,11 @@ use serde::{Deserialize, Serialize};
 use super::{
     access::{self, parse_id, GatewayCaller, Permission, ScopeQuery},
     archive_blobs::{ArchiveStorage, Expected, ObjectKey, COLD_OBJECT, IO_ERROR},
+    archive_bucket::RestoreDispatch,
     archive_events, archive_retirement,
     catalog::digest,
     exports,
+    readiness::Readiness,
 };
 use crate::{
     error::{ApiError, ApiResult},
@@ -297,9 +299,9 @@ async fn scoped_archive(
         .ok_or_else(|| ApiError::NotFound("archive not found".into()))
 }
 
-pub(super) fn spawn(pool: db::PgPool, storage: Arc<ArchiveStorage>) {
+pub(super) fn spawn(pool: db::PgPool, storage: Arc<ArchiveStorage>, readiness: Arc<Readiness>) {
     if let Some(days) = storage.retire_after_days {
-        archive_retirement::spawn(pool.clone(), Arc::clone(&storage), days);
+        archive_retirement::spawn(pool.clone(), Arc::clone(&storage), days, Arc::clone(&readiness));
     }
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_millis(500));
@@ -308,8 +310,8 @@ pub(super) fn spawn(pool: db::PgPool, storage: Arc<ArchiveStorage>) {
         schedule.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let result = tokio::select! {
-                _ = tick.tick() => work(&pool, &storage).await,
-                _ = schedule.tick() => match storage.automatic_after_days {
+                _ = readiness.work_tick(&mut tick) => work(&pool, &storage).await,
+                _ = readiness.work_tick(&mut schedule) => match storage.automatic_after_days {
                     Some(days) => gateway_archive_schedule::queue(&pool, days, PARTITION_EVENTS).await,
                     None => Ok(()),
                 },
@@ -348,19 +350,13 @@ async fn work(pool: &db::PgPool, storage: &Arc<ArchiveStorage>) -> sqlx::Result<
         let key = expected.key.clone();
         return match storage.read(expected).await {
             Ok(_) => gateway_archives::restored(pool, &task).await,
-            Err(COLD_OBJECT | IO_ERROR) if task.retrieval_attempted_at.is_some() => {
-                gateway_archives::wait_for_retrieval(pool, &task).await
-            }
             Err(COLD_OBJECT)
                 if task.retrieve_cold && storage.permits_retrieval(&key.storage_target) =>
             {
-                if !gateway_archives::begin_retrieval(pool, &task).await? {
-                    return Ok(());
-                }
-                match storage.request_retrieval(&key).await {
-                    Ok(()) => gateway_archives::wait_for_retrieval(pool, &task).await,
-                    Err(code) => gateway_archives::fail(pool, &task, code).await,
-                }
+                retrieve_archive(pool, storage, &task, &key).await
+            }
+            Err(COLD_OBJECT | IO_ERROR) if task.retrieval_attempted_at.is_some() => {
+                gateway_archives::wait_for_retrieval(pool, &task, false).await
             }
             Err(code) => gateway_archives::fail(pool, &task, code).await,
         };
@@ -439,4 +435,31 @@ async fn work(pool: &db::PgPool, storage: &Arc<ArchiveStorage>) -> sqlx::Result<
         storage.discard(&key).await;
     }
     Ok(())
+}
+
+async fn retrieve_archive(
+    pool: &db::PgPool,
+    storage: &ArchiveStorage,
+    task: &ArchiveTask,
+    key: &ObjectKey,
+) -> sqlx::Result<()> {
+    if task.retrieval_confirmed
+        || task.retrieval_submissions >= gateway_archives::MAX_RETRIEVAL_SUBMISSIONS
+    {
+        return gateway_archives::wait_for_retrieval(pool, task, false).await;
+    }
+    if task.retrieval_attempted_at.is_some() {
+        match storage.restoration_exists(key).await {
+            Ok(true) => return gateway_archives::wait_for_retrieval(pool, task, true).await,
+            Err(_) => return gateway_archives::wait_for_retrieval(pool, task, false).await,
+            Ok(false) => {}
+        }
+    }
+    if !gateway_archives::begin_retrieval(pool, task).await? {
+        return gateway_archives::wait_for_retrieval(pool, task, false).await;
+    }
+    match storage.request_retrieval(key).await {
+        Ok(result) => gateway_archives::wait_for_retrieval(pool, task, result == RestoreDispatch::Confirmed).await,
+        Err(code) => gateway_archives::fail(pool, task, code).await,
+    }
 }

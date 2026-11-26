@@ -7,7 +7,7 @@ use anyhow::Context;
 
 use super::super::{
     archive_blobs::{BAD_OBJECT, COLD_OBJECT, IO_ERROR},
-    archive_bucket::ArchiveBucket,
+    archive_bucket::{ArchiveBucket, RestoreDispatch},
     catalog::digest,
     local_files,
 };
@@ -45,7 +45,14 @@ impl Target {
         matches!(self, Self::Bucket(bucket) if bucket.permits_restore())
     }
 
-    pub(super) async fn request_restore(&self, name: &str) -> Result<(), &'static str> {
+    pub(super) async fn restoration_exists(&self, name: &str) -> Result<bool, &'static str> {
+        match self {
+            Self::Bucket(bucket) => bucket.restoration_exists(name).await,
+            Self::Directory { .. } => Err(COLD_OBJECT),
+        }
+    }
+
+    pub(super) async fn request_restore(&self, name: &str) -> Result<RestoreDispatch, &'static str> {
         match self {
             Self::Bucket(bucket) => bucket.request_restore(name).await,
             Self::Directory { .. } => Err(COLD_OBJECT),

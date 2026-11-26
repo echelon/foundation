@@ -12,16 +12,18 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use reqwest::{Certificate, Client, Url};
 use serde::{Deserialize, Serialize};
 
-use super::{digest, read_file, read_limited, reference_signature, Reference, MAX_CONFIG_BYTES};
+use super::{digest, read_file, read_limited, reference_check, reference_signature, Reference};
 
-const MAX_BUNDLE_BYTES: usize = 96 * 1024;
+// A bundle holds the reference bytes as base64 plus the detached signature.
+const MAX_BUNDLE_MIB: usize = 6;
+const MAX_BUNDLE_BYTES: usize = MAX_BUNDLE_MIB * 1024 * 1024;
 const HELP: &str = "Usage:
   api-gateway catalog pack-reference --reference FILE --signature FILE --public-key FILE
-  api-gateway catalog stage-reference --reference FILE --signature FILE --public-key FILE --directory DIR
+  api-gateway catalog stage-reference --reference FILE --signature FILE --public-key FILE --directory DIR --plugin-catalog FILE [--plugin-catalog FILE ...]
   api-gateway catalog fetch-reference --registry HTTPS_URL (--sha256 HEX | --current) --public-key FILE [--ca FILE]
 
 Pack a checked signature and its snapshot into one file.
-Stage the immutable and current copies in a local directory.
+Check public pricing and plugin coverage, then stage the public JSON and signed bundles.
 Fetch a bundle from an HTTPS registry and verify it before writing to stdout.
 ";
 
@@ -39,6 +41,13 @@ struct Bundle {
     signature: reference_signature::SignatureFile,
 }
 
+#[derive(Serialize)]
+struct StagedPublication<'a> {
+    #[serde(flatten)]
+    release: stage::StagedRelease<'a>,
+    plugin_coverage: Vec<reference_check::CheckedOffer<'a>>,
+}
+
 struct FetchOptions<'a> {
     registry: &'a str,
     checksum: Option<&'a str>,
@@ -49,6 +58,7 @@ struct FetchOptions<'a> {
 pub(super) async fn run(action: Action, mut args: impl Iterator<Item = OsString>) -> Result<()> {
     let (mut reference, mut signature, mut key, mut registry, mut checksum, mut ca, mut directory) =
         (None, None, None, None, None, None, None);
+    let mut plugins = Vec::new();
     let mut current = false;
     while let Some(option) = args.next() {
         let slot = match (&action, option.to_str()) {
@@ -56,6 +66,10 @@ pub(super) async fn run(action: Action, mut args: impl Iterator<Item = OsString>
             (Action::Pack | Action::Stage, Some("--reference")) => &mut reference,
             (Action::Pack | Action::Stage, Some("--signature")) => &mut signature,
             (Action::Stage, Some("--directory")) => &mut directory,
+            (Action::Stage, Some("--plugin-catalog")) => {
+                plugins.push(PathBuf::from(args.next().context("set --plugin-catalog FILE")?));
+                continue;
+            }
             (Action::Fetch, Some("--registry")) => &mut registry,
             (Action::Fetch, Some("--sha256")) => &mut checksum,
             (Action::Fetch, Some("--ca")) => &mut ca,
@@ -83,9 +97,7 @@ pub(super) async fn run(action: Action, mut args: impl Iterator<Item = OsString>
     reference_signature::public_key_bytes(&public_key)?;
     let bytes = match action {
         Action::Pack | Action::Stage => {
-            let source = Reference::parse(read_file(Path::new(
-                &reference.context("set --reference FILE")?,
-            ))?)?;
+            let source = Reference::load(Path::new(&reference.context("set --reference FILE")?))?;
             let signature = reference_signature::read_signature(Path::new(
                 &signature.context("set --signature FILE")?,
             ))?;
@@ -99,13 +111,15 @@ pub(super) async fn run(action: Action, mut args: impl Iterator<Item = OsString>
             bytes.push(b'\n');
             ensure!(
                 bytes.len() <= MAX_BUNDLE_BYTES,
-                "reference bundle exceeds 96 KiB"
+                "reference bundle exceeds {MAX_BUNDLE_MIB} MiB"
             );
             if matches!(action, Action::Stage) {
                 let directory = directory.context("set --directory DIR")?;
-                let placed = stage::write(Path::new(&directory), &verified, &public_key, &bytes)?;
+                let report = reference_check::check(&source, &plugins)?;
+                let placed = stage::write(Path::new(&directory), &verified, &public_key, &source.bytes, &bytes)?;
+                let publication = StagedPublication { release: placed, plugin_coverage: report.offers };
                 let mut output = io::stdout().lock();
-                serde_json::to_writer_pretty(&mut output, &placed)?;
+                serde_json::to_writer_pretty(&mut output, &publication)?;
                 writeln!(output)?;
                 return Ok(());
             }
@@ -147,10 +161,6 @@ fn verify_bundle(bytes: &[u8], public_key: &[u8]) -> Result<Reference> {
     let raw = STANDARD
         .decode(bundle.reference_base64)
         .context("decode bundled reference bytes")?;
-    ensure!(
-        raw.len() as u64 <= MAX_CONFIG_BYTES,
-        "bundled catalog exceeds 64 KiB"
-    );
     let mut reference = Reference::parse(raw)?;
     reference.verified = Some(reference_signature::verify(
         &reference.bytes,
@@ -212,13 +222,13 @@ async fn fetch(options: FetchOptions<'_>) -> Result<Vec<u8>> {
         response
             .content_length()
             .is_none_or(|size| size <= MAX_BUNDLE_BYTES as u64),
-        "reference bundle exceeds 96 KiB"
+        "reference bundle exceeds {MAX_BUNDLE_MIB} MiB"
     );
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await? {
         ensure!(
             chunk.len() <= MAX_BUNDLE_BYTES - bytes.len(),
-            "reference bundle exceeds 96 KiB"
+            "reference bundle exceeds {MAX_BUNDLE_MIB} MiB"
         );
         bytes.extend_from_slice(&chunk);
     }

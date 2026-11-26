@@ -1,8 +1,8 @@
-FROM rust:1.96.0-trixie AS build
+FROM rust:1.96-trixie AS build
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-17 libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates crates
 COPY sdk/rust sdk/rust
 COPY examples examples

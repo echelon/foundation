@@ -28,7 +28,8 @@ pub async fn recheck_provider(
                recheck_requested_at = statement_timestamp(),
                recheck_unconfirmed_at = r.uncertain_at,
                poll_after = statement_timestamp(),
-               poll_deadline = statement_timestamp() + interval '15 minutes'
+               poll_deadline = statement_timestamp() + interval '15 minutes',
+               publication_retry_step = 0
              FROM scoped r WHERE p.request_id = r.id
                AND r.adapter IN ('fal_queue', 'kinovi_queue', 'connector_queue')
                AND r.content_removed_at IS NULL

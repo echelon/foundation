@@ -4,8 +4,10 @@ use std::{
 };
 
 use axum::{
-    extract::{Query, State},
-    http::StatusCode,
+    extract::{Query, Request, State},
+    http::{header::{CACHE_CONTROL, RETRY_AFTER}, HeaderValue, StatusCode},
+    middleware::Next,
+    response::{IntoResponse, Response},
     Extension, Json,
 };
 use enums::MemberRole;
@@ -14,7 +16,7 @@ use utoipa::ToSchema;
 
 use super::{process::ProcessRole, projects::OrganizationQuery};
 use crate::{
-    authz::require_account_role, error::ApiResult, middleware::AuthContext, state::AppState,
+    authz::require_account_role, error::{ApiError, ApiResult}, middleware::AuthContext, state::AppState,
 };
 
 const CHECK_INTERVAL: Duration = Duration::from_secs(5);
@@ -101,6 +103,19 @@ impl Readiness {
         }
     }
 
+    pub(super) fn database_schema_ready(&self) -> bool {
+        self.database.status() == CheckStatus::Ready && self.schema.status() == CheckStatus::Ready
+    }
+
+    pub(super) async fn work_tick(&self, timer: &mut tokio::time::Interval) {
+        loop {
+            timer.tick().await;
+            if self.database_schema_ready() {
+                return;
+            }
+        }
+    }
+
     pub(super) fn observe_database(self: Arc<Self>, pool: db::PgPool) {
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(CHECK_INTERVAL);
@@ -134,7 +149,14 @@ impl Readiness {
         }
     }
 
-    fn snapshot(&self) -> SetupChecks {
+    fn traffic_ready(&self) -> bool {
+        // Every replica depends on the same bucket. Keep API routes that only
+        // need PostgreSQL reachable during a shared storage outage.
+        let require_artifact_storage = self.artifact_backend != "s3" || !self.role.serves_api();
+        self.snapshot(require_artifact_storage).ready
+    }
+
+    fn snapshot(&self, require_artifact_storage: bool) -> SetupChecks {
         let database = self.database.status();
         let migrations = self.schema.status();
         let worker = self.worker_status(&self.queue);
@@ -145,20 +167,15 @@ impl Readiness {
                 self.worker_status(provider)
             });
         let artifact_storage = self.artifact.as_ref().map_or(migrations, Observation::status);
-        let ready = [
-            database,
-            migrations,
-            worker,
-            provider_worker,
-            artifact_storage,
-        ]
-        .iter()
-        .all(|status| {
-            matches!(
-                status,
-                CheckStatus::Ready | CheckStatus::NotConfigured | CheckStatus::External
-            )
-        });
+        let ready = [database, migrations, worker, provider_worker]
+            .iter()
+            .all(|status| {
+                matches!(
+                    status,
+                    CheckStatus::Ready | CheckStatus::NotConfigured | CheckStatus::External
+                )
+            })
+            && (!require_artifact_storage || artifact_storage == CheckStatus::Ready);
         SetupChecks {
             ready,
             database,
@@ -169,6 +186,22 @@ impl Readiness {
             artifact_backend: self.artifact_backend,
         }
     }
+}
+
+pub(super) async fn require_database_schema(
+    State(readiness): State<Arc<Readiness>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if readiness.database_schema_ready() {
+        return next.run(request).await;
+    }
+    let mut response = ApiError::ServiceUnavailable("gateway database or schema is not ready".into())
+        .into_response();
+    let headers = response.headers_mut();
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(RETRY_AFTER, HeaderValue::from(CHECK_INTERVAL.as_secs()));
+    response
 }
 
 #[derive(Serialize, ToSchema)]
@@ -197,7 +230,7 @@ pub(super) struct SetupChecks {
 pub(super) async fn ready(
     Extension(readiness): Extension<Arc<Readiness>>,
 ) -> (StatusCode, Json<ReadyResponse>) {
-    let ready = readiness.snapshot().ready;
+    let ready = readiness.traffic_ready();
     let status = if ready {
         StatusCode::OK
     } else {
@@ -219,5 +252,85 @@ pub(super) async fn setup(
 ) -> ApiResult<Json<SetupChecks>> {
     let account = query.account()?;
     require_account_role(&state.pool, &auth.user.id, &account, MemberRole::ADMINS).await?;
-    Ok(Json(readiness.snapshot()))
+    Ok(Json(readiness.snapshot(true)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn initialized(role: ProcessRole, backend: &'static str) -> Readiness {
+        let readiness = Readiness::new(role, true, backend);
+        readiness.database.record(true);
+        readiness.schema.record(true);
+        readiness.queue_observed(true);
+        readiness.provider_observed(true);
+        readiness.artifact_observed(true);
+        readiness
+    }
+
+    #[test]
+    fn api_traffic_survives_shared_bucket_failure_and_setup_reports_it() {
+        for role in [ProcessRole::Api, ProcessRole::Combined] {
+            let readiness = initialized(role, "s3");
+            assert!(readiness.snapshot(true).ready);
+            readiness.artifact_observed(false);
+            assert!(readiness.traffic_ready());
+            let setup = readiness.snapshot(true);
+            assert!(!setup.ready);
+            assert!(matches!(setup.artifact_storage, CheckStatus::Unavailable));
+
+            readiness.database.record(false);
+            assert!(!readiness.traffic_ready());
+        }
+    }
+
+    #[test]
+    fn worker_and_replica_local_storage_keep_their_readiness_gate() {
+        for (role, backend) in [(ProcessRole::Worker, "s3"), (ProcessRole::Api, "filesystem")] {
+            let readiness = initialized(role, backend);
+            assert!(readiness.traffic_ready());
+            readiness.artifact_observed(false);
+            assert!(!readiness.traffic_ready());
+        }
+    }
+
+    #[test]
+    fn background_work_requires_database_and_schema_checks() {
+        let readiness = Readiness::new(ProcessRole::Worker, true, "s3");
+        assert!(!readiness.database_schema_ready());
+        readiness.database.record(true);
+        readiness.schema.record(true);
+        readiness.artifact_observed(false);
+        assert!(readiness.database_schema_ready());
+        readiness.schema.record(false);
+        assert!(!readiness.database_schema_ready());
+        readiness.schema.record(true);
+        readiness.database.record(false);
+        assert!(!readiness.database_schema_ready());
+    }
+
+    #[tokio::test]
+    async fn operational_routes_wait_for_schema_compatibility() {
+        use axum::{body::Body, routing::post, Router};
+        use tower::ServiceExt;
+
+        let readiness = Arc::new(initialized(ProcessRole::Api, "s3"));
+        readiness.schema.record(false);
+        let router = Router::new()
+            .route("/submit", post(|| async { StatusCode::CREATED }))
+            .route_layer(axum::middleware::from_fn_with_state(
+                Arc::clone(&readiness), require_database_schema,
+            ));
+        let request = || axum::http::Request::post("/submit").body(Body::empty()).unwrap();
+        let blocked = router.clone().oneshot(request()).await.unwrap();
+        assert_eq!(blocked.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(blocked.headers()[CACHE_CONTROL], "no-store");
+        assert_eq!(blocked.headers()[RETRY_AFTER], "5");
+
+        readiness.schema.record(true);
+        readiness.artifact_observed(false);
+        let admitted = router.oneshot(request()).await.unwrap();
+        assert_eq!(admitted.status(), StatusCode::CREATED);
+    }
 }

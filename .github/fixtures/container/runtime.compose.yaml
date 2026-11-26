@@ -1,0 +1,97 @@
+x-gateway: &gateway
+  image: tokencraft-gateway:ci
+  network_mode: service:database
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  environment: &gateway-environment
+    DATABASE_URL: "postgresql://tokencraft_runtime:${TOKENCRAFT_RUNTIME_APP_PASSWORD:?Set the fixture runtime password}@127.0.0.1/tokencraft"
+    FOUNDATION_ENV: development
+    APP_BASE_URL: http://localhost:3000
+    COOKIE_SECURE: "false"
+    COOKIE_DOMAIN: localhost
+    SESSION_SECRET: "${TOKENCRAFT_RUNTIME_SESSION_SECRET:?Set the fixture session secret}"
+    TOKENCRAFT_CORE_CATALOG: /fixtures/catalog.json
+  volumes:
+    - ./runtime-catalog.json:/fixtures/catalog.json:ro
+
+services:
+  database:
+    image: postgres:17-trixie
+    environment:
+      POSTGRES_USER: tokencraft
+      POSTGRES_DB: tokencraft
+      POSTGRES_PASSWORD: "${TOKENCRAFT_RUNTIME_DB_PASSWORD:?Set the fixture database password}"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "tokencraft", "-d", "tokencraft"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+  migrate:
+    <<: *gateway
+    entrypoint: ["admin-cli", "migrate"]
+    environment:
+      <<: *gateway-environment
+      DATABASE_URL: "postgresql://tokencraft:${TOKENCRAFT_RUNTIME_DB_PASSWORD:?Set the fixture database password}@127.0.0.1/tokencraft"
+    depends_on:
+      database:
+        condition: service_healthy
+
+  grant-runtime:
+    image: postgres:17-trixie
+    network_mode: service:database
+    environment:
+      PGPASSWORD: "${TOKENCRAFT_RUNTIME_DB_PASSWORD:?Set the fixture database password}"
+      TOKENCRAFT_RUNTIME_APP_PASSWORD: "${TOKENCRAFT_RUNTIME_APP_PASSWORD:?Set the fixture runtime password}"
+    volumes:
+      - ./create-runtime-role.sql:/fixtures/create-runtime-role.sql:ro
+      - ../../../deploy/postgres/grant-runtime.sql:/fixtures/grant-runtime.sql:ro
+    entrypoint: ["psql", "-Xw", "-h", "127.0.0.1", "-U", "tokencraft", "-d", "tokencraft",
+                 "-v", "ON_ERROR_STOP=1", "-v", "runtime_role=tokencraft_runtime",
+                 "-f", "/fixtures/create-runtime-role.sql", "-f", "/fixtures/grant-runtime.sql"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    <<: *gateway
+    environment:
+      <<: *gateway-environment
+      TOKENCRAFT_PROCESS_ROLE: api
+      API_GATEWAY_PORT: "4000"
+    depends_on:
+      grant-runtime:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *gateway
+    environment:
+      <<: *gateway-environment
+      TOKENCRAFT_PROCESS_ROLE: worker
+      API_GATEWAY_PORT: "4001"
+    depends_on:
+      grant-runtime:
+        condition: service_completed_successfully
+
+  probe:
+    image: tokencraft-demo:local
+    # The development profile deliberately requires a loopback database and listener.
+    network_mode: service:database
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+    volumes:
+      - ./runtime-smoke.sh:/fixtures/runtime-smoke.sh:ro
+    entrypoint: ["bash", "/fixtures/runtime-smoke.sh"]
+
+networks:
+  default:
+    internal: true
+
+volumes:
+  postgres:

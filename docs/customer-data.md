@@ -20,6 +20,8 @@ psql -X -w -v ON_ERROR_STOP=1 -f examples/postgres/postgres_usage_views.sql
 
 The first command pulls a fixed snapshot. Run it again to continue from the last committed event or pick up events published later. Each page checks the checksum and event scope, then commits the events and checkpoint in one transaction. Events deduplicate by gateway URL, project ID, and event ID. Checkpoints also include the client filter. Keep the same gateway URL and scope between runs.
 
+An event ID keeps the same payload across snapshots, the live feed, and archive restores. Identical events deduplicate when a project-wide feed overlaps a client feed. If a stored event's payload differs, the importer stops and rolls back the page and its checkpoint update together.
+
 After preparing the tables, a sync role can use `--no-init`. Grant it `USAGE` on the schema, `SELECT` and `INSERT` on `events`, `SELECT`, `INSERT`, and `UPDATE` on `checkpoints`, and permission to create temporary tables in the destination database. Scope any reporting access separately.
 
 ## Follow the live feed

@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use ids::{AccountId, GatewayProjectId, GatewayRequestId};
 use sqlx::{PgExecutor, PgPool};
 
-use super::{artifacts, queue_turns::QueueLane, RequestScope};
+use super::{artifacts, connector_completions, queue_turns::QueueLane, RequestScope};
 
 pub struct NewProviderRun<'a> {
     pub request: &'a GatewayRequestId,
@@ -42,9 +42,11 @@ pub struct ClaimedProviderRun {
     pub credential_version: Option<i32>,
 }
 
+#[derive(Clone, Copy)]
 pub struct SubmitBindings<'a> {
     pub local_chat: &'a [String],
     pub connectors: &'a [String],
+    pub connector_recovery: &'a [String],
 }
 
 pub async fn claim_provider_run(
@@ -90,7 +92,9 @@ pub async fn claim_provider_run(
              SELECT project_id, $3 FROM started
              ON CONFLICT (project_id, lane) DO UPDATE SET turn = excluded.turn
            )
-           UPDATE gateway_provider_runs p SET lease_until = clock_timestamp() + interval '40 seconds'
+           UPDATE gateway_provider_runs p SET lease_until = clock_timestamp() + interval '40 seconds',
+               connector_recovery_enabled = started.adapter = 'connector_queue'
+                   AND p.binding_digest = ANY($4::text[])
            FROM started WHERE p.request_id = started.id
            RETURNING p.request_id, started.adapter AS "adapter!", p.binding_digest, p.upstream_model,
                      started.account_id AS "account_id!: AccountId", started.project_id AS "project_id!: GatewayProjectId",
@@ -103,6 +107,7 @@ pub async fn claim_provider_run(
         bindings.local_chat,
         bindings.connectors,
         lane.key(),
+        bindings.connector_recovery,
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -139,6 +144,16 @@ pub async fn finish_provider_run(
     outcome: RunOutcome<'_>,
     observation: UpstreamObservation<'_>,
 ) -> sqlx::Result<()> {
+    let mut tx = pool.begin_with("BEGIN ISOLATION LEVEL READ COMMITTED").await?;
+    let outcome = match outcome {
+        RunOutcome::Rejected("provider_rate_limited" | "connector_rejected")
+            if connector_completions::lock_request(&mut tx, request).await?
+                && connector_completions::received(&mut tx, request).await? =>
+        {
+            RunOutcome::Uncertain("connector_submission_unconfirmed")
+        }
+        outcome => outcome,
+    };
     let (state, failure_code, output, outputs, media) = match outcome {
         RunOutcome::Completed {
             payload,
@@ -148,7 +163,6 @@ pub async fn finish_provider_run(
         RunOutcome::Rejected(code) => ("failed", Some(code), None, 0, &[][..]),
         RunOutcome::Uncertain(code) => ("uncertain", Some(code), None, 0, &[][..]),
     };
-    let mut tx = pool.begin().await?;
     let updated = sqlx::query!(
         "UPDATE gateway_requests r SET
             succeeded_at = CASE WHEN $2::text = 'succeeded' THEN clock_timestamp() END,

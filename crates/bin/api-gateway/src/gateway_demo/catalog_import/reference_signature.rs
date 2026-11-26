@@ -1,6 +1,6 @@
 use std::{
     ffi::OsString,
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -18,11 +18,12 @@ const PUBLIC_KEY_PREFIX: &[u8] = &[
 const HELP: &str = "Usage:
   api-gateway catalog sign-reference --reference FILE --private-key FILE [--plugin-catalog FILE ...]
   api-gateway catalog verify-reference --reference FILE --signature FILE --public-key FILE
-  api-gateway catalog verify-reference --bundle FILE --public-key FILE
+  api-gateway catalog verify-reference --bundle FILE --public-key FILE [--emit-catalog]
 
 Sign and verify the exact bytes of an ArtCraft reference catalog using Ed25519.
 Use a PKCS#8 DER private key and a separately trusted SubjectPublicKeyInfo DER public key.
 Pass the plugin catalogs to check publication coverage before signing.
+Use --emit-catalog with a bundle to write the exact verified public JSON to stdout.
 ";
 
 pub(super) enum Action {
@@ -56,6 +57,7 @@ pub(super) struct VerifiedReference {
 pub(super) fn run(action: Action, mut args: impl Iterator<Item = OsString>) -> Result<()> {
     let (mut reference, mut bundle, mut signature, mut key) = (None, None, None, None);
     let mut plugins = Vec::new();
+    let mut emit_catalog = false;
     while let Some(option) = args.next() {
         let slot = match (&action, option.to_str()) {
             (_, Some("--reference")) => &mut reference,
@@ -64,6 +66,11 @@ pub(super) fn run(action: Action, mut args: impl Iterator<Item = OsString>) -> R
             }
             (Action::Verify, Some("--signature")) => &mut signature,
             (Action::Verify, Some("--bundle")) => &mut bundle,
+            (Action::Verify, Some("--emit-catalog")) => {
+                ensure!(!emit_catalog, "supply --emit-catalog once");
+                emit_catalog = true;
+                continue;
+            }
             (Action::Sign, Some("--plugin-catalog")) => {
                 plugins.push(PathBuf::from(args.next().context("set --plugin-catalog FILE")?));
                 continue;
@@ -82,32 +89,37 @@ pub(super) fn run(action: Action, mut args: impl Iterator<Item = OsString>) -> R
             "duplicate reference signature option"
         );
     }
-    let output = io::stdout().lock();
+    let mut output = io::stdout().lock();
     match action {
         Action::Sign => {
-            let source = Reference::parse(read_file(&reference.context("set --reference FILE")?)?)?;
-            let offers = super::reference_check::project(&source)?;
-            if !plugins.is_empty() {
-                super::reference_check::check(&source, &offers, &plugins)?;
+            let source = Reference::load(&reference.context("set --reference FILE")?)?;
+            if plugins.is_empty() {
+                super::reference_check::project(&source)?;
+            } else {
+                super::reference_check::check(&source, &plugins)?;
             }
             let private_key = read_file(&key.context("set --private-key FILE")?)?;
             let signature = sign(&source.bytes, &source.catalog, &private_key)?;
             serde_json::to_writer_pretty(output, &signature)?;
         }
         Action::Verify => {
+            ensure!(!emit_catalog || bundle.is_some(), "use --emit-catalog with --bundle");
             let public_key = key.context("set --public-key FILE")?;
             let verified = if let Some(bundle) = bundle {
                 ensure!(
                     reference.is_none() && signature.is_none(),
                     "use --bundle without --reference or --signature"
                 );
-                reference_bundle::load(&bundle, &public_key)?
-                    .verified
-                    .context("reference bundle was not verified")?
+                let source = reference_bundle::load(&bundle, &public_key)?;
+                if emit_catalog {
+                    super::reference_check::project(&source)?;
+                    super::reference_check::validate_publication(&source)?;
+                    output.write_all(&source.bytes)?;
+                    return Ok(());
+                }
+                source.verified.context("reference bundle was not verified")?
             } else {
-                let source = Reference::parse(read_file(
-                    &reference.context("set --reference or --bundle FILE")?,
-                )?)?;
+                let source = Reference::load(&reference.context("set --reference or --bundle FILE")?)?;
                 let signature = signature.context("set --signature FILE")?;
                 Trust {
                     signature: &signature,

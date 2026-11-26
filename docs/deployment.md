@@ -25,6 +25,60 @@ cargo run --locked -p api_gateway --bin api-gateway
 
 The default process runs the API and workers together. Set `TOKENCRAFT_PROCESS_ROLE=api` or `TOKENCRAFT_PROCESS_ROLE=worker` to run them separately. Both roles need the same database, persistent payload key, catalog, and bindings. Use shared artifact storage when those roles run on separate machines. Check `/ready` and the catalog model list after deploying. Configure [event archives](event-archives.md) for verified filesystem or S3-compatible retention.
 
+## Roll out compatible database changes
+
+Deploy a gateway that supports migration overlap on the current schema before applying a newer migration. Each process checks the version, success flag, and checksum of every migration embedded in its binary. A newer binary becomes ready once its migrations are applied. An older binary can stay ready only if every later applied migration declares compatibility with its schema version.
+
+Add the declaration in the same transaction as the additive migration. The first migration to use overlap creates the compatibility table. For example, a future migration 70 reviewed against schema-69 binaries would include:
+
+```sql
+CREATE TABLE public.gateway_schema_compatibility (
+    migration_version bigint PRIMARY KEY,
+    oldest_gateway_schema bigint NOT NULL
+        CHECK (oldest_gateway_schema BETWEEN 1 AND migration_version)
+);
+
+INSERT INTO public.gateway_schema_compatibility
+    (migration_version, oldest_gateway_schema)
+VALUES (70, 69);
+```
+
+Later compatible migrations add their own rows. Keep the table writable only by trusted migration operators and readable by gateway roles. Verify the oldest supported API and worker against the changed schema, including writes and in-flight requests, before declaring compatibility. For a breaking change, drain the affected binaries before applying it or use separate additive and cleanup migrations. Missing declarations, unsuccessful migrations, and mismatched embedded checksums all fail readiness.
+
+Gateway background workers start after the database and schema probes pass. When a probe detects an incompatible schema, workers pause new provider claims, webhook deliveries, archive work, and scheduled cleanup. Work already started can finish under its existing lease. The next successful probe lets workers resume from durable state on their normal schedule.
+
+The API checks the same database and schema state before handling operational requests, including direct calls that bypass ingress. During a pause it returns HTTP `503` with `Retry-After: 5`. Clients can retry a submission with the same body and idempotency key. The Rust and TypeScript SDKs offer opt-in submission retries and honor the retry hint when polling. The public health, readiness, and API contract endpoints remain reachable for diagnosis.
+
+## Connect existing compute endpoints
+
+In the organization console, open **Providers → Compute → Connect endpoint**. Choose AWS, Firebase / Cloud Run, Render, or Custom endpoint. All four templates use the same OpenAI-compatible chat request and response. Supply the deployed endpoint, target name, placement, and priority. Use HTTPS and the name of a bearer token environment variable for a remote endpoint. Local fixtures can use loopback HTTP. The review step validates configuration without calling the endpoint.
+
+Download the review bundle and have the gateway operator merge it into the compute registry. With the open-source gateway CLI, use the deployed registry as the base and write the merged output to a new file.
+
+```sh
+api-gateway catalog apply-compute-patch --base bindings.json \
+  --bundle compute-provider-patch.json > bindings.next.json
+```
+
+For the first registry, omit `--base`. Review the new placement and allowed locations before deploying the registry through `TOKENCRAFT_LOCAL_CHAT_BINDINGS`. Configure the named token in the worker environment. An `openai_compatible_chat` inference offer selects the pool through its `local_binding`. An organization can see its own pool before an offer uses it. Once an offer is linked, its projects can set fallback for that pool. Every endpoint in the pool should serve the same upstream model.
+
+Open **Projects → Settings → Compute fallback** to inherit pool priorities or select and order targets for that project. The first target is primary. A single selection pins the project to that target. Newly onboarded targets are scoped to the organization that requested them. Compute fallback uses the existing safe retry rules, which can move to the next target when the connection fails before submission.
+
+## Build the gateway runtime image
+
+From the core repository, build the gateway target and tag it with the release version. The image includes the matching migration CLI and records the Git commit in `VERSION.json` when supplied at build time.
+
+```sh
+docker build --file deploy/container/Dockerfile --target gateway \
+  --build-arg "SOURCE_REVISION=$(git rev-parse HEAD)" --tag tokencraft-gateway:0.1.0 .
+```
+
+Run the image on your private ingress network. Supply the [hosted configuration](#run-behind-an-https-ingress) and mount the operator's catalog, binding files, and any private PostgreSQL CA read-only. The gateway runs as UID and GID 65532. Set `TOKENCRAFT_LISTEN_IP` to the private address or `0.0.0.0` inside its container so the ingress can reach it. A connector in another container uses a configured HTTPS origin.
+
+Use the same image with `--entrypoint admin-cli` and the argument `migrate` as a one-off job with the verified database connection. Then run the API and worker roles from that image. The [Compose quickstart](setup.md#start-with-docker-compose) provides local synthetic inference with its own disposable state.
+
+The **Container smoke** workflow builds both targets on pull requests, version tags, and manual runs. It verifies the Linux image architecture, source revision, release profile, and matching package versions. A version tag must match the package version, for example `v0.1.0`. The workflow applies migrations with the gateway image and checks request completion and usage with separate API and worker containers using restricted PostgreSQL credentials. It also exercises the demo's bundled connector, persistence across container recreation, and the optional console mount. Version tags and manual runs reload the archived gateway image and verify its image ID before upload. In the extracted CI artifact, run `sha256sum -c SHA256SUMS`, then load the tarball with `docker load -i tokencraft-gateway-0.1.0-linux-amd64.tar.gz` using the file's actual version.
+
 ## Refresh reviewed rates
 
 Set `TOKENCRAFT_DEMO_RATE_FEED` to a local JSON file on each API and worker replica. Use the `base_revision` from `GET /v1/catalog/offers` and the IDs of the offers you want the feed to manage.
@@ -200,14 +254,6 @@ To compare in USD, pass `--usd-nanos-per-credit` with an integer from your Kinov
 
 ## Run behind an HTTPS ingress
 
-### Render demo
-
-The repository Dockerfile runs the hosted gateway and the bundled image fixture in one Render web service. The connector listens on loopback and generates sample PNGs without sending requests to an inference vendor. PostgreSQL stores request records and the fixture output. The Docker build uses a temporary PostgreSQL instance for SQLx compile-time checks.
-
-Set the service health check to `/ready` and configure `APP_BASE_URL` with the HTTPS origin that serves the console. Pass `DATABASE_URL` using the external Render Postgres hostname with `sslmode=verify-full`. Allow the service's outbound IP ranges on the database. Provide separate random values for `SESSION_SECRET`, `TOKENCRAFT_DEMO_PAYLOAD_KEY`, and `TOKENCRAFT_CONNECTOR_TOKEN_EXAMPLE`, each generated with `openssl rand -hex 32`. Use Render's environment settings or a `tokencraft.env` secret file.
-
-The entry point applies migrations before starting the gateway. Keep the payload key with the database across redeploys. The fixture's temporary job files are discarded when Render replaces the service instance.
-
 Set `FOUNDATION_ENV=production` or `FOUNDATION_ENV=staging` and set `TOKENCRAFT_CORE_CATALOG` to your operator-reviewed catalog. Both environments use the same hosted safeguards.
 
 | Hosted configuration | Value |
@@ -219,11 +265,33 @@ Set `FOUNDATION_ENV=production` or `FOUNDATION_ENV=staging` and set `TOKENCRAFT_
 | `TOKENCRAFT_LISTEN_IP`, `API_GATEWAY_PORT` | Private HTTP listener. Defaults to `127.0.0.1:4000`. Set a literal IP explicitly if an ingress or probe needs to reach it from another container. |
 | `TOKENCRAFT_CORE_CATALOG`, binding registries | Configure the real services that will execute the offers. The hosted profile accepts connector-backed offers. |
 
-Apply migrations using the matching `admin-cli migrate` and the verified database URL before starting any hosted process. The binaries check the migration history before opening a listener. Run `api-gateway` with `TOKENCRAFT_PROCESS_ROLE=api` or `worker` for independent scaling. If the roles run on the same machine, assign distinct ports.
+Apply migrations and grant runtime access before starting any hosted process. The binaries check the migration history before opening a listener. Run `api-gateway` with `TOKENCRAFT_PROCESS_ROLE=api` or `worker` for independent scaling. If the roles run on the same machine, assign distinct ports. [Database role setup](#separate-migration-and-runtime-roles)
 
 Terminate public TLS at your ingress and keep the gateway's HTTP listener private. Forward API requests and streaming response bodies without buffering. Set `X-Forwarded-For` to the client address observed at the trusted ingress. Route worker `/ready` probes through the private network. Build the console with `VITE_API_BASE_URL` set to the public HTTPS gateway origin. Serve the console and API on the same site, such as `console.example.com` and `api.example.com`. Browsers send the session cookie to the API host. Credentialed CORS and session writes require the configured console origin. API keys work for non-browser clients.
 
+When serving the API on the console origin, forward `/ready` and `/openapi.json` to the gateway alongside `/v1/`. Run the read-only check from the release checkout after deployment. It verifies readiness, the served OpenAPI contract, and the exact downloadable ArtCraft catalog.
+
+```sh
+bash scripts/smoke_hosted_console.sh https://console.example.com
+```
+
 To deliver signed customer webhooks, set `TOKENCRAFT_DEMO_WEBHOOK_CONFIG` to an operator-maintained JSON registry such as `{"destinations":{"customer_updates":"https://events.example.com/tokencraft"}}`. Give the API and workers the same independent 32-byte hex `TOKENCRAFT_DEMO_WEBHOOK_KEY`. Hosts use the standard public certificate roots by default. Set `TOKENCRAFT_WEBHOOK_CA_FILE` to an operator-managed PEM bundle to use a private trust store for all webhook destinations. Tenants select a registry entry by ID. Register reviewed HTTPS destinations and set egress policy for the hosts you allow. TLS verifies the destination hostname and the client rejects redirects.
+
+Each worker runs up to four delivery attempts at a time. A worker taking over an expired lease records that attempt and retries with the same event ID and body. Receivers should deduplicate by `webhook-id` because a successful delivery can be retried after a lost response or worker restart. Revocation prevents new attempts and redrives. An attempt already leased when revocation commits may finish.
+
+### Separate migration and runtime roles
+
+Use a dedicated PostgreSQL database whose owner applies migrations and owns the TokenCraft objects in the `public` schema. Give the API and worker a separate login with an independent credential. The runtime login needs no database ownership, elevated role membership, or permission to create objects in `public`. In clusters upgraded from an older PostgreSQL release, check whether `PUBLIC` still has `CREATE` on that schema and revoke it in the dedicated database if needed.
+
+With the migration owner's verified `DATABASE_URL` configured for `admin-cli`, apply migrations. Run the grant script against the same database as the migration owner. The example uses a PostgreSQL service definition called `tokencraft_migration` with `sslmode=verify-full`. Keep the password in your secret configuration.
+
+```sh
+admin-cli migrate
+psql -X "service=tokencraft_migration" -v runtime_role=tokencraft_runtime \
+  -f deploy/postgres/grant-runtime.sql
+```
+
+The [grant script](../deploy/postgres/grant-runtime.sql) grants access to the owner's application tables, views, sequences, and invoker functions. It gives the runtime role read-only access to the migration ledger and any schema compatibility declarations. Reapply it after each migration before sending traffic to the new replicas. Configure the API and worker with the runtime login in `DATABASE_URL`. Keep the migration login in the one-off deployment job.
 
 ## Shared artifact storage
 
@@ -239,6 +307,8 @@ Use a private S3-compatible bucket to serve generated media from multiple gatewa
 | `TOKENCRAFT_ARTIFACT_S3_PREFIX` | Defaults to `tokencraft-artifacts/v1`. Use a dedicated prefix for active media. |
 
 Replicas serving the same database need the same artifact target and persistent payload key. TokenCraft namespaces objects by its database identity, verifies encrypted uploads before committing the result, and serves bytes through the same scoped artifact endpoint. Workers reclaim abandoned uploads and delete live objects after expiry, early removal, or verified archival. The **Gateway operations** readiness check reads a small marker in the configured prefix.
+
+An S3 outage keeps API-serving processes in rotation while their core readiness checks pass. Request status, catalog, and usage stay reachable. A download that needs the bucket returns HTTP `503`, and pending media results await verified storage. The administrator's setup view still reports the artifact failure, and worker-only `/ready` still requires storage. Filesystem readiness can withdraw a replica whose local storage fails.
 
 Keep the active prefix readable for the lifetime of the saved results. Use the separate [request content archive](chat-history.md) for lifecycle transitions to cold storage. Bucket deletion must permanently remove the current object for cleanup to complete. [S3 object deletion](https://docs.aws.amazon.com/AmazonS3/latest/API/API_DeleteObject.html)
 
@@ -276,7 +346,7 @@ The JSON report gives the candidate base revision and counts by offer, request p
 | `binding_unavailable` | Keep the original binding for in-flight work, submission recovery, and eligible rechecks. For queued media, a retained `drain_only` entry serves polling and recovery after the original offer stops accepting new work. |
 | `legacy_adapter` | Keep a worker that supports the original built-in adapter until its outstanding work finishes. |
 
-When replacing a queue connector, provision a new binding name. Keep the old origin, revision, and completion settings available until the old work drains. Continue to coordinate admissions during cutover and review provider access and pricing for the candidate. [Connector protocol](provider-connectors.md#queued-media-protocol-version-1)
+When replacing a queue connector, provision a new binding name. Keep the old origin, revision, and completion settings available until the old work drains. A drain-only worker polls and recovers existing jobs on that binding. Workers with the active binding continue to claim submissions during cutover. Continue to coordinate admissions during cutover and review provider access and pricing for the candidate. [Connector protocol](provider-connectors.md#queued-media-protocol-version-1)
 
 ## Move from a deployment with built-in provider adapters
 
@@ -304,14 +374,14 @@ The HTTPS ingress must replace incoming `X-Forwarded-For` with one client IP it 
 | --- | --- |
 | `TOKENCRAFT_LB_BIND` | Private listen address and port, such as `10.20.1.10:8080`. |
 | `TOKENCRAFT_LB_TRUSTED_INGRESS_FILE` | Absolute path to a file with one trusted ingress IP or CIDR per line. Include only the ingress and probe sources the proxy will actually see. |
-| `TOKENCRAFT_LB_API_ADDRESS` | Cell-specific DNS name with one address per API replica and a common port, such as `api.cell-a.internal:4000`. |
+| `TOKENCRAFT_LB_API_ADDRESS` | Use a cell-specific DNS name and common port, such as `api.cell-a.internal:4000`, or an SRV service name without an appended port, such as `_tokencraft._tcp.cell-a.internal`. Each SRV record supplies the target hostname and port for one API replica. |
 | `TOKENCRAFT_LB_API_SLOTS` | Maximum number of discovered replicas this instance can hold. Start with a ceiling that fits the cell and DNS response size, such as 32. |
 | `TOKENCRAFT_LB_MAX_CONNECTIONS` | Total incoming connection limit per proxy process. |
 | `TOKENCRAFT_LB_CONNECTIONS_PER_API` | Connection limit per API replica from this proxy. Size it across all proxy replicas, with headroom for PostgreSQL pools and long-lived streams. |
 
 Set the variables above in the service environment. Validate the configuration with `haproxy -c -f deploy/haproxy/cell-api.cfg` and run HAProxy in the foreground with `haproxy -db -f deploy/haproxy/cell-api.cfg` under the platform service manager.
 
-HAProxy checks each replica’s `GET /ready`. Newly discovered replicas start down and become eligible after successful checks. The proxy uses least connections for a mix of short requests and longer streams, bounds how long a request waits for a connection, and gives streams a 120-second idle window. A protected `GET /_tokencraft/ingress-ready` returns 200 when the proxy has an eligible API replica and 503 otherwise. The gateway still serves its regular `/ready` endpoint.
+HAProxy checks each replica’s `GET /ready`. Newly discovered replicas start down and become eligible after successful checks. The proxy uses least connections for a mix of short requests and longer streams, bounds how long a request waits for a connection, and gives streams a 120-second idle window. A protected `GET /_tokencraft/ingress-ready` returns 200 when the proxy has an eligible API replica and 503 otherwise. While all replicas are withdrawn, HAProxy adds `Retry-After: 5` and `Cache-Control: no-store` to its 503 responses. The gateway still serves its regular `/ready` endpoint.
 
 The proxy forwards requests once. Configure upstream ingress to avoid automatic submission retries as well. After a lost reply, callers can retry with the original idempotency key and intent. Stream reconnects recover retained chunks from cell state. The proxy logs replica selection, response status, queue time, connect time, and response timing.
 
@@ -321,8 +391,8 @@ Run redundant proxy instances across the cell’s failure domains and configure 
 
 Workers still share jobs through PostgreSQL lease claims. Self-hosted inference uses the cell’s configured compute binding, including its eligible targets and fallback rules. An internal replica service is optional for a group of interchangeable model servers in one placement and policy domain. Managed providers operate their own inference load balancing.
 
-With HAProxy 3.2+ available, run `python3 deploy/haproxy/smoke.py` in a disposable local environment. It checks configuration parsing, two fixture API replicas, readiness withdrawal and recovery, forwarding headers, SSE streaming, and a submission whose upstream disconnected after receiving the body. In staging, also exercise the real DNS resolver, replica replacement, and loss of a proxy or zone. [HAProxy configuration reference](https://docs.haproxy.org/3.2/configuration.html)
+Each provider worker has four in-flight task slots shared by submissions and polling. A worker with multiple destinations limits each destination to three slots so another destination can keep serving during a stall. Direct connector and chat bindings with the same scheme, host, and port share that limit, including during a binding rollout. A compute stack counts as one destination. A worker with one destination can use all four slots. These limits apply per worker process.
 
-### Route directly to one API replica
+With HAProxy 3.2+ available, run `python3 deploy/haproxy/smoke.py` in a disposable local environment. It checks configuration parsing, two fixture API replicas, readiness withdrawal and recovery, forwarding headers, SSE streaming, and a submission whose upstream disconnected after receiving the body. [HAProxy configuration reference](https://docs.haproxy.org/3.2/configuration.html)
 
-For a single cell with one API replica, trusted HTTPS ingress can forward directly to the private Axum listener. Retain the same verified client-address and streaming behavior, and restrict the listener to trusted ingress peers. Add replica balancing when the API has multiple destinations. An API outage can interrupt new HTTP requests, while separately running workers can keep claiming committed work from the same PostgreSQL database.
+A local integration check with HAProxy 3.4.8 used private DNS SRV records, two TokenCraft API processes, and a worker on shared PostgreSQL 17. The proxy added a replica without restarting. Killing the replica carrying an SSE connection ended that connection. Retrying the same request with the original idempotency key through the surviving replica returned the same request ID, replayed the retained chunk, and delivered the final chunk and `[DONE]`. The synthetic inference endpoint received one call. With both replicas down, readiness and API reads returned HTTP 503. In staging, repeat with the deployment's private resolver and HTTPS ingress, and exercise loss of a proxy or zone under load.

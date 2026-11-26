@@ -25,6 +25,7 @@ use super::{
     catalog::digest,
     handlers::parse_request_id,
     providers::ProviderRuntime,
+    readiness::Readiness,
     RequestErrorResponse,
 };
 use crate::{
@@ -83,15 +84,15 @@ impl Store {
         self.resolve(target).is_ok_and(Target::permits_restore)
     }
 
-    pub(super) fn spawn(self: Arc<Self>, pool: db::PgPool, runtime: Arc<ProviderRuntime>) {
+    pub(super) fn spawn(self: Arc<Self>, pool: db::PgPool, runtime: Arc<ProviderRuntime>, readiness: Arc<Readiness>) {
         if self.primary.permits_restore() {
-            restore_job::spawn(pool.clone(), Arc::clone(&self));
+            restore_job::spawn(pool.clone(), Arc::clone(&self), Arc::clone(&readiness));
         }
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(2));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                timer.tick().await;
+                readiness.work_tick(&mut timer).await;
                 for target in std::iter::once(&self.primary).chain(&self.previous) {
                     if let Err(error) = self.work(&pool, &runtime, target).await {
                         tracing::warn!(sqlstate = ?error.as_database_error().and_then(|e| e.code()),

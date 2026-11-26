@@ -68,18 +68,18 @@ impl ArtifactStorage {
     pub(super) fn spawn(self: Arc<Self>, pool: db::PgPool, readiness: Arc<Readiness>, collect: bool) {
         if collect {
             if let Some(files) = &self.files {
-                let (files, pool) = (Arc::clone(files), pool.clone());
-                tokio::spawn(async move { files.sweep_forever(&pool).await });
+                let (files, pool, readiness) = (Arc::clone(files), pool.clone(), Arc::clone(&readiness));
+                tokio::spawn(async move { files.sweep_forever(&pool, &readiness).await });
             }
             if let Some(bucket) = &self.bucket {
-                Arc::clone(bucket).spawn_cleanup(pool.clone());
+                Arc::clone(bucket).spawn_cleanup(pool.clone(), Arc::clone(&readiness));
             }
         }
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(5));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                timer.tick().await;
+                readiness.work_tick(&mut timer).await;
                 let mut available = true;
                 if let Some(files) = &self.files {
                     available = files.probe(&pool).await.is_ok();

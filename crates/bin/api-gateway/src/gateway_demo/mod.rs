@@ -31,6 +31,7 @@ pub(crate) mod content_history;
 mod chat_input;
 mod client_budgets;
 mod compute_evidence;
+mod compute_providers;
 mod data_handling;
 mod debug_trace;
 mod dispatch_control;
@@ -90,8 +91,11 @@ pub(crate) use process::ProcessRole;
         dispatch_control::get,
         dispatch_control::set,
         provider_recheck::schedule,
+        handlers::catalog,
         handlers::models,
         handlers::scoped_models,
+        handlers::model_quote,
+        routing_settings::scoped_model_quote,
         handlers::quote,
         routing_settings::scoped_quote,
         client_budgets::list,
@@ -113,9 +117,20 @@ pub(crate) use process::ProcessRole;
         handlers::cancel,
         usage::report,
         exports::feed,
+        webhooks::handlers::destination_ids,
+        webhooks::handlers::list_subscriptions,
+        webhooks::handlers::create,
+        webhooks::handlers::rotate,
+        webhooks::handlers::revoke,
+        webhooks::handlers::list_deliveries,
+        webhooks::handlers::detail,
+        webhooks::handlers::redrive,
     ),
     components(schemas(crate::error::GatewayError), responses(RequestErrorResponse)),
-    tags((name = "native", description = "Quote, execute, and inspect requests with the configured local provider catalog.")),
+    tags(
+        (name = "native", description = "Quote, execute, and inspect requests with the configured local provider catalog."),
+        (name = "webhooks", description = "Manage project webhooks with an organization administrator session. Available when the operator has configured webhook destinations."),
+    ),
 )]
 pub(crate) struct NativeApiDoc;
 
@@ -232,9 +247,8 @@ pub(crate) fn startup_config(
     }))
 }
 
-pub(crate) fn router(config: DemoConfig) -> Router<AppState> {
+fn router(config: DemoConfig) -> Router<AppState> {
     let router = Router::new()
-        .route("/ready", get(readiness::ready))
         .route("/v1/setup/status", get(readiness::setup))
         .route(
             "/v1/projects/:project/providers",
@@ -249,6 +263,8 @@ pub(crate) fn router(config: DemoConfig) -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(32 * 1024)),
         )
         .route("/v1/provider-access", put(provider_access::update))
+        .route("/v1/compute-providers", get(compute_providers::inventory).put(compute_providers::update))
+        .route("/v1/compute-providers/preview", post(compute_providers::preview).layer(DefaultBodyLimit::max(8 * 1024)))
         .route("/v1/routing-policy/history", get(provider_access::history))
         .route("/v1/operations/queues", get(operations::queues))
         .route("/v1/provider-credentials/:binding", get(provider_credentials::list).put(provider_credentials::save))
@@ -368,11 +384,21 @@ async fn no_store(mut response: Response) -> Response {
     response
 }
 
-pub(crate) fn worker_probe_router(config: &DemoConfig) -> Router {
+pub(crate) fn probe_router<S: Clone + Send + Sync + 'static>(config: &DemoConfig) -> Router<S> {
     Router::new()
         .route("/ready", get(readiness::ready))
         .layer(Extension(Arc::clone(&config.readiness)))
         .layer(axum::middleware::map_response(no_store))
+}
+
+pub(crate) fn mount_api_routes(base: Router<AppState>, config: DemoConfig) -> Router<AppState> {
+    let probes = probe_router(&config);
+    let readiness = Arc::clone(&config.readiness);
+    base.merge(router(config))
+        .route_layer(axum::middleware::from_fn_with_state(
+            readiness, readiness::require_database_schema,
+        ))
+        .merge(probes)
 }
 
 pub(crate) fn spawn_background_tasks(pool: db::PgPool, config: &DemoConfig) {
@@ -387,19 +413,19 @@ pub(crate) fn spawn_background_tasks(pool: db::PgPool, config: &DemoConfig) {
     if !config.role.runs_workers() {
         return;
     }
-    if let Some(config) = &config.webhooks {
-        webhooks::spawn(pool.clone(), Arc::clone(config));
+    if let Some(webhooks) = &config.webhooks {
+        webhooks::spawn(pool.clone(), Arc::clone(webhooks), Arc::clone(&config.readiness));
     }
     if let Some(providers) = &config.providers {
         if let Some(store) = &providers.content_archive {
-            Arc::clone(store).spawn(pool.clone(), Arc::clone(providers));
+            Arc::clone(store).spawn(pool.clone(), Arc::clone(providers), Arc::clone(&config.readiness));
         }
         providers::spawn(
             pool.clone(), Arc::clone(providers), Arc::clone(&config.catalog), Arc::clone(&config.readiness),
         );
     }
     if let Some(storage) = &config.archives {
-        archives::spawn(pool.clone(), Arc::clone(storage));
+        archives::spawn(pool.clone(), Arc::clone(storage), Arc::clone(&config.readiness));
     }
     let readiness = Arc::clone(&config.readiness);
     tokio::spawn(async move {
@@ -409,12 +435,12 @@ pub(crate) fn spawn_background_tasks(pool: db::PgPool, config: &DemoConfig) {
         maintenance.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             let result = tokio::select! {
-                _ = timer.tick() => {
+                _ = readiness.work_tick(&mut timer) => {
                     let result = advance(&pool).await;
                     readiness.queue_observed(result.is_ok());
                     result
                 },
-                _ = maintenance.tick() => maintain(&pool).await,
+                _ = readiness.work_tick(&mut maintenance) => maintain(&pool).await,
             };
             if let Err(err) = result {
                 // The worker reclaims the same durable state on the next tick.

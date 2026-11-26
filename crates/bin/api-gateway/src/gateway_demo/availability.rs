@@ -20,6 +20,7 @@ use super::{
 pub(super) struct RouteAvailability {
     queue: BTreeMap<String, DateTime<Utc>>,
     model_exclusions: BTreeMap<String, Reason>,
+    compute_unavailable: BTreeSet<String>,
     credentials: BTreeMap<String, Option<Effective>>,
 }
 
@@ -87,6 +88,9 @@ impl RouteAvailability {
                 (offer.id.clone(), pin.cloned())
             }).collect();
         }
+        result.compute_unavailable = offers.clone()
+            .filter(|offer| !providers.has_compute_route(offer, scope.account, policies))
+            .map(|offer| offer.id.clone()).collect();
         if matches!(quote.workload, Workload::Text { .. }) {
             return Ok(result);
         }
@@ -111,6 +115,10 @@ impl RouteAvailability {
 
     pub(super) fn model_exclusion(&self, model: &str) -> Option<Reason> {
         self.model_exclusions.get(model).copied()
+    }
+
+    pub(super) fn compute_unavailable(&self, offer_id: &str) -> bool {
+        self.compute_unavailable.contains(offer_id)
     }
 
     pub(super) fn credential_unavailable(&self, offer: &str) -> bool {

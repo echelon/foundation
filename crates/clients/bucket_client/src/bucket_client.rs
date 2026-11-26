@@ -25,11 +25,13 @@ pub struct BucketClient {
   bucket: Bucket,
 }
 
-/// Signed parts of a RestoreObject request. The caller sends the same body bytes.
-pub struct SignedRestoreRequest {
+/// Signed URL and headers for an object request.
+pub struct SignedObjectRequest {
   pub url: String,
   pub headers: Vec<(String, String)>,
 }
+
+pub type SignedRestoreRequest = SignedObjectRequest;
 
 impl BucketClient {
   /// Wrap a fully-configured `Bucket`. Internal — use [`crate::BucketClientBuilder`].
@@ -58,6 +60,21 @@ impl BucketClient {
   pub async fn presign_delete(&self, object_key: &str, expires_in: u32) -> Result<String, BucketClientError> {
     let key = ObjectKey::new(object_key);
     Ok(self.bucket.presign_delete(key.as_str(), expires_in).await?)
+  }
+
+  pub async fn sign_head(&self, object_key: &str) -> Result<SignedObjectRequest, BucketClientError> {
+    let key = ObjectKey::new(object_key);
+    let request = ReqwestRequest {
+      bucket: &self.bucket,
+      path: key.as_str(),
+      command: Command::HeadObject,
+      datetime: s3::utils::now_utc(),
+      sync: false,
+    };
+    let headers = request.headers().await?.iter().map(|(name, value)| {
+      Ok::<_, S3Error>((name.as_str().to_owned(), value.to_str()?.to_owned()))
+    }).collect::<Result<_, _>>()?;
+    Ok(SignedObjectRequest { url: request.url()?.into(), headers })
   }
 
   pub async fn sign_restore(&self, object_key: &str, body: &[u8]) -> Result<SignedRestoreRequest, BucketClientError> {

@@ -8,20 +8,23 @@ use axum::{
 };
 use db_queries::{
     gateway_requests::RequestScope,
-    gateway_webhooks::{self, Delivery, DeliveryAttempt, NewSubscription, Subscription},
+    gateway_webhooks::{self, NewSubscription},
 };
 use enums::AuditEvent;
 use ids::{AccountId, GatewayProjectId, GatewayWebhookDeliveryId, GatewayWebhookSubscriptionId};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use super::super::{
     access::parse_id,
     projects::{audit, managed_project, validate_name, OrganizationQuery},
     requests::validate_client_ref,
+    RequestErrorResponse,
 };
+use super::views::{WebhookDelivery, WebhookDeliveryAttempt, WebhookSubscription};
 use super::WebhookConfig;
 use crate::{
-    error::{ApiError, ApiResult},
+    error::{ApiError, ApiResult, GatewayError},
     middleware::AuthContext,
     state::AppState,
 };
@@ -89,7 +92,20 @@ impl Project {
     }
 }
 
-async fn destination_ids(
+#[utoipa::path(
+    get, path = "/v1/projects/{project}/webhook-destinations",
+    operation_id = "listProjectWebhookDestinations", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    responses(
+        (status = 200, description = "Operator-configured destination IDs.", body = [String]),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn destination_ids(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,
@@ -102,14 +118,16 @@ async fn destination_ids(
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PageQuery {
+pub(in crate::gateway_demo) struct PageQuery {
     account_id: String,
     before: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Page<T> {
+#[derive(Serialize, ToSchema)]
+pub(in crate::gateway_demo) struct Page<T> {
     items: Vec<T>,
+    /// Cursor for the next page. Null when there are no more rows.
+    #[schema(required = true)]
     next_before: Option<String>,
 }
 
@@ -121,12 +139,26 @@ impl<T> Page<T> {
     }
 }
 
-async fn list_subscriptions(
+#[utoipa::path(
+    get, path = "/v1/projects/{project}/webhooks",
+    operation_id = "listProjectWebhookSubscriptions", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+        ("before" = Option<String>, Query, description = "Use the previous page's next_before value."),
+    ),
+    responses(
+        (status = 200, description = "Up to 50 subscriptions in descending ID order.", body = Page<WebhookSubscription>),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn list_subscriptions(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<PageQuery>,
     Path(raw): Path<String>,
-) -> ApiResult<Json<Page<Subscription>>> {
+) -> ApiResult<Json<Page<WebhookSubscription>>> {
     let project = Project::authorized(
         &state,
         &auth,
@@ -146,32 +178,54 @@ async fn list_subscriptions(
         PAGE_SIZE as i64 + 1,
     )
     .await?;
-    Ok(Json(Page::from_rows(subscriptions, |row| &row.id)))
+    let items = subscriptions.into_iter().map(WebhookSubscription::from).collect();
+    Ok(Json(Page::from_rows(items, |row| &row.id)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-struct CreateInput {
+pub(in crate::gateway_demo) struct CreateWebhookSubscription {
+    /// Display name with 1 to 80 characters after trimming.
     name: String,
+    /// An ID from the operator's destination registry.
     destination_id: String,
+    /// Limit deliveries to requests with this client reference.
     client_ref: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Issued {
+#[derive(Serialize, ToSchema)]
+pub(in crate::gateway_demo) struct IssuedWebhookSubscription {
     #[serde(flatten)]
-    subscription: Subscription,
+    subscription: WebhookSubscription,
+    /// Store this signing secret securely. It is returned when issued.
     signing_secret: String,
 }
 
-async fn create(
+#[utoipa::path(
+    post, path = "/v1/projects/{project}/webhooks",
+    operation_id = "createProjectWebhookSubscription", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    request_body = CreateWebhookSubscription,
+    responses(
+        (status = 201, description = "Subscription and newly issued signing secret. The response is never cached.",
+         body = IssuedWebhookSubscription),
+        (status = 400, description = "Invalid input or unknown destination.",
+         content((GatewayError = "application/json"), (String = "text/plain"))),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn create(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,
     Path(raw): Path<String>,
     Extension(config): Extension<Arc<WebhookConfig>>,
-    Json(input): Json<CreateInput>,
-) -> ApiResult<(StatusCode, Json<Issued>)> {
+    Json(input): Json<CreateWebhookSubscription>,
+) -> ApiResult<(StatusCode, Json<IssuedWebhookSubscription>)> {
     let project = Project::authorized(&state, &auth, &query, &raw).await?;
     let name = validate_name(&input.name)?;
     let client_ref = input.client_ref.as_deref();
@@ -206,20 +260,37 @@ async fn create(
     let signing_secret = config.signing_secret(id.as_str(), subscription.signing_version);
     Ok((
         StatusCode::CREATED,
-        Json(Issued {
-            subscription,
+        Json(IssuedWebhookSubscription {
+            subscription: subscription.into(),
             signing_secret,
         }),
     ))
 }
 
-async fn rotate(
+#[utoipa::path(
+    post, path = "/v1/projects/{project}/webhooks/{subscription}/rotate",
+    operation_id = "rotateProjectWebhookSecret", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("subscription" = String, Path, description = "Webhook subscription ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    responses(
+        (status = 200, description = "New signing secret. The previous version overlaps for 24 hours.",
+         body = IssuedWebhookSubscription),
+        (status = 409, description = "The active subscription is unavailable or has rotated within 24 hours.",
+         body = GatewayError),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn rotate(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,
     Path((raw, subscription)): Path<(String, String)>,
     Extension(config): Extension<Arc<WebhookConfig>>,
-) -> ApiResult<Json<Issued>> {
+) -> ApiResult<Json<IssuedWebhookSubscription>> {
     let project = Project::authorized(&state, &auth, &query, &raw).await?;
     let id: GatewayWebhookSubscriptionId = parse_id(&subscription, "subscription_id")?;
     let mut tx = state.pool.begin().await?;
@@ -241,13 +312,28 @@ async fn rotate(
     .await?;
     tx.commit().await?;
     let signing_secret = config.signing_secret(id.as_str(), subscription.signing_version);
-    Ok(Json(Issued {
-        subscription,
+    Ok(Json(IssuedWebhookSubscription {
+        subscription: subscription.into(),
         signing_secret,
     }))
 }
 
-async fn revoke(
+#[utoipa::path(
+    delete, path = "/v1/projects/{project}/webhooks/{subscription}",
+    operation_id = "revokeProjectWebhookSubscription", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("subscription" = String, Path, description = "Webhook subscription ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    responses(
+        (status = 204, description = "Revoked. A delivery already in progress may finish."),
+        (status = 404, description = "Active subscription unavailable.", body = GatewayError),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn revoke(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,
@@ -272,12 +358,26 @@ async fn revoke(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_deliveries(
+#[utoipa::path(
+    get, path = "/v1/projects/{project}/webhook-deliveries",
+    operation_id = "listProjectWebhookDeliveries", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+        ("before" = Option<String>, Query, description = "Use the previous page's next_before value."),
+    ),
+    responses(
+        (status = 200, description = "Up to 50 deliveries in descending ID order.", body = Page<WebhookDelivery>),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn list_deliveries(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<PageQuery>,
     Path(raw): Path<String>,
-) -> ApiResult<Json<Page<Delivery>>> {
+) -> ApiResult<Json<Page<WebhookDelivery>>> {
     let project = Project::authorized(
         &state,
         &auth,
@@ -298,21 +398,38 @@ async fn list_deliveries(
         PAGE_SIZE as i64 + 1,
     )
     .await?;
-    Ok(Json(Page::from_rows(deliveries, |row| &row.id)))
+    let items = deliveries.into_iter().map(WebhookDelivery::from).collect();
+    Ok(Json(Page::from_rows(items, |row| &row.id)))
 }
 
-#[derive(Serialize)]
-struct DeliveryDetail {
-    delivery: Delivery,
-    attempts: Vec<DeliveryAttempt>,
+#[derive(Serialize, ToSchema)]
+pub(in crate::gateway_demo) struct WebhookDeliveryDetail {
+    delivery: WebhookDelivery,
+    /// Up to 50 attempts, newest first.
+    attempts: Vec<WebhookDeliveryAttempt>,
 }
 
-async fn detail(
+#[utoipa::path(
+    get, path = "/v1/projects/{project}/webhook-deliveries/{delivery}",
+    operation_id = "getProjectWebhookDelivery", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("delivery" = String, Path, description = "Webhook delivery ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    responses(
+        (status = 200, description = "Delivery status and recent attempts.", body = WebhookDeliveryDetail),
+        (status = 404, description = "Delivery unavailable in this project.", body = GatewayError),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn detail(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,
     Path((raw, delivery)): Path<(String, String)>,
-) -> ApiResult<Json<DeliveryDetail>> {
+) -> ApiResult<Json<WebhookDeliveryDetail>> {
     let project = Project::authorized(&state, &auth, &query, &raw).await?;
     let id: GatewayWebhookDeliveryId = parse_id(&delivery, "delivery_id")?;
     let mut tx = state.pool.begin().await?;
@@ -326,10 +443,29 @@ async fn detail(
         .ok_or_else(|| ApiError::NotFound("delivery not found".into()))?;
     let attempts = gateway_webhooks::attempts(&mut *tx, project.scope(), &id).await?;
     tx.commit().await?;
-    Ok(Json(DeliveryDetail { delivery, attempts }))
+    Ok(Json(WebhookDeliveryDetail {
+        delivery: delivery.into(),
+        attempts: attempts.into_iter().map(Into::into).collect(),
+    }))
 }
 
-async fn redrive(
+#[utoipa::path(
+    post, path = "/v1/projects/{project}/webhook-deliveries/{delivery}/redrive",
+    operation_id = "redriveProjectWebhookDelivery", tag = "webhooks",
+    security(("session_cookie" = [])),
+    params(
+        ("project" = String, Path, description = "Project ID."),
+        ("delivery" = String, Path, description = "Webhook delivery ID."),
+        ("account_id" = String, Query, description = "Organization account ID."),
+    ),
+    responses(
+        (status = 204, description = "The original event was queued for another delivery."),
+        (status = 409, description = "Redrive requires a failed delivery with an active subscription.",
+         body = GatewayError),
+        (status = "default", response = RequestErrorResponse),
+    ),
+)]
+pub(in crate::gateway_demo) async fn redrive(
     State(state): State<AppState>,
     auth: AuthContext,
     Query(query): Query<OrganizationQuery>,

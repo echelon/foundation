@@ -4,11 +4,13 @@ use std::time::{Duration, Instant};
 use db_queries::gateway_webhooks::{self, Claim, DeliveryResult};
 use tracing::Instrument;
 
-use crate::middleware::trace_context::work_span;
+use crate::{gateway_demo::readiness::Readiness, middleware::trace_context::work_span};
 
 use super::config::WebhookConfig;
 
-pub fn spawn(pool: db::PgPool, config: Arc<WebhookConfig>) {
+const MAX_IN_FLIGHT: usize = 4;
+
+pub(in crate::gateway_demo) fn spawn(pool: db::PgPool, config: Arc<WebhookConfig>, readiness: Arc<Readiness>) {
     tokio::spawn(async move {
         let mut tasks = tokio::task::JoinSet::new();
         let mut timer = tokio::time::interval(Duration::from_millis(250));
@@ -20,38 +22,46 @@ pub fn spawn(pool: db::PgPool, config: Arc<WebhookConfig>) {
                     tracing::warn!("webhook task stopped before writing its outcome");
                 }
             }
-            if tasks.len() >= 4 {
-                continue;
+            for _ in tasks.len()..MAX_IN_FLIGHT {
+                if !readiness.database_schema_ready() {
+                    break;
+                }
+                match gateway_webhooks::claim(&pool).await {
+                    Ok(Some(claim)) => {
+                        tasks.spawn(deliver(pool.clone(), Arc::clone(&config), claim));
+                    }
+                    Ok(None) => break,
+                    Err(error) => {
+                        log_database_error(&error);
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        break;
+                    }
+                }
             }
-            let claim = match gateway_webhooks::claim(&pool).await {
-                Ok(Some(claim)) => claim,
-                Ok(None) => continue,
-                Err(error) => {
-                    log_database_error(&error);
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
-            let pool = pool.clone();
-            let config = Arc::clone(&config);
-            let span = work_span(
-                "webhook_delivery", &claim.request_id, claim.trace_id.as_deref(), claim.admission_span_id.as_deref(),
-            );
-            tasks.spawn(async move {
-                let started = Instant::now();
-                let result = send(&config, &claim).await;
-                if let Err(error) = gateway_webhooks::finish(&pool, &claim, result).await {
-                    log_database_error(&error);
-                } else {
-                    tracing::debug!(
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        attempt = claim.attempt,
-                        "webhook delivery cycle finished"
-                    );
-                }
-            }.instrument(span));
         }
     });
+}
+
+async fn deliver(pool: db::PgPool, config: Arc<WebhookConfig>, claim: Claim) {
+    let span = work_span(
+        "webhook_delivery", &claim.request_id, claim.trace_id.as_deref(), claim.admission_span_id.as_deref(),
+    );
+    async {
+        let started = Instant::now();
+        let result = send(&config, &claim).await;
+        match gateway_webhooks::finish(&pool, &claim, result).await {
+            Ok(true) => tracing::debug!(
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                attempt = claim.attempt,
+                "webhook delivery cycle finished"
+            ),
+            Ok(false) => tracing::debug!(
+                attempt = claim.attempt,
+                "webhook result ignored after lease expired"
+            ),
+            Err(error) => log_database_error(&error),
+        }
+    }.instrument(span).await;
 }
 
 async fn send(config: &WebhookConfig, claim: &Claim) -> DeliveryResult {

@@ -41,7 +41,7 @@ pub use dispatch_mock_requests::dispatch_mock_requests;
 pub use find_admission::{find_admission, AdmissionKey};
 pub use find_request_location::find_request_location;
 pub use insert_request::{insert_request, NewGatewayRequest, RequestCorrelation};
-pub use list_requests::{list_requests, RequestFilter};
+pub use list_requests::{get_request, list_requests, RequestFilter};
 pub use provider_runs::*;
 pub use read_snapshot::read_snapshot;
 pub use recheck_provider::{recheck_provider, Recheck};
@@ -152,4 +152,4 @@ pub struct RequestRow {
 mod read_route_retries;
 pub use read_route_retries::read_route_retries;
 mod reschedule_queue_submission;
-pub use reschedule_queue_submission::{reschedule_queue_submission, QueueReplacement};
+pub use reschedule_queue_submission::reschedule_queue_submission;

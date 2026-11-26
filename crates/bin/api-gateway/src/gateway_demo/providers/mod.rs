@@ -9,8 +9,9 @@ mod chat_transport;
 mod payloads;
 mod queue;
 pub(super) mod video;
+mod worker;
 
-use std::{collections::BTreeMap, sync::Arc, time::{Duration, Instant}};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use anyhow::{ensure, Context};
 use db_queries::gateway_requests::{
@@ -21,10 +22,6 @@ use db_queries::gateway_requests::{
 use reqwest::Url;
 use serde::Deserialize;
 use tokio::sync::Semaphore;
-use tracing::Instrument;
-
-use crate::middleware::trace_context::work_span;
-
 use super::artifact_storage::ArtifactStorage;
 use super::artifacts;
 use super::catalog::{digest, Adapter, Catalog, Offer};
@@ -79,6 +76,29 @@ impl ProviderRuntime {
             connectors,
             streams: Arc::new(Semaphore::new(32)),
         }))
+    }
+
+    pub(super) fn has_chat_binding(&self, name: &str) -> bool {
+        self.local_chat.contains_key(name)
+    }
+
+    pub(super) fn compute_stacks(&self) -> impl Iterator<Item = &local_chat::compute::ComputeStack> {
+        self.local_chat.values().filter_map(|binding| binding.client.compute_stack())
+    }
+
+    pub(super) fn compute_stack(&self, name: &str) -> Option<&local_chat::compute::ComputeStack> {
+        self.local_chat.get(name)?.client.compute_stack()
+    }
+
+    pub(super) fn has_compute_route(
+        &self,
+        offer: &Offer,
+        account: &ids::AccountId,
+        policies: &Policies,
+    ) -> bool {
+        self.chat_offer(offer).and_then(|(client, _)| client.compute_stack()).is_none_or(|stack| {
+            stack.has_target(account, super::compute_providers::order(policies, &stack.name))
+        })
     }
 
     pub(super) fn chat_offer(&self, offer: &Offer) -> Option<(&ChatClient, &str)> {
@@ -161,7 +181,11 @@ fn pin_catalog(
             }
         }
     }
-    let digests: Vec<_> = local_chat.values().map(|binding| binding.digest.as_str())
+    let digests: Vec<_> = local_chat.iter()
+            .filter(|(name, _)| catalog.offers.iter().any(|offer|
+                offer.adapter == Adapter::OpenAiCompatibleChat
+                    && offer.local_binding.as_ref() == Some(*name)))
+            .map(|(_, binding)| binding.digest.as_str())
         .chain(connectors.active_digests()).collect();
     if !digests.is_empty() {
         let encoded = serde_json::to_vec(&(&catalog.revision, digests))?;
@@ -195,100 +219,20 @@ pub(super) fn spawn(
 ) {
     if runtime.vault.is_some() {
         let pool = pool.clone();
+        let readiness = Arc::clone(&readiness);
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(30));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                timer.tick().await;
+                readiness.work_tick(&mut timer).await;
                 if let Err(error) = db_queries::gateway_provider_credentials::clear_retired(&pool).await {
                     log_database_error(&error);
                 }
             }
         });
     }
-    completion::spawn(pool.clone(), Arc::clone(&runtime));
-    tokio::spawn(async move {
-        let local_bindings: Vec<_> = runtime.local_chat.values().map(|entry| entry.digest.clone()).collect();
-        let connector_bindings: Vec<_> = runtime.connectors.digests().map(str::to_owned).collect();
-        let mut tasks = tokio::task::JoinSet::new();
-        let mut clock = tokio::time::interval(Duration::from_millis(250));
-        let mut poll_turn = false;
-        clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            clock.tick().await;
-            while let Some(finished) = tasks.try_join_next() {
-                if finished.is_err() {
-                    tracing::warn!("provider task stopped before recording its result");
-                }
-            }
-            if tasks.len() >= 4 {
-                readiness.provider_observed(true);
-                continue;
-            }
-            poll_turn = !poll_turn;
-            let work = if poll_turn && !connector_bindings.is_empty() {
-                queued_runs::claim_queue_poll(&pool, queued_runs::PollBindings {
-                    connectors: &connector_bindings,
-                })
-                    .await
-                    .map(|task| task.map(Work::Poll))
-            } else {
-                gateway_requests::claim_provider_run(
-                    &pool,
-                    gateway_requests::SubmitBindings {
-                        local_chat: &local_bindings,
-                        connectors: &connector_bindings,
-                    },
-                )
-                .await
-                .map(|task| task.map(Work::Submit))
-            };
-            readiness.provider_observed(work.is_ok());
-            let run = match work {
-                Ok(Some(run)) => run,
-                Ok(None) => continue,
-                Err(error) => {
-                    log_database_error(&error);
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
-            let pool = pool.clone();
-            let runtime = Arc::clone(&runtime);
-            let catalog = Arc::clone(&catalog);
-            let span = run.span();
-            tasks.spawn(async move {
-                let started = Instant::now();
-                let result = match run {
-                    Work::Submit(run) => dispatch(&pool, &runtime, &catalog.current(), run).await,
-                    Work::Poll(task) => observe_queue(&pool, &runtime, task).await,
-                };
-                if let Err(error) = result {
-                    log_database_error(&error);
-                } else {
-                    tracing::debug!(elapsed_ms = started.elapsed().as_millis() as u64, "provider worker cycle finished");
-                }
-            }.instrument(span));
-        }
-    });
-}
-
-enum Work {
-    Submit(ClaimedProviderRun),
-    Poll(ClaimedQueuePoll),
-}
-
-impl Work {
-    fn span(&self) -> tracing::Span {
-        match self {
-            Self::Submit(run) => work_span(
-                "provider_submit", &run.request_id, run.trace_id.as_deref(), run.admission_span_id.as_deref(),
-            ),
-            Self::Poll(run) => work_span(
-                "provider_poll", &run.request_id, run.trace_id.as_deref(), run.admission_span_id.as_deref(),
-            ),
-        }
-    }
+    completion::spawn(pool.clone(), Arc::clone(&runtime), Arc::clone(&readiness));
+    tokio::spawn(worker::run(pool, runtime, catalog, readiness));
 }
 
 async fn dispatch(
@@ -309,12 +253,15 @@ async fn dispatch(
         _ => None,
     };
     let connection = super::provider_access::connection_id(&run.provider, &run.adapter, binding);
-    let active_connection = catalog.offers.iter().any(|offer| {
+    let active_offer = catalog.offers.iter().find(|offer| {
         offer.id == run.offer_id && offer.adapter.as_str() == run.adapter
             && offer.connection_id() == connection
     });
     let rejection = match (run.provider.parse(), Policies::load(pool, scope).await) {
-        (Ok(provider), Ok(policies)) if active_connection && policies.allows_provider(&provider) && policies.allows_connection(catalog, &connection, scope) => {
+        (Ok(_), Ok(policies)) if active_offer.is_some_and(|offer|
+            !runtime.has_compute_route(offer, &run.account_id, &policies)) =>
+            Some("compute_targets_excluded"),
+        (Ok(provider), Ok(policies)) if active_offer.is_some() && policies.allows_provider(&provider) && policies.allows_connection(catalog, &connection, scope) => {
             let admitted = run.data_requirements.as_ref()
                 .map(|value| DataRequirements::deserialize(value)).transpose();
             match admitted {
@@ -341,13 +288,13 @@ async fn dispatch(
             Default::default(),
         ).await;
     }
+    if run.adapter == "connector_queue" {
+        return submit_connector(pool, runtime, run).await;
+    }
     if !gateway_requests::begin_provider_submission(pool, &run.request_id, run.lease).await? {
         return Ok(());
     }
-    match run.adapter.as_str() {
-        "connector_queue" => submit_connector(pool, runtime, run).await,
-        _ => execute(pool, runtime, run).await,
-    }
+    execute(pool, runtime, run).await
 }
 
 fn offer_data<'a>(
@@ -518,6 +465,9 @@ async fn submit_connector(
                 {
                     Submission::Rejected("provider_credential_unavailable")
                 } else {
+                    if !gateway_requests::begin_provider_submission(pool, id, run.lease).await? {
+                        return Ok(());
+                    }
                     connector.submit(&run, input, &runtime.completion_tokens, key.as_ref()).await
                 }
             }
@@ -541,17 +491,13 @@ async fn record_queue_submission(
         Submission::Unavailable(limit) => {
             gateway_requests::queue_cooldowns::record(pool, run, limit.cooldown_ms).await?;
             let scheduled = match limit.retry_after_ms {
-                Some(wait) => gateway_requests::reschedule_queue_submission(pool, run, None, wait.max(50), 1).await?,
+                Some(wait) => gateway_requests::reschedule_queue_submission(pool, run, wait.max(50), 1).await?,
                 None => false,
             };
             if scheduled {
                 return Ok(());
             }
-            if gateway_requests::connector_completions::received(pool, id).await? {
-                RunOutcome::Uncertain("connector_submission_unconfirmed")
-            } else {
-                RunOutcome::Rejected("provider_rate_limited")
-            }
+            RunOutcome::Rejected("provider_rate_limited")
         }
         Submission::Rejected(reason) => RunOutcome::Rejected(reason),
         Submission::Uncertain(reason) => RunOutcome::Uncertain(reason),

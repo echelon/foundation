@@ -107,7 +107,8 @@ pub async fn restore(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE gateway_archives SET state = 'restore_queued', tries = 0, restored_until = NULL, error_code = NULL,
-                  retrieve_cold = $5, retrieval_attempted_at = NULL, restore_check_at = NULL
+                  retrieve_cold = $5, retrieval_attempted_at = NULL, restore_check_at = NULL,
+                  retrieval_confirmed = false, retrieval_submissions = 0
          WHERE account_id = $1 AND project_id = $2 AND ($3::text IS NULL OR client_ref = $3) AND id = $4
            AND (state IN ('stored','restore_failed') OR (state = 'available' AND restored_until <= clock_timestamp()))",
         scope.account.as_str(), scope.project.as_str(), scope.client_ref, archive.as_str(), retrieve_cold,
@@ -126,6 +127,8 @@ pub struct ArchiveTask {
     pub through_seq: i64,
     pub retrieve_cold: bool,
     pub retrieval_attempted_at: Option<DateTime<Utc>>,
+    pub retrieval_confirmed: bool,
+    pub retrieval_submissions: i16,
     pub automatic: bool,
 }
 
@@ -158,7 +161,7 @@ pub async fn claim(pool: &PgPool, retry_automatic: bool) -> sqlx::Result<Option<
             restore_check_at = NULL, automatic_retry_at = NULL
          FROM ready WHERE a.id = ready.id
          RETURNING a.id, a.account_id, a.project_id, a.client_ref, a.generation, a.state, a.after_seq, a.through_seq,
-                   a.retrieve_cold, a.retrieval_attempted_at, a.automatic",
+                   a.retrieve_cold, a.retrieval_attempted_at, a.retrieval_confirmed, a.retrieval_submissions, a.automatic",
         retry_automatic,
     ).fetch_optional(pool).await
 }
@@ -200,29 +203,35 @@ pub async fn restored(pool: &PgPool, task: &ArchiveTask) -> sqlx::Result<()> {
     Ok(())
 }
 
+pub const MAX_RETRIEVAL_SUBMISSIONS: i16 = 3;
+
 pub async fn begin_retrieval(pool: &PgPool, task: &ArchiveTask) -> sqlx::Result<bool> {
     let updated = sqlx::query!(
-        "UPDATE gateway_archives SET retrieval_attempted_at = clock_timestamp()
+        "UPDATE gateway_archives SET
+            retrieval_submissions = greatest(retrieval_submissions, (retrieval_attempted_at IS NOT NULL)::int) + 1,
+            retrieval_attempted_at = coalesce(retrieval_attempted_at, clock_timestamp()),
+            lease_until = clock_timestamp() + interval '45 seconds'
          WHERE id = $1 AND generation = $2 AND state = 'restoring' AND lease_until > clock_timestamp()
-           AND retrieve_cold AND retrieval_attempted_at IS NULL",
-        task.id, task.generation,
+           AND retrieve_cold AND NOT retrieval_confirmed AND retrieval_submissions < $3
+           AND (retrieval_attempted_at IS NULL OR retrieval_attempted_at > statement_timestamp() - interval '48 hours')",
+        task.id, task.generation, MAX_RETRIEVAL_SUBMISSIONS,
     ).execute(pool).await?;
     Ok(updated.rows_affected() == 1)
 }
 
-pub async fn wait_for_retrieval(pool: &PgPool, task: &ArchiveTask) -> sqlx::Result<()> {
+pub async fn wait_for_retrieval(pool: &PgPool, task: &ArchiveTask, confirmed: bool) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE gateway_archives SET
             state = CASE WHEN retrieval_attempted_at <= statement_timestamp() - interval '48 hours'
                          THEN 'restore_failed' ELSE 'restore_queued' END,
-            lease_until = NULL, tries = 0,
+            lease_until = NULL, tries = 0, retrieval_confirmed = retrieval_confirmed OR $3,
             restore_check_at = CASE WHEN retrieval_attempted_at > statement_timestamp() - interval '48 hours'
                                     THEN statement_timestamp() + interval '1 minute' END,
             error_code = CASE WHEN retrieval_attempted_at <= statement_timestamp() - interval '48 hours'
                               THEN 'archive_retrieval_timed_out' END
          WHERE id = $1 AND generation = $2 AND state = 'restoring' AND lease_until > clock_timestamp()
            AND retrieval_attempted_at IS NOT NULL",
-        task.id, task.generation,
+        task.id, task.generation, confirmed,
     ).execute(pool).await?;
     Ok(())
 }

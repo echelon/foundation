@@ -27,6 +27,8 @@ pub struct Policy {
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub(super) excluded_connections: BTreeSet<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) compute_order: BTreeMap<String, Vec<String>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub(super) connection_projects: BTreeMap<String, Option<BTreeSet<ids::GatewayProjectId>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     preferred_providers: Option<Vec<Provider>>,

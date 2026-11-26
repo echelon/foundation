@@ -19,6 +19,8 @@ pub struct Claim {
 
 pub async fn claim(pool: &PgPool) -> sqlx::Result<Option<Claim>> {
     let mut tx = pool.begin().await?;
+    // Use a stable cutoff so the due index can skip future retries. Holding the
+    // subscription lock through commit orders new leases with revocation and rotation.
     let ready = sqlx::query!(
         "SELECT d.id, d.state, d.payload, d.attempt_count, d.attempt_baseline, s.id AS subscription_id,
            s.destination_id, s.destination_url, s.signing_version,
@@ -27,8 +29,9 @@ pub async fn claim(pool: &PgPool) -> sqlx::Result<Option<Claim>> {
            (d.deadline_at <= clock_timestamp()) AS \"expired!\", s.revoked_at
          FROM gateway_webhook_deliveries d JOIN gateway_requests r ON r.id = d.request_id
            JOIN gateway_webhook_subscriptions s ON s.id = r.webhook_subscription_id
-         WHERE d.state IN ('pending', 'sending') AND d.available_at <= clock_timestamp()
-         ORDER BY d.available_at, d.id LIMIT 1 FOR UPDATE OF d SKIP LOCKED",
+         WHERE d.state IN ('pending', 'sending') AND d.available_at <= statement_timestamp()
+         ORDER BY d.available_at, d.id LIMIT 1
+         FOR UPDATE OF d SKIP LOCKED FOR SHARE OF s SKIP LOCKED",
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -116,7 +119,7 @@ pub enum DeliveryResult {
     DestinationUnavailable,
 }
 
-pub async fn finish(pool: &PgPool, claim: &Claim, result: DeliveryResult) -> sqlx::Result<()> {
+pub async fn finish(pool: &PgPool, claim: &Claim, result: DeliveryResult) -> sqlx::Result<bool> {
     let (outcome, status, delay) = match result {
         DeliveryResult::Delivered(status) => ("delivered", Some(status), None),
         DeliveryResult::HttpError {
@@ -144,7 +147,8 @@ pub async fn finish(pool: &PgPool, claim: &Claim, result: DeliveryResult) -> sql
     )
     .execute(&mut *tx)
     .await?;
-    if result.rows_affected() == 1 {
+    let recorded = result.rows_affected() == 1;
+    if recorded {
         sqlx::query!(
             "UPDATE gateway_webhook_attempts
              SET finished_at = clock_timestamp(), outcome = $3, http_status = $4
@@ -157,5 +161,6 @@ pub async fn finish(pool: &PgPool, claim: &Claim, result: DeliveryResult) -> sql
         .execute(&mut *tx)
         .await?;
     }
-    tx.commit().await
+    tx.commit().await?;
+    Ok(recorded)
 }

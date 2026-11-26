@@ -1,5 +1,6 @@
 """Exercise snapshot import and continuous sync using a disposable connector demo."""
 
+from hashlib import sha256
 import json
 import os
 from pathlib import Path
@@ -187,6 +188,42 @@ def main():
         raise AssertionError("A stale writer was allowed to change the committed checkpoint.")
     assert status() == current
     print("PASS Stale writes preserved the committed cursor and the latest feed status.", flush=True)
+
+    original = next(event for event in local_events if event["id"] != cursor)
+    project_feed = {**binding, "client": ""}
+    assert importer.load_checkpoint(project_feed, importer.REGISTER) == ""
+    assert importer.import_page([original], project_feed, "", original["id"]) == 0
+    assert importer.load_checkpoint(project_feed) == original["id"]
+
+    def read_page(events):
+        payload = b"".join(json.dumps(event).encode() + b"\n" for event in events)
+        return importer.read_page(payload, {
+            "X-TokenCraft-Content-Sha256": sha256(payload).hexdigest(),
+            "X-TokenCraft-Has-More": "false",
+            "X-TokenCraft-Next-After": events[-1]["id"],
+        }, binding, cursor)
+
+    try:
+        read_page([original, original])
+    except importer.SyncError as error:
+        assert "repeats an event ID" in str(error)
+    else:
+        raise AssertionError("A page with a repeated event ID passed validation.")
+
+    fresh = {**original, "id": "evt_" + token_hex(16)}
+    conflicting = {**original, "data": {**original["data"], "fixture_conflict": True}}
+    records, next_after, more = read_page([conflicting, fresh])
+    before = importer.postgres("SELECT count(*) FROM tokencraft_export.events;", {})
+    try:
+        importer.import_page(records, binding, cursor, next_after,
+                             as_of="2099-01-01T00:00:00Z", more=more, pending="false")
+    except importer.SyncError as error:
+        assert not error.retryable and "different content" in str(error)
+    else:
+        raise AssertionError("The importer accepted changed content for a committed event.")
+    assert status() == current
+    assert importer.postgres("SELECT count(*) FROM tokencraft_export.events;", {}) == before
+    print("PASS Overlapping feeds deduplicated identical events and a changed event rolled back the page.", flush=True)
 
     source_database = os.environ.get("TOKENCRAFT_SMOKE_EXPIRY_DATABASE")
     if source_database:

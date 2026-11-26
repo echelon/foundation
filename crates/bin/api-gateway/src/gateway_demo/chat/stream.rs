@@ -121,15 +121,18 @@ impl Reader {
             )
             .await?;
             let scope = access.for_client(client)?;
-            let trace = requests::get(&self.state.pool, scope, id).await?;
-            if trace.content_removed_at.is_some() {
+            let page = chat_streams::read(&self.state.pool, scope, id, after)
+                .await
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
+            if page.content_removed_at.is_some() {
                 return Err(ChatError::new(
                     StatusCode::GONE,
                     "result_removed",
                     "Stored completion content was removed.",
                 ));
             }
-            let created = trace.accepted_at().timestamp();
+            let created = page.created_at.timestamp();
             let lifecycle = match self.wire {
                 Wire::Chat { .. } => None,
                 Wire::Responses(settings) => Some(responses::TextLifecycle {
@@ -145,10 +148,7 @@ impl Reader {
                 }
                 response_started = true;
             }
-            let chunks = chat_streams::read(&self.state.pool, scope, id, after)
-                .await
-                .map_err(ApiError::from)?;
-            if !item_started && (!chunks.is_empty() || trace.status == RequestStatus::Succeeded) {
+            if !item_started && (!page.chunks.is_empty() || page.status == RequestStatus::Succeeded) {
                 let sent = match &lifecycle {
                     Some(lifecycle) => emit_all(send, responses_stream.start_item(lifecycle)).await,
                     None => {
@@ -166,8 +166,8 @@ impl Reader {
                 }
                 item_started = true;
             }
-            let more = chunks.len() == 32;
-            for chunk in chunks {
+            let more = page.chunks.len() == chat_streams::PAGE_SIZE;
+            for chunk in page.chunks {
                 let text = self
                     .runtime
                     .payloads
@@ -205,7 +205,7 @@ impl Reader {
             if more {
                 continue;
             }
-            match trace.status {
+            match page.status {
                 RequestStatus::Queued | RequestStatus::Running => {
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_millis(400));
@@ -228,15 +228,12 @@ impl Reader {
                     }
                     if let Some(lifecycle) = &lifecycle {
                         let reason = supported_finish_reason(result.finish_reason.as_deref())?;
-                        let completed_at = trace
-                            .events
-                            .last()
-                            .map_or(created, |event| event.at.timestamp());
+                        let completed_at = page.succeeded_at.map_or(created, |at| at.timestamp());
                         let response = lifecycle.terminal(
                             result.text,
                             reason,
                             completed_at,
-                            trace.token_counts(),
+                            page.token_counts,
                         );
                         emit_all(send, responses_stream.finish(response)).await;
                         return Ok(());
@@ -258,7 +255,7 @@ impl Reader {
                             include_usage: true
                         }
                     ) {
-                        if let Some((prompt, completion)) = trace.token_counts() {
+                        if let Some((prompt, completion)) = page.token_counts {
                             let usage = json!({"prompt_tokens": prompt, "completion_tokens": completion,
                                 "total_tokens": i64::from(prompt) + i64::from(completion)});
                             if !self.emit_chat(send, created, json!([]), Some(usage)).await {

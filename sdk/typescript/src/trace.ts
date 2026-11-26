@@ -1,5 +1,17 @@
 import type { ProviderAttempt, ProviderPath, RequestStatus, TraceCorrelation } from "./types.js";
 
+export function validateTraceparent(value: string): string {
+  const invalid = () => new TypeError("Supply a valid W3C traceparent.");
+  if (typeof value !== "string" || value.length > 256 || /[^\x21-\x7e]|,/.test(value)) throw invalid();
+  const base = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})/.exec(value);
+  if (!base) throw invalid();
+  const [, version, trace, parent] = base;
+  const suffix = value.slice(55);
+  if (version === "ff" || trace === "00000000000000000000000000000000" || parent === "0000000000000000"
+      || (suffix && (version === "00" || !suffix.startsWith("-")))) throw invalid();
+  return value;
+}
+
 export type TraceTone = "ok" | "active" | "warning" | "error" | "neutral";
 
 export interface ComputeTargetAttempt {

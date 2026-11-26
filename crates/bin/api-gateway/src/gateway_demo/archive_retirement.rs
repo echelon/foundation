@@ -9,14 +9,15 @@ use ids::{AccountId, GatewayArchiveId, GatewayProjectId};
 use super::{
     archive_blobs::{ArchiveStorage, Expected},
     exports::encode_events,
+    readiness::Readiness,
 };
 
-pub(super) fn spawn(pool: db::PgPool, storage: Arc<ArchiveStorage>, age_days: i32) {
+pub(super) fn spawn(pool: db::PgPool, storage: Arc<ArchiveStorage>, age_days: i32, readiness: Arc<Readiness>) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tick.tick().await;
+            readiness.work_tick(&mut tick).await;
             if let Err(error) = work(&pool, &storage, age_days).await {
                 tracing::warn!(
                     sqlstate = ?error.as_database_error().and_then(|error| error.code()),

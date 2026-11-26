@@ -177,14 +177,37 @@ WITH checkpoint AS (
 )
 """
 
-INSERT_ROWS = """
+INSERT_ROWS = r"""
 , applied AS (
     INSERT INTO tokencraft_export.events (source_url, project_id, event_id, payload)
     SELECT source_url, project_id, payload->>'id', payload
     FROM checkpoint CROSS JOIN export_page
-    ON CONFLICT DO NOTHING RETURNING event_id
+    ON CONFLICT (source_url, project_id, event_id) DO NOTHING RETURNING event_id
 )
-SELECT CASE WHEN EXISTS (SELECT 1 FROM checkpoint) THEN count(*)::text ELSE 'checkpoint_changed' END FROM applied;
+SELECT CASE WHEN EXISTS (SELECT 1 FROM checkpoint) THEN count(*)::text ELSE 'checkpoint_changed' END AS page_result,
+       EXISTS (SELECT 1 FROM checkpoint) AND count(*) < (SELECT count(*) FROM export_page) AS compare_replays
+FROM applied \gset
+"""
+
+# A separate statement can see an event committed by another scope while INSERT waited.
+FINISH_PAGE = r"""
+\set event_conflict false
+\if :compare_replays
+SELECT EXISTS (
+    SELECT 1 FROM export_page incoming
+    LEFT JOIN tokencraft_export.events stored
+      ON stored.source_url = :'source' AND stored.project_id = :'project'
+     AND stored.event_id = incoming.payload->>'id'
+    WHERE stored.payload IS DISTINCT FROM incoming.payload
+) AS event_conflict \gset
+\endif
+\if :event_conflict
+ROLLBACK;
+\echo event_conflict
+\else
+COMMIT;
+\echo :page_result
+\endif
 """
 
 
@@ -196,13 +219,15 @@ def import_page(records, binding, after, next_after, *, as_of="", more="", pendi
 BEGIN;
 CREATE TEMP TABLE export_page (payload jsonb) ON COMMIT DROP;
 COPY export_page FROM STDIN;
-""" + rows + "\n\\.\n" + ADVANCE + INSERT_ROWS + "COMMIT;\n"
+""" + rows + "\n\\.\n" + ADVANCE + INSERT_ROWS + FINISH_PAGE
     else:
         command = ADVANCE + "SELECT CASE WHEN EXISTS (SELECT 1 FROM checkpoint) THEN '0' ELSE 'checkpoint_changed' END;"
     result = postgres(command, {**binding, "after": after, "next": next_after,
                                 "as_of": as_of, "more": more, "pending": pending})
     if result == "checkpoint_changed":
         raise SyncError("Another sync advanced this checkpoint. Resuming from the current cursor.", retryable=True)
+    if result == "event_conflict":
+        raise SyncError("An export event ID already has different content in this destination. The page was rolled back.")
     return int(result)
 
 
@@ -229,15 +254,22 @@ def read_page(payload, headers, binding, checkpoint):
     if more not in ("true", "false") or (not records and (more == "true" or next_after)):
         raise SyncError("Gateway returned inconsistent page metadata.")
     if records:
+        ids = set()
         for event in records:
+            if not isinstance(event, dict):
+                raise SyncError("An export event must be a JSON object.")
             check_version(event.get("schema_version"))
+            event_id = event.get("id")
             if (
                 event.get("project_id") != binding["project"]
                 or (binding["client"] and event.get("client_ref") != binding["client"])
-                or not EVENT_ID.fullmatch(event.get("id", ""))
+                or not isinstance(event_id, str) or not EVENT_ID.fullmatch(event_id)
             ):
                 raise SyncError("An event is outside the configured scope or has an invalid ID.")
-        if next_after != records[-1]["id"] or any(event["id"] == checkpoint for event in records):
+            if event_id in ids:
+                raise SyncError("The export page repeats an event ID.")
+            ids.add(event_id)
+        if next_after != records[-1]["id"] or checkpoint in ids:
             raise SyncError("The export cursor did not advance.")
     return records, next_after or checkpoint, more
 

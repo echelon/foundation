@@ -446,6 +446,7 @@ impl Catalog {
                     None => (None, input.max_total_usd_nanos),
                 };
                 let allowed = policies.is_none_or(|(scope, rules)| rules.allows_offer(self, offer, scope));
+                let allowed = allowed && availability.is_none_or(|(_, limits)| !limits.compute_unavailable(&offer.id));
                 let mut candidate = compare(offer, &input, tolerance, cap, allowed);
                 if candidate.reason == Reason::Eligible {
                     match data_requirements.and_then(|rules| rules.mismatch(offer.data_handling.as_ref())) {

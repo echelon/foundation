@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "offers": [
+    {
+      "id": "runtime_image",
+      "provider": "self_hosted",
+      "model": "runtime_image",
+      "adapter": "mock",
+      "mock_latency_ms": 100,
+      "pricing": {
+        "kind": "image",
+        "usd_nanos_per_image": 1250000,
+        "aspect_ratios": ["4:3"]
+      }
+    }
+  ]
+}

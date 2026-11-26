@@ -1,7 +1,7 @@
 use axum::http::{HeaderMap, HeaderValue};
 use chrono::{DateTime, Utc};
 use db_queries::gateway_requests::{
-    self, AdmissionKey, NewGatewayRequest, NewProviderRun, RequestCorrelation, RequestFilter, RequestRow, RequestScope,
+    self, AdmissionKey, NewGatewayRequest, NewProviderRun, RequestCorrelation, RequestRow, RequestScope,
 };
 use db_queries::{gateway_routing_policies, gateway_webhooks};
 pub(super) use db_queries::gateway_requests::{CostState, RequestStatus};
@@ -711,19 +711,9 @@ pub async fn get<'e, E: sqlx::PgExecutor<'e>>(
     scope: RequestScope<'_>,
     id: &GatewayRequestId,
 ) -> ApiResult<RequestView> {
-    let row = gateway_requests::list_requests(
-        exec,
-        scope,
-        RequestFilter {
-            id: Some(id),
-            ..Default::default()
-        },
-        1,
-    )
-    .await?
-    .into_iter()
-    .next()
-    .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
+    let row = gateway_requests::get_request(exec, scope, id)
+        .await?
+        .ok_or_else(|| ApiError::NotFound("request not found".into()))?;
     RequestView::try_from(row)
 }
 

@@ -39,7 +39,7 @@ pub(super) fn idempotency_key(headers: &HeaderMap) -> ApiResult<&str> {
         .ok_or_else(|| ApiError::BadRequest("exactly one Idempotency-Key is required".into()))
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct CatalogOffers<'a> {
     #[serde(flatten)]
     catalog: &'a Catalog,
@@ -48,6 +48,12 @@ struct CatalogOffers<'a> {
     rate_valid_until: BTreeMap<&'a str, DateTime<Utc>>,
 }
 
+#[utoipa::path(
+    get, path = "/v1/catalog/offers", operation_id = "listPublicCatalogOffers", tag = "catalog",
+    summary = "List this gateway's public offers",
+    description = "Includes configured routing rates and their validity windows, when present. Offers restricted to an account are excluded. The ArtCraft reference catalog is distributed separately.",
+    responses((status = 200, description = "Public offers, active revision, and base revision.", body = CatalogOffers)),
+)]
 pub async fn catalog(Extension(catalog): Extension<Arc<CatalogStore>>) -> Response {
     let current = catalog.current().public_view();
     let expires = current.rates.iter()
@@ -96,6 +102,16 @@ pub(super) async fn scoped_models(
     Ok(Json(catalog.model_catalog(|offer| policies.allows_offer(&catalog, offer, scope))))
 }
 
+#[utoipa::path(
+    post, path = "/v1/catalog/quotes", operation_id = "quotePublicModel", tag = "catalog",
+    summary = "Estimate a public model request",
+    description = "Compares eligible public routes for a named model. A provider selection in the body does not constrain this view. No provider work is started.",
+    request_body = QuoteInput,
+    responses(
+        (status = 200, description = "Model estimate without provider and offer IDs on candidates.", body = ModelQuote),
+        (status = "default", response = super::RequestErrorResponse),
+    ),
+)]
 pub(super) async fn model_quote(
     Extension(catalog): Extension<Arc<CatalogStore>>,
     Json(mut input): Json<QuoteInput>,
@@ -515,7 +531,6 @@ pub(super) async fn history(
             cost_state: query.cost_state,
             from,
             to,
-            ..Default::default()
         },
         (PAGE_SIZE + 1) as i64,
     )

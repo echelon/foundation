@@ -1,0 +1,13 @@
+services:
+  demo:
+    environment:
+      TOKENCRAFT_DEMO_CONSOLE: /console
+    ports:
+      - "127.0.0.1:3000:13000"
+    volumes:
+      - type: bind
+        source: ${TOKENCRAFT_CONSOLE_DIR:?Set TOKENCRAFT_CONSOLE_DIR to the compiled frontend directory}
+        target: /console
+        read_only: true
+        bind:
+          create_host_path: false

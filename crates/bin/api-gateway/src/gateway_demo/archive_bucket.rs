@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use anyhow::{ensure, Context};
-use bucket_client::{BucketClient, BucketClientBuilder};
-use reqwest::header::{CONTENT_TYPE, IF_NONE_MATCH};
-use reqwest::{Client, Response, StatusCode, Url};
+use bucket_client::{BucketClient, BucketClientBuilder, SignedObjectRequest};
+use reqwest::header::{HeaderMap, CONTENT_TYPE, IF_NONE_MATCH};
+use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url};
 
 use super::archive_blobs::{BAD_OBJECT, COLD_OBJECT, IO_ERROR};
 use super::catalog::digest;
@@ -21,6 +21,12 @@ pub(super) struct ArchiveBucket {
     auto_restore: bool,
     signer: BucketClient,
     http: Client,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum RestoreDispatch {
+    Confirmed,
+    Unconfirmed,
 }
 
 impl ArchiveBucket {
@@ -201,7 +207,16 @@ impl ArchiveBucket {
         }
     }
 
-    pub(super) async fn request_restore(&self, name: &str) -> Result<(), &'static str> {
+    pub(super) async fn restoration_exists(&self, name: &str) -> Result<bool, &'static str> {
+        let signed = self.signer.sign_head(&self.key(name)).await.map_err(|_| IO_ERROR)?;
+        let response = self.signed_request(Method::HEAD, signed)?.send().await.map_err(|_| IO_ERROR)?;
+        if response.status() != StatusCode::OK {
+            return Err(IO_ERROR);
+        }
+        restoration_exists(response.headers())
+    }
+
+    pub(super) async fn request_restore(&self, name: &str) -> Result<RestoreDispatch, &'static str> {
         if !self.auto_restore {
             return Err(COLD_OBJECT);
         }
@@ -210,26 +225,31 @@ impl ArchiveBucket {
             .sign_restore(&self.key(name), RESTORE_BODY.as_bytes())
             .await
             .map_err(|_| IO_ERROR)?;
+        let Ok(result) = self.signed_request(Method::POST, signed)?.body(RESTORE_BODY).send().await else {
+            return Ok(RestoreDispatch::Unconfirmed);
+        };
+        let status = result.status();
+        if status.is_server_error() || matches!(status, StatusCode::TOO_MANY_REQUESTS | StatusCode::REQUEST_TIMEOUT) {
+            return Ok(RestoreDispatch::Unconfirmed);
+        }
+        if matches!(status, StatusCode::OK | StatusCode::ACCEPTED)
+            || (status == StatusCode::CONFLICT
+                && has_error(result, "<Code>RestoreAlreadyInProgress</Code>").await)
+        {
+            return Ok(RestoreDispatch::Confirmed);
+        }
+        Err("archive_retrieval_rejected")
+    }
+
+    fn signed_request(&self, method: Method, signed: SignedObjectRequest) -> Result<RequestBuilder, &'static str> {
         let url = self.signed_url(Ok(signed.url))?;
-        let mut request = self.http.post(url).body(RESTORE_BODY);
+        let mut request = self.http.request(method, url);
         for (name, value) in signed.headers {
             let mut value = reqwest::header::HeaderValue::from_str(&value).map_err(|_| IO_ERROR)?;
             value.set_sensitive(true);
             request = request.header(name, value);
         }
-        let Ok(result) = request.send().await else {
-            // A lost response can follow acceptance. The worker checks for readable bytes.
-            return Ok(());
-        };
-        let status = result.status();
-        if matches!(status, StatusCode::OK | StatusCode::ACCEPTED)
-            || status.is_server_error()
-            || (status == StatusCode::CONFLICT
-                && has_error(result, "<Code>RestoreAlreadyInProgress</Code>").await)
-        {
-            return Ok(());
-        }
-        Err("archive_retrieval_rejected")
+        Ok(request)
     }
 
     pub(super) async fn delete(&self, name: &str) -> Result<(), &'static str> {
@@ -253,6 +273,42 @@ impl ArchiveBucket {
             return Err(IO_ERROR);
         }
         Ok(())
+    }
+}
+
+fn restoration_exists(headers: &HeaderMap) -> Result<bool, &'static str> {
+    let mut fields = headers.get_all("x-amz-restore").iter();
+    let Some(field) = fields.next() else { return Ok(false) };
+    if fields.next().is_some() {
+        return Err(IO_ERROR);
+    }
+    let status = field.to_str().map_err(|_| IO_ERROR)?.split(',').next().map(str::trim);
+    match status {
+        Some("ongoing-request=\"true\"" | "ongoing-request=\"false\"") => Ok(true),
+        _ => Err(IO_ERROR),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::HeaderValue;
+
+    #[test]
+    fn missing_restore_metadata_allows_recovery_and_invalid_metadata_defers_it() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(restoration_exists(&headers), Ok(false));
+        for value in [
+            "ongoing-request=\"true\"",
+            "ongoing-request=\"false\", expiry-date=\"Fri, 21 Dec 2012 00:00:00 GMT\"",
+        ] {
+            headers.insert("x-amz-restore", HeaderValue::from_static(value));
+            assert_eq!(restoration_exists(&headers), Ok(true));
+        }
+        headers.insert("x-amz-restore", HeaderValue::from_static("unknown"));
+        assert_eq!(restoration_exists(&headers), Err(IO_ERROR));
+        headers.append("x-amz-restore", HeaderValue::from_static("ongoing-request=\"true\""));
+        assert_eq!(restoration_exists(&headers), Err(IO_ERROR));
     }
 }
 

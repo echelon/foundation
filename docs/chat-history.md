@@ -28,9 +28,9 @@ To use a cold storage class, configure a prefix lifecycle transition after a rea
 
 With gateway restores enabled, open archived content in Requests and select **Restore from cold storage**. Project administrators can also send an empty JSON object to `POST /v1/requests/{id}/content/restore`, using the same account and project query parameters as a history read. The gateway records an audit event and returns HTTP `202` with object counts and restore status. Metadata reads expose the status to authorized request readers. The console updates progress while the restore is pending.
 
-The worker asks storage for a Standard retrieval with a one-day temporary copy. It makes one restore call for each cold object in the job and verifies the stored checksum when the object is readable. The worker checks every five minutes for up to 48 hours and keeps the original retention deadline. An archive contains one manifest and up to eight media objects. Repeating the restore call returns the same job while pending or within 24 hours of its start. Retrieval can incur bucket charges. [S3 RestoreObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html)
+The worker asks storage for a Standard retrieval with a one-day temporary copy. It checks restore metadata before retrying an unconfirmed submission and allows up to three submissions per object in a restore job. The worker checks every five minutes for up to 48 hours and keeps the original retention deadline. It verifies each object's stored checksum before marking it ready. An archive contains one manifest and up to eight media objects. Repeating the restore call returns the same job while pending or within 24 hours of its start. Retrieval can incur bucket charges. [S3 RestoreObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_RestoreObject.html) · [S3 HeadObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)
 
-A lost response is handled by checking storage for readable bytes. If a worker stops after recording the attempt and before sending it, a storage administrator can start the restore at the bucket. When the status is ready, retrieve or download the archive from Requests. Expiry and administrator deletion remove queued restore work and still apply to any temporary copy.
+A replacement worker uses the recorded reservation and storage metadata to resume each pending object. When the status is ready, retrieve or download the archive from Requests. Expiry and administrator deletion remove queued restore work and still apply to any temporary copy.
 
 ## Read or remove content
 
@@ -51,6 +51,12 @@ At day 395, the API reports `expired` and blocks reads before cleanup. An admini
 Keep a filesystem archive directory mounted until its managed history has expired and cleanup has finished. Backups and external copies have their own retention and deletion schedules.
 
 The standard successful-result deadlines apply to previous admissions and requests outside the configured profile. The history endpoint returns 404 for those requests.
+
+## Follow a live chat stream
+
+Chat Completions and Responses return a TokenCraft request ID and a `Location` for status and result reads. If a viewer disconnects or stops receiving updates, the provider job can still finish. Use the same scoped key and request ID to poll the location. While retained, the original stream can also be replayed with the same idempotency key and request.
+
+Each API process admits up to 32 active stream readers. A reader fetches up to 32 stored deltas at a time and uses an eight-event output buffer. It checks the caller's access on each read. The response pump has a 45-second deadline, after which the client can follow `Location`.
 
 ## Use an SDK
 

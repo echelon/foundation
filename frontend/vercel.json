@@ -13,6 +13,10 @@
       "destination": "https://tokencraft-demo.onrender.com/ready"
     },
     {
+      "source": "/openapi.json",
+      "destination": "https://tokencraft-demo.onrender.com/openapi.json"
+    },
+    {
       "source": "/design",
       "destination": "/design/index.html"
     },

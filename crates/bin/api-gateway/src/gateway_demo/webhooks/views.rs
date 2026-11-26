@@ -1,0 +1,92 @@
+use chrono::{DateTime, Utc};
+use db_queries::gateway_webhooks::{Delivery, DeliveryAttempt, Subscription};
+use serde::Serialize;
+use utoipa::ToSchema;
+
+#[derive(Serialize, ToSchema)]
+pub(in crate::gateway_demo) struct WebhookSubscription {
+    pub(super) id: String,
+    name: String,
+    destination_id: String,
+    #[schema(required = true)]
+    client_ref: Option<String>,
+    pub(super) signing_version: i32,
+    #[schema(required = true)]
+    signing_rotated_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    #[schema(required = true)]
+    revoked_at: Option<DateTime<Utc>>,
+}
+
+impl From<Subscription> for WebhookSubscription {
+    fn from(row: Subscription) -> Self {
+        Self {
+            id: row.id,
+            name: row.name,
+            destination_id: row.destination_id,
+            client_ref: row.client_ref,
+            signing_version: row.signing_version,
+            signing_rotated_at: row.signing_rotated_at,
+            created_at: row.created_at,
+            revoked_at: row.revoked_at,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(in crate::gateway_demo) struct WebhookDelivery {
+    pub(super) id: String,
+    request_id: String,
+    subscription_id: String,
+    event_type: String,
+    /// One of pending, sending, delivered, or dead.
+    state: String,
+    occurred_at: DateTime<Utc>,
+    available_at: DateTime<Utc>,
+    #[schema(required = true)]
+    finished_at: Option<DateTime<Utc>>,
+    attempt_count: i32,
+    #[schema(required = true)]
+    last_error: Option<String>,
+}
+
+impl From<Delivery> for WebhookDelivery {
+    fn from(row: Delivery) -> Self {
+        Self {
+            id: row.id,
+            request_id: row.request_id,
+            subscription_id: row.subscription_id,
+            event_type: row.event_type,
+            state: row.state,
+            occurred_at: row.occurred_at,
+            available_at: row.available_at,
+            finished_at: row.finished_at,
+            attempt_count: row.attempt_count,
+            last_error: row.last_error,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(super) struct WebhookDeliveryAttempt {
+    number: i32,
+    started_at: DateTime<Utc>,
+    #[schema(required = true)]
+    finished_at: Option<DateTime<Utc>>,
+    #[schema(required = true)]
+    outcome: Option<String>,
+    #[schema(required = true)]
+    http_status: Option<i16>,
+}
+
+impl From<DeliveryAttempt> for WebhookDeliveryAttempt {
+    fn from(row: DeliveryAttempt) -> Self {
+        Self {
+            number: row.number,
+            started_at: row.started_at,
+            finished_at: row.finished_at,
+            outcome: row.outcome,
+            http_status: row.http_status,
+        }
+    }
+}

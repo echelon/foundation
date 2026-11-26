@@ -7,6 +7,7 @@
   "rewrites": [
     { "source": "/v1/:path*", "destination": "https://tokencraft-demo.onrender.com/v1/:path*" },
     { "source": "/ready", "destination": "https://tokencraft-demo.onrender.com/ready" },
+    { "source": "/openapi.json", "destination": "https://tokencraft-demo.onrender.com/openapi.json" },
     { "source": "/design", "destination": "/design/index.html" },
     { "source": "/design/", "destination": "/design/index.html" },
     { "source": "/(.*)", "destination": "/index.html" }

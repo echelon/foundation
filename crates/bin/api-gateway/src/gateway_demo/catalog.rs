@@ -51,7 +51,7 @@ impl From<Provider> for String {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Adapter {
     Mock,
@@ -74,7 +74,7 @@ impl Adapter {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, utoipa::ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Pricing {
     Image {
@@ -102,7 +102,7 @@ pub enum Pricing {
     },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Offer {
     pub id: String,
@@ -159,7 +159,7 @@ pub(super) struct CatalogFile {
     pub(super) rate_feed_offers: Option<Vec<String>>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, utoipa::ToSchema)]
 pub struct Catalog {
     pub revision: String,
     #[serde(skip)]
@@ -213,7 +213,7 @@ struct AudioCapability {
     format: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 pub(super) struct ModelQuote {
     id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,7 +231,7 @@ pub(super) struct ModelQuote {
     performance_window: Option<super::route_performance::PerformanceWindow>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct ModelCandidate {
     selected: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]

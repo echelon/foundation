@@ -13,7 +13,7 @@ use tracing::Instrument;
 use super::ProviderRuntime;
 use crate::{
     error::{ApiError, ApiResult},
-    gateway_demo::{handlers::parse_request_id, RequestErrorResponse},
+    gateway_demo::{handlers::parse_request_id, readiness::Readiness, RequestErrorResponse},
     middleware::trace_context::work_span,
     state::AppState,
 };
@@ -86,7 +86,7 @@ pub(crate) async fn receive(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub(super) fn spawn(pool: db::PgPool, runtime: Arc<ProviderRuntime>) {
+pub(super) fn spawn(pool: db::PgPool, runtime: Arc<ProviderRuntime>, readiness: Arc<Readiness>) {
     let bindings: Vec<_> = runtime.connectors.completion_digests().map(str::to_owned).collect();
     if bindings.is_empty() {
         return;
@@ -95,7 +95,7 @@ pub(super) fn spawn(pool: db::PgPool, runtime: Arc<ProviderRuntime>) {
         let mut timer = tokio::time::interval(Duration::from_millis(500));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            timer.tick().await;
+            readiness.work_tick(&mut timer).await;
             if let Err(error) = recover(&pool, &runtime, &bindings).await {
                 tracing::warn!(sqlstate = ?error.as_database_error().and_then(|e| e.code()),
                     "connector completion lookup deferred");

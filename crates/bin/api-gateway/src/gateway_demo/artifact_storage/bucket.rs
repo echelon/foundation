@@ -10,6 +10,7 @@ use crate::gateway_demo::{
     archive_blobs::{BAD_OBJECT, IO_ERROR},
     archive_bucket::ArchiveBucket,
     catalog::digest,
+    readiness::Readiness,
 };
 
 pub(super) struct BucketStore {
@@ -87,12 +88,12 @@ impl BucketStore {
         }
     }
 
-    pub(super) fn spawn_cleanup(self: Arc<Self>, pool: db::PgPool) {
+    pub(super) fn spawn_cleanup(self: Arc<Self>, pool: db::PgPool, readiness: Arc<Readiness>) {
         tokio::spawn(async move {
             let mut timer = tokio::time::interval(Duration::from_secs(2));
             timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
-                timer.tick().await;
+                readiness.work_tick(&mut timer).await;
                 if let Err(error) = self.cleanup(&pool).await {
                     tracing::warn!(sqlstate = ?error.as_database_error().and_then(|e| e.code()),
                         "artifact bucket cleanup deferred");

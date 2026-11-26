@@ -183,8 +183,16 @@ pub async fn defer_queue_poll(
              FOR UPDATE
          )
          UPDATE gateway_provider_runs p SET lease_until = NULL,
-             poll_after = clock_timestamp() + CASE WHEN $3::text IS NULL
-                THEN interval '2 seconds' ELSE interval '1 second' END,
+             poll_after = CASE
+                 WHEN p.result_observed_at IS NOT NULL THEN least(p.poll_deadline,
+                     clock_timestamp() + make_interval(secs =>
+                         least(30, 2 << p.publication_retry_step) * (0.9 + 0.1 * random())))
+                 WHEN $3::text IS NULL THEN clock_timestamp() + interval '2 seconds'
+                 ELSE clock_timestamp() + interval '1 second'
+             END,
+             publication_retry_step = CASE WHEN p.result_observed_at IS NOT NULL
+                 THEN least(4, p.publication_retry_step + 1)
+                 ELSE p.publication_retry_step END,
              queue_state = CASE WHEN p.result_observed_at IS NOT NULL THEN 'completed'
                                 ELSE coalesce($3, p.queue_state) END
          FROM locked WHERE p.request_id = locked.id AND p.lease_until = $2

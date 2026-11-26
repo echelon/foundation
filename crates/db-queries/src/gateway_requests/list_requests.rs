@@ -6,7 +6,6 @@ use super::{CostState, RequestRow, RequestScope, RequestStatus};
 
 #[derive(Default)]
 pub struct RequestFilter<'a> {
-    pub id: Option<&'a GatewayRequestId>,
     pub after: Option<&'a GatewayRequestId>,
     pub app_ref: Option<&'a str>,
     pub client_unattributed: bool,
@@ -21,14 +20,10 @@ pub struct RequestFilter<'a> {
     pub to: Option<DateTime<Utc>>,
 }
 
-pub async fn list_requests<'e, E: PgExecutor<'e>>(
-    exec: E,
-    scope: RequestScope<'_>,
-    filter: RequestFilter<'_>,
-    limit: i64,
-) -> sqlx::Result<Vec<RequestRow>> {
-    sqlx::query_as!(
-        RequestRow,
+macro_rules! request_rows {
+    ($filter:literal, $($value:expr),+ $(,)?) => {
+        sqlx::query_as!(
+            RequestRow,
         r#"SELECT r.id AS "id: GatewayRequestId", r.project_id AS "project_id: GatewayProjectId", r.client_ref, r.quote, r.created_at,
                   r.app_ref, r.provider, lifecycle.status AS "status!: RequestStatus",
                   lifecycle.cost_state AS "cost_state!: CostState", r.webhook_subscription_id,
@@ -108,25 +103,55 @@ pub async fn list_requests<'e, E: PgExecutor<'e>>(
                       ELSE 'estimated'
                     END AS cost_state
            ) lifecycle
-           WHERE r.account_id = $1 AND r.project_id = $2 AND ($3::text IS NULL OR r.client_ref = $3)
-             AND ($4::text IS NULL OR r.id = $4)
-             AND ($5::text IS NULL OR r.sid < (SELECT sid FROM gateway_requests
-                  WHERE account_id = $1 AND project_id = $2 AND ($3::text IS NULL OR client_ref = $3) AND id = $5))
-             AND ($7::text IS NULL OR r.app_ref = $7)
-             AND ($8::text IS NULL OR r.model IN ($8, $9::text))
-             AND ($10::text IS NULL OR r.provider = $10)
-             AND ($11::text IS NULL OR lifecycle.status = $11)
-             AND ($12::text IS NULL OR lifecycle.cost_state = $12)
-             AND ($13::timestamptz IS NULL OR r.created_at >= $13)
-             AND ($14::timestamptz IS NULL OR r.created_at < $14)
-             AND ($15::text IS NULL OR r.trace_id = $15 OR r.caller_trace_id = $15)
-             AND (NOT $16::boolean OR r.client_ref IS NULL)
-             AND (NOT $17::boolean OR r.app_ref IS NULL)
-           ORDER BY r.sid DESC LIMIT $6"#,
+           "# + $filter,
+            $($value),+
+        )
+    };
+}
+
+pub async fn get_request<'e, E: PgExecutor<'e>>(
+    exec: E,
+    scope: RequestScope<'_>,
+    id: &GatewayRequestId,
+) -> sqlx::Result<Option<RequestRow>> {
+    // An equality on a unique key stays indexable when PostgreSQL reuses a generic plan.
+    request_rows!(
+        r#"WHERE r.id = $1 AND r.account_id = $2 AND r.project_id = $3
+             AND ($4::text IS NULL OR r.client_ref = $4)
+           LIMIT 1"#,
+        id.as_str(), scope.account.as_str(), scope.project.as_str(), scope.client_ref,
+    )
+    .fetch_optional(exec)
+    .await
+}
+
+pub async fn list_requests<'e, E: PgExecutor<'e>>(
+    exec: E,
+    scope: RequestScope<'_>,
+    filter: RequestFilter<'_>,
+    limit: i64,
+) -> sqlx::Result<Vec<RequestRow>> {
+    request_rows!(
+        r#"WHERE r.account_id = $1 AND r.project_id = $2 AND ($3::text IS NULL OR r.client_ref = $3)
+             AND ($4::text IS NULL OR r.sid < (SELECT sid FROM gateway_requests
+                  WHERE account_id = $1 AND project_id = $2 AND ($3::text IS NULL OR client_ref = $3) AND id = $4))
+             AND ($6::text IS NULL OR r.app_ref = $6)
+             AND ($7::text IS NULL OR r.model IN ($7, $8::text))
+             AND ($9::text IS NULL OR r.provider = $9)
+             AND ($10::text IS NULL OR lifecycle.status = $10)
+             AND ($11::text IS NULL OR lifecycle.cost_state = $11)
+             AND ($12::timestamptz IS NULL OR r.created_at >= $12)
+             AND ($13::timestamptz IS NULL OR r.created_at < $13)
+             AND ($14::text IS NULL OR r.trace_id = $14 OR r.caller_trace_id = $14)
+             AND (NOT $15::boolean OR r.client_ref IS NULL)
+             AND (NOT $16::boolean OR r.app_ref IS NULL)
+           ORDER BY r.sid DESC LIMIT $5"#,
         scope.account.as_str(), scope.project.as_str(), scope.client_ref,
-        filter.id.map(GatewayRequestId::as_str), filter.after.map(GatewayRequestId::as_str), limit,
+        filter.after.map(GatewayRequestId::as_str), limit,
         filter.app_ref, filter.model, filter.alternate_model, filter.provider,
         filter.status as _, filter.cost_state as _, filter.from, filter.to, filter.trace_id,
         filter.client_unattributed, filter.app_unattributed,
-    ).fetch_all(exec).await
+    )
+    .fetch_all(exec)
+    .await
 }

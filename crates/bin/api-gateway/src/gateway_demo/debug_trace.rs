@@ -169,7 +169,7 @@ impl Log {
             EventKind::ProviderCompleted => ("provider.completed", "Worker recorded provider completion.", Tone::Ok),
             EventKind::ProviderFailed => ("provider.failed", "Worker recorded a terminal failure.", Tone::Error),
             EventKind::ProviderOutcomeUnconfirmed => ("provider.outcome_unconfirmed", "The worker could not establish the provider outcome.", Tone::Warning),
-            EventKind::ProviderReconciled => ("provider.reconciled", "A verified callback recovered the provider job ID.", Tone::Ok),
+            EventKind::ProviderReconciled => ("provider.reconciled", "The gateway recovered the provider job ID.", Tone::Ok),
         };
         Self { at: event.at, code, message, severity }
     }
@@ -340,10 +340,17 @@ fn assemble(
                 }, Tone::Ok);
             callback.optional("First unconfirmed (UTC)", recovered.map(|time| time.to_rfc3339()));
             steps.push(callback);
-            if let Some(reconciled) = upstream.callback_reconciled_at {
-                steps.push(Step::point("provider-reconciled", "Provider job recovered", "gateway")
-                    .at(reconciled).after("provider-callback").status("Job ID verified", Tone::Ok));
-            }
+        }
+        if let Some(at) = upstream.callback_reconciled_at {
+            let after = if upstream.callback_received_at.is_some_and(|callback| callback <= at) {
+                "provider-callback"
+            } else {
+                "provider"
+            };
+            let mut recovery = Step::point("provider-reconciled", "Provider job recovered", "gateway")
+                .at(at).after(after).status("Job ID verified", Tone::Ok);
+            recovery.optional("First unconfirmed (UTC)", upstream.callback_recovered_from.map(|time| time.to_rfc3339()));
+            steps.push(recovery);
         }
     }
     use super::requests::ProviderRecheck;

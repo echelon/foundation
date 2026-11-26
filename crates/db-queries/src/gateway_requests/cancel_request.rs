@@ -32,7 +32,9 @@ pub async fn begin_provider_submission(
     let saved = sqlx::query(
         "UPDATE gateway_requests r
          SET billable_dispatch_at = CASE WHEN r.estimated_usd_nanos > 0
-             THEN coalesce(r.billable_dispatch_at, clock_timestamp()) ELSE r.billable_dispatch_at END
+             THEN coalesce(r.billable_dispatch_at, clock_timestamp()) ELSE r.billable_dispatch_at END,
+             connector_submit_started_at = CASE WHEN r.adapter = 'connector_queue'
+                 THEN clock_timestamp() ELSE r.connector_submit_started_at END
          FROM gateway_provider_runs run
          WHERE r.id = $1 AND run.request_id = r.id AND run.lease_until = $2
            AND run.lease_until > clock_timestamp()

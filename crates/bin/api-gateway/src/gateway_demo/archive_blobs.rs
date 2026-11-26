@@ -12,7 +12,7 @@ use ids::{AccountId, GatewayArchiveId};
 use serde::Deserialize;
 use tokio::sync::Semaphore;
 
-use super::{archive_bucket::ArchiveBucket, catalog::digest, local_files, sealed::SealedBytes};
+use super::{archive_bucket::{ArchiveBucket, RestoreDispatch}, catalog::digest, local_files, sealed::SealedBytes};
 
 const MAGIC: &[u8] = b"TCA1";
 const MAX_PLAINTEXT: usize = 8 * 1024 * 1024;
@@ -153,7 +153,14 @@ impl ArchiveStorage {
         matches!(self.backend(target), Ok(Backend::S3(bucket)) if bucket.permits_restore())
     }
 
-    pub async fn request_retrieval(&self, key: &ObjectKey) -> Result<(), &'static str> {
+    pub async fn restoration_exists(&self, key: &ObjectKey) -> Result<bool, &'static str> {
+        match self.backend(&key.storage_target)? {
+            Backend::S3(bucket) => bucket.restoration_exists(&key.name()).await,
+            Backend::Files(_) => Err(COLD_OBJECT),
+        }
+    }
+
+    pub async fn request_retrieval(&self, key: &ObjectKey) -> Result<RestoreDispatch, &'static str> {
         match self.backend(&key.storage_target)? {
             Backend::S3(bucket) => bucket.request_restore(&key.name()).await,
             Backend::Files(_) => Err(COLD_OBJECT),

@@ -18,11 +18,10 @@ use crate::handlers::{
 #[derive(OpenApi)]
 #[openapi(
   info(
-    title = "Foundation API",
-    description = "The api-gateway: auth, accounts, organizations, invitations, avatars, \
-                   audit logs, and the public model catalog. Interactive account endpoints use the \
-                   `foundation_session` HttpOnly cookie set by signup/login. The local chat profile \
-                   enables native and compatible request operations with project bearer keys.",
+    title = "TokenCraft API",
+    description = "Discover model offers, quote and submit work, and inspect request and usage evidence. \
+                   Interactive account operations use the `foundation_session` HttpOnly cookie. \
+                   Project bearer keys authorize native and compatible request operations.",
     version = env!("CARGO_PKG_VERSION"),
   ),
   paths(
@@ -233,6 +232,33 @@ mod tests {
   }
 
   #[test]
+  fn openapi_describes_project_webhook_administration() {
+    let doc = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    for (method, path, status) in [
+      ("get", "/v1/projects/{project}/webhook-destinations", "200"),
+      ("get", "/v1/projects/{project}/webhooks", "200"),
+      ("post", "/v1/projects/{project}/webhooks", "201"),
+      ("delete", "/v1/projects/{project}/webhooks/{subscription}", "204"),
+      ("post", "/v1/projects/{project}/webhooks/{subscription}/rotate", "200"),
+      ("get", "/v1/projects/{project}/webhook-deliveries", "200"),
+      ("get", "/v1/projects/{project}/webhook-deliveries/{delivery}", "200"),
+      ("post", "/v1/projects/{project}/webhook-deliveries/{delivery}/redrive", "204"),
+    ] {
+      let operation = &doc["paths"][path][method];
+      assert!(operation["responses"][status].is_object(), "missing {status} for {method} {path}");
+      assert_eq!(operation["security"], serde_json::json!([{"session_cookie": []}]));
+      assert!(operation["parameters"].as_array().unwrap().iter().any(|parameter| {
+        parameter["name"] == "account_id" && parameter["in"] == "query" && parameter["required"] == true
+      }));
+    }
+    let schemas = &doc["components"]["schemas"];
+    let subscription = &schemas["WebhookSubscription"];
+    assert!(subscription["properties"]["signing_secret"].is_null());
+    assert!(schemas["IssuedWebhookSubscription"].to_string().contains("signing_secret"));
+    assert!(schemas["WebhookDeliveryDetail"]["properties"]["attempts"].is_object());
+  }
+
+  #[test]
   fn openapi_describes_native_request_workflow() {
     let doc = serde_json::to_value(ApiDoc::openapi()).unwrap();
     let paths = &doc["paths"];
@@ -305,6 +331,24 @@ mod tests {
     let artifact = &paths["/v1/requests/{id}/artifacts/{slot}"]["get"]["responses"]["200"]["content"];
     assert_eq!(artifact["model/gltf-binary"]["schema"]["$ref"], "#/components/schemas/ArtifactBytes");
     assert_eq!(schemas["ArtifactBytes"]["format"], "binary");
+  }
+
+  #[test]
+  fn openapi_describes_public_and_project_catalog_contracts() {
+    let doc = serde_json::to_value(ApiDoc::openapi()).unwrap();
+    let catalog = &doc["paths"]["/v1/catalog/offers"]["get"];
+    assert_eq!(catalog["responses"]["200"]["content"]["application/json"]["schema"]["$ref"],
+      "#/components/schemas/CatalogOffers");
+    let public = &doc["paths"]["/v1/catalog/quotes"]["post"];
+    let scoped = &doc["paths"]["/v1/catalog/quotes/scoped"]["post"];
+    assert!(public.get("security").is_none());
+    assert!(scoped["security"].as_array().unwrap().iter().any(|scheme| scheme.get("project_api_key").is_some()));
+    assert!(scoped["parameters"].as_array().unwrap().iter().all(|param| param["name"] != "pinned_offer_id"));
+    let schema = &public["responses"]["200"]["content"]["application/json"]["schema"];
+    assert_eq!(schema["$ref"], "#/components/schemas/ModelQuote");
+    assert_eq!(schema, &scoped["responses"]["200"]["content"]["application/json"]["schema"]);
+    let candidate = &doc["components"]["schemas"]["ModelCandidate"]["properties"];
+    assert!(candidate.get("provider").is_none() && candidate.get("offer_id").is_none());
   }
 
   #[test]

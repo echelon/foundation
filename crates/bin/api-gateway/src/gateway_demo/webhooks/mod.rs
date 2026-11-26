@@ -1,5 +1,6 @@
 mod config;
-mod handlers;
+pub(super) mod handlers;
+mod views;
 mod worker;
 
 pub(crate) use config::WebhookConfig;

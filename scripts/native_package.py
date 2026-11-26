@@ -25,15 +25,27 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARIES = ("tokencraft", "api-gateway", "admin-cli")
+SERVER_TOOLS = ("postgres", "initdb", "pg_ctl", "pg_isready", "createdb")
 SUPPORT_FILES = (
-    "LICENSE", "README.md", "docs/setup.md", "docs/deployment.md",
+    "LICENSE", "README.md", "catalog/artcraft-v1.json", "docs/setup.md", "docs/deployment.md",
     "docs/provider-connectors.md", "examples/connector/catalog.json",
     "examples/connector/bindings.json", "examples/connector/smoke.sh",
+    "deploy/postgres/grant-runtime.sql",
 )
 
 
 def run(args, **options):
     return subprocess.run(args, check=True, **options)
+
+
+def postgres_bin():
+    for folder in map(Path, os.get_exec_path()):
+        if all((folder / tool).is_file() and os.access(folder / tool, os.X_OK) for tool in SERVER_TOOLS):
+            return folder.resolve()
+    pg_config = shutil.which("pg_config")
+    if pg_config is None:
+        raise SystemExit("Put the PostgreSQL 17 server tools or their pg_config on PATH.")
+    return Path(run([pg_config, "--bindir"], capture_output=True, text=True).stdout.strip())
 
 
 def build_binaries(pg_bin, target, cargo_profile, offline):
@@ -188,10 +200,7 @@ def main():
     args = parser.parse_args()
     if args.source_revision and not re.fullmatch(r"[0-9a-f]{40}", args.source_revision):
         parser.error("--source-revision must be a full Git commit SHA")
-    pg_config = shutil.which("pg_config")
-    if pg_config is None:
-        parser.error("Put PostgreSQL 17 server tools on PATH.")
-    pg_bin = Path(run([pg_config, "--bindir"], capture_output=True, text=True).stdout.strip())
+    pg_bin = postgres_bin()
     version = tomllib.loads((ROOT / "crates/bin/tokencraft/Cargo.toml").read_text())["package"]["version"]
     host = host_identifier()
     suffix = "-console" if args.console_dir is not None else ""

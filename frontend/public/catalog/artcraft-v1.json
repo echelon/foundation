@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": "2026-11-25T23:00:00Z",
+  "revision": "2026-11-26T09:38:37Z",
   "publisher": "ArtCraft",
   "currency": "USD",
   "offers": [
@@ -26,7 +26,7 @@
       "upstream_model": "fal-ai/pixverse/v6/text-to-video",
       "kind": "video",
       "capabilities": {"durations_seconds": [5], "aspect_ratios": ["16:9"], "resolution": "720p"},
-      "preset": "5 seconds · 720p · 16:9",
+      "preset": "5 seconds · 720p · 16:9 · audio uses the fal default",
       "rates": [
         { "usd_nanos": 45000000, "unit": "second", "terms": "At 720p without audio." },
         { "usd_nanos": 60000000, "unit": "second", "terms": "At 720p with audio." }
@@ -43,7 +43,7 @@
       "capabilities": {"durations_seconds": [5], "aspect_ratios": ["16:9"], "resolution": "720p"},
       "preset": "5 seconds · 720p · 16:9",
       "rates": [
-        { "usd_nanos": 188500000, "unit": "second", "terms": "Approximate USD equivalent for 720p text-to-video. Kinovi charges credits." }
+        { "usd_nanos": 188500000, "unit": "second", "terms": "Approximate USD list equivalent. Kinovi bills 40 credits per second at 720p without a video reference." }
       ],
       "source_url": "https://kinovi.ai/seedance-2-api"
     },
@@ -57,7 +57,7 @@
       "capabilities": {"durations_seconds": [5, 10], "format": "wav"},
       "preset": "5 or 10 seconds · WAV",
       "rates": [
-        { "usd_nanos": 200000000, "unit": "generation" }
+        { "usd_nanos": 200000000, "unit": "audio output" }
       ],
       "source_url": "https://fal.ai/models/fal-ai/stable-audio-25/text-to-audio"
     },
@@ -71,7 +71,7 @@
       "capabilities": {"format": "glb"},
       "preset": "Untextured GLB preview",
       "rates": [],
-      "source_url": "https://fal.ai/models/fal-ai/meshy/v6/text-to-3d"
+      "source_url": "https://fal.ai/models/fal-ai/meshy/v6/text-to-3d/api"
     },
     {
       "id": "openrouter_gpt_41_mini",
@@ -83,8 +83,9 @@
       "capabilities": {},
       "preset": "Chat · requires a plugin allowlist entry",
       "rates": [
-        { "usd_nanos": 400000000, "unit": "1M input tokens" },
-        { "usd_nanos": 1600000000, "unit": "1M output tokens" }
+        { "usd_nanos": 400000000, "unit": "1M input tokens", "terms": "Uncached input on standard routes." },
+        { "usd_nanos": 1600000000, "unit": "1M output tokens", "terms": "Standard routes." },
+        { "usd_nanos": 100000000, "unit": "1M cache-read tokens", "terms": "Cached input on standard routes." }
       ],
       "source_url": "https://openrouter.ai/openai/gpt-4.1-mini"
     }

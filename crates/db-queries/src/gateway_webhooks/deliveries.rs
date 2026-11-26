@@ -79,9 +79,13 @@ pub async fn redrive<'e, E: PgExecutor<'e>>(
         "UPDATE gateway_webhook_deliveries d
          SET state = 'pending', attempt_baseline = attempt_count, available_at = clock_timestamp(),
              deadline_at = clock_timestamp() + interval '15 minutes', finished_at = NULL, last_error = NULL
-         FROM gateway_requests r JOIN gateway_webhook_subscriptions s ON s.id = r.webhook_subscription_id
-         WHERE d.request_id = r.id AND r.account_id = $1 AND r.project_id = $2 AND d.id = $3
-           AND d.state = 'dead' AND s.revoked_at IS NULL",
+         WHERE d.id = $3 AND d.state = 'dead' AND EXISTS (
+             SELECT 1 FROM gateway_requests r JOIN gateway_webhook_subscriptions s
+               ON s.id = r.webhook_subscription_id
+             WHERE d.request_id = r.id AND r.account_id = $1 AND r.project_id = $2
+               AND s.revoked_at IS NULL
+             FOR SHARE OF s
+         )",
         scope.account.as_str(), scope.project.as_str(), delivery.as_str(),
     )
     .execute(exec)

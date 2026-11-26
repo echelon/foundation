@@ -8,6 +8,7 @@ use tokio::sync::{OnceCell, Semaphore};
 use super::{
     local_files::{self, PENDING_SUFFIX},
     artifact_storage::{generate_key, name, valid_key, OBJECT_SUFFIX},
+    readiness::Readiness,
 };
 
 const ORPHAN_GRACE: Duration = Duration::from_secs(120);
@@ -119,12 +120,12 @@ impl FileStore {
         Ok(())
     }
 
-    pub(super) async fn sweep_forever(&self, pool: &db::PgPool) {
+    pub(super) async fn sweep_forever(&self, pool: &db::PgPool, readiness: &Readiness) {
         let mut listing = None;
         let mut timer = tokio::time::interval(SWEEP_INTERVAL);
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            timer.tick().await;
+            readiness.work_tick(&mut timer).await;
             if let Err(error) = self.sweep(pool, &mut listing).await {
                 tracing::warn!(error_kind = %error.root_cause(), "artifact file cleanup deferred");
                 listing = None;

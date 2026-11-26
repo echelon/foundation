@@ -17,14 +17,37 @@ The development profile uses a loopback PostgreSQL connection and HTTP listener.
 
 For text, configure an `openai_compatible_chat` offer and `TOKENCRAFT_LOCAL_CHAT_BINDINGS`. The gateway uses the existing OpenAI-compatible JSON and SSE transport. A separate service can translate requests to any upstream chat API and inject its own credentials. For a local binding, use `{"version":1,"bindings":[{"name":"chat","endpoint":"http://127.0.0.1:4022/v1/chat/completions","key_env":"TOKENCRAFT_LOCAL_CHAT_KEY_CHAT"}]}` and set the matching catalog offer’s `local_binding` to `chat`. Core chat uses token usage and operator-configured rates.
 
+## Curate your own catalog
+
+Your gateway loads the offers in your local `catalog.json`, including fully custom models. It can start and route entirely from that file and its bindings. Keep it in operator-controlled storage and review changes before deployment. You can add ArtCraft presets later using the same file as the import base.
+
+ArtCraft can publish its plugin-backed model capabilities and supplier list prices to a public static registry. Your gateway's active offers, local model names, project access, and quote rates come from your deployment catalog and reviewed rate feed. Importing a preset requires a local binding and explicit local rates. You can operate the gateway offline from the ArtCraft registry, including when you run only custom models.
+
+To run a custom image model, copy the [image catalog](../examples/connector/catalog.json) and set the local `model`, offer `id`, `provider`, and `local_binding`. Set `upstream_model` to the alias your connector accepts. Specify your aspect ratios and price in USD nanodollars per image. Several offers can use the same local model ID when they fulfill the same workload and you want TokenCraft to compare them.
+
+For a model intended for one organization, give it a dedicated connection and add that connection to `connection_access` in the catalog. Replace the example account and project values with those returned by your gateway.
+
+```json
+{
+  "connection_access": {
+    "studio/connector_queue/studio-images": {
+      "account": "YOUR_ACCOUNT_ID",
+      "projects": ["YOUR_PROJECT_ID"]
+    }
+  }
+}
+```
+
+The key joins the offer's provider, adapter, and binding name with slashes. The connection and all its offers are scoped to that account. Set `projects` to `null` to share the connection account-wide. Without a `connection_access` entry, the gateway exposes the offer in its public catalog. Check scoped discovery with a project key before using the model in a client. [Project model discovery](#find-models-within-a-project) · [Binding preflight](#check-catalog-bindings)
+
 ## Prepare offers from the ArtCraft catalog
 
-Download the version 1 JSON snapshot from **Pricing → ArtCraft catalog**. Choose the reference offers you want and prepare a selection file. Copy the snapshot's revision and use the names of your local connector bindings. The sample rates here illustrate operator pricing.
+Use the [version 1 JSON snapshot in Core](../catalog/artcraft-v1.json) or download `/catalog/artcraft-v1.json` from the built console. Choose the reference offers you want and prepare a selection file. Copy the snapshot's revision and use the names of your local connector bindings. The sample rates here illustrate operator pricing.
 
 ```json
 {
   "version": 1,
-  "reference_revision": "2026-11-25T23:00:00Z",
+  "reference_revision": "2026-11-26T09:38:37Z",
   "offers": [
     {
       "reference": "fal_sample",
@@ -55,7 +78,7 @@ Set explicit USD nanodollar rates in the gateway's billing units. Image offers u
 
 The prepared file includes each selected plugin's upstream model and supported capabilities. Supply the separate queue or chat binding named in the selection when deploying. Configure the OpenRouter plugin's model allowlist for the upstream model. The import command runs against local files and requires neither the database nor provider access.
 
-In **Pricing → ArtCraft catalog → Prepare offers**, open **Plugin binding templates** to download the queue and chat binding files for your selected aliases. The templates use the plugins' localhost defaults and environment variable references for credentials. Review the endpoints and merge the entries into any existing binding files. Check the merged files before starting the gateway. [Binding preflight](#check-catalog-bindings) · [Profile setup](setup.md#start-with-a-reviewed-catalog)
+Use the plugin's binding example to add each selected alias to your queue or chat registry. Review the endpoints and the environment variable names used for credentials. If your console exposes **Pricing → ArtCraft catalog**, its **Plugin binding templates** can generate these files for the selected aliases. Check the merged files before starting the gateway. [Binding preflight](#check-catalog-bindings) · [Profile setup](setup.md#start-with-a-reviewed-catalog)
 
 Imported offers include an `artcraft_reference` with the original offer ID, catalog revision, and snapshot SHA-256. When import verifies a signature, it also records the publisher key's SHA-256. The native quote includes this record on the candidate, and the admitted request retains it even if the gateway catalog later changes. This identifies the source preset. The estimate uses your configured rate or a reviewed rate feed, whose source and validity window appear separately as `rate_evidence`.
 
@@ -128,7 +151,7 @@ The report includes `reference_revision`, `reference_sha256`, and `public_key_sh
 
 ### Sign a reference catalog for publication
 
-Before publishing, check the snapshot against the versioned catalog examples from the provider plugin releases you plan to support. The check uses the same catalog parser as the gateway and matches each preset by provider, adapter, upstream model, and capabilities. It also validates the public price fields. The JSON report records the exact snapshot and plugin catalog hashes. An offer can have an empty rate list when pricing is unconfirmed.
+Keep the reference snapshot in [Core's catalog directory](../catalog/artcraft-v1.json). Review supplier prices and billing terms before releasing a new revision. Check the snapshot against the versioned catalog examples from the provider plugin releases you plan to support. The check uses the same catalog parser as the gateway and matches each preset by provider, adapter, upstream model, and capabilities. It also validates the public price fields. The JSON report records the exact snapshot and plugin catalog hashes. An offer can have an empty rate list when pricing is unconfirmed.
 
 ```sh
 api-gateway catalog check-reference --reference artcraft-v1.json \
@@ -158,15 +181,21 @@ The version 1 signature file stores the Ed25519 signature in hexadecimal. The si
 
 ### Distribute a pinned catalog bundle
 
-Stage a reviewed snapshot and its detached signature in the local directory you plan to serve at `/releases/`. The staging command verifies both inputs with the public key.
+Stage a reviewed snapshot and its detached signature in the local directory you plan to serve at `/releases/`. Supply the versioned catalog examples for the provider plugins you intend to support. Staging verifies the signature and checks the public pricing fields and plugin coverage before writing any files.
 
 ```sh
 api-gateway catalog stage-reference --reference artcraft-v1.json \
   --signature artcraft-v1.signature.json --public-key artcraft-public.der \
+  --plugin-catalog fal.catalog.json --plugin-catalog kinovi.catalog.json \
+  --plugin-catalog openrouter.catalog.json \
   --directory releases
 ```
 
-The JSON report includes the two relative paths. The immutable copy is at `<reference_sha256>/<public_key_sha256>.json`, and discovery uses `current/<public_key_sha256>.json`. The command updates the current copy after checking the immutable one. Keep earlier immutable files available for pinned consumers. Publish the immutable files before updating current paths on the static host, and configure current paths to revalidate on fetch. Each signing key has its own current path.
+The JSON report includes `catalog_path` for the public JSON at `<reference_sha256>/catalog.json`, `release_path` for the signed bundle at `<reference_sha256>/<public_key_sha256>.json`, and `current_path` for discovery at `current/<public_key_sha256>.json`. The report's `plugin_coverage` gives the exact plugin catalog hash that backs each published offer. The command updates the current bundle after checking both immutable files. Keep earlier immutable files available for pinned consumers.
+
+Publish the immutable files before updating current paths on the static host. Serve the JSON without authentication and configure current bundle paths to revalidate on fetch. Each signing key has its own current bundle. Clients that need signature verification can fetch the bundle using their trusted key.
+
+A reference snapshot supports up to 4,096 offers and 4 MiB of JSON. Signed transport bundles support up to 6 MiB. An operator can use a large reference to select a few entries. The active gateway file supports up to 64 offers and 64 KiB, including any custom entries the operator retains.
 
 Fetch the registry's current snapshot with the publisher key you already trust. Review the verified revision and checksum before selecting the offers to adopt. For a registry using a private certificate authority, pass its root PEM with `--ca`.
 
@@ -186,6 +215,17 @@ api-gateway catalog prepare --bundle artcraft.bundle.json --public-key artcraft-
 ```
 
 Both fetch modes verify the signature with the supplied key. The pinned mode also checks the requested snapshot hash. `prepare` verifies the saved bundle again and honors the selection's revision and key pins. The `reference_base64` field preserves the signed JSON byte for byte. Use `pack-reference` to produce an individual bundle for offline distribution.
+
+### Update the public pricing page
+
+Use the file at `catalog_path` in the checked release staging directory as the browser download. If you only have the bundle, recover the same bytes with the trusted publisher key and the immutable bundle path from `stage-reference`.
+
+```sh
+api-gateway catalog verify-reference --bundle "$IMMUTABLE_BUNDLE" \
+  --public-key artcraft-public.der --emit-catalog > artcraft-v1.next.json
+```
+
+Copy the verified JSON to `frontend/public/catalog/artcraft-v1.json` for the web build. The built console serves those bytes at `/catalog/artcraft-v1.json`. Publication checks reject extra catalog, offer, and billing fields. The signed bundle and the browser download share one revision and checksum. Use the gateway's quote API to compare active offers and rates for a specific workload.
 
 ## Apply a provider review bundle
 
@@ -292,7 +332,7 @@ Echo the request ID and return one outcome.
 - When polling includes `X-TokenCraft-Provider-Charge: 1`, a `succeeded` response may include `"provider_charge":{"unit":"credit","quantity":"2.17"}` for a confirmed task charge. Use a lowercase unit of up to 32 characters, beginning with a letter and containing letters, digits, or underscores. Quantities are nonnegative decimal strings with up to 15 integer and nine fractional digits. Omit the field for unknown charges, reservations, and legacy callers. An invalid charge is ignored while processing the status.
 - After observing success, the worker reads zero-based slots at `GET /v1/jobs/{handle}/artifacts/{slot}`. Return HTTP 200 and the raw file with its exact content type. Image slots use `image/png` with a 2 MiB limit per output. The other media use one slot and an 8 MiB limit. Every output passes content validation before publication. Connector responses contain no fetch URLs. Keep artifacts available for the normal polling window and any permitted recheck.
 
-The gateway records completion and the first valid charge before artifact retrieval. A transient retrieval failure can defer polling and resume from the same handle. The charge appears on the request, in usage grouped by provider and unit, and in scoped exports. Jobs keep their original binding digest across API and worker restarts. To roll a connector origin or revision, introduce a new named binding, repoint the catalog, and keep the older entry with `drain_only: true` and its original name, origin, and revision until outstanding jobs and rechecks have drained. Use the [drain check](deployment.md#check-a-connector-rollout) before retiring the old entry.
+The gateway records completion and the first valid charge before artifact retrieval. After completion is observed, a failed retrieval or publication retries from the same handle with delays of about 2, 4, 8, 16, and then up to 30 seconds. PostgreSQL keeps the schedule across worker restarts. The polling deadline still applies. An eligible operator recheck starts a fresh retry schedule. The charge appears on the request, in usage grouped by provider and unit, and in scoped exports. Jobs keep their original binding digest across API and worker restarts. To roll a connector origin or revision, introduce a new named binding, repoint the catalog, and keep the older entry with `drain_only: true` and its original name, origin, and revision until outstanding jobs and rechecks have drained. Use the [drain check](deployment.md#check-a-connector-rollout) before retiring the old entry.
 
 ## Send completion notifications
 
@@ -307,9 +347,11 @@ Set `completion_webhooks: true` on a new connector binding to opt in. The gatewa
 
 When the job reaches a terminal status, post `{"version":1}` to that path on your operator-configured gateway origin. Supply `Authorization: Bearer <token>` and `Content-Type: application/json`. Use HTTPS except for local fixtures. Keep the token in the connector and out of logs. The gateway returns `204` for an authenticated notification or replay. In case of an interrupted response, retry the same notification. When relaying an upstream webhook, verify it in the connector before notifying the gateway.
 
-An opted-in connector also implements `GET /v1/jobs/by-request/{request_id}` using the original binding bearer credential. Return `{"version":1,"request_id":"req_example","handle":"job_connector_123"}` for a known request. Use `404` when the mapping is unavailable. The gateway checks the echoed request ID and the handle against the original binding before recovering an unconfirmed submission. The recovery worker retries a missing or invalid lookup for up to 15 minutes from dispatch.
+An opted-in connector also implements `GET /v1/jobs/by-request/{request_id}` using the original binding bearer credential. Return `{"version":1,"request_id":"req_example","handle":"job_connector_123"}` for a known request. Use `404` when the mapping is unavailable. When the submission response is lost or the worker lease expires before recording it, the gateway checks the original binding even if no webhook arrived. It validates the echoed request ID and handle before resuming polls. The worker retries a missing or invalid lookup for up to 15 minutes from dispatch. These are read-only lookups of the original job.
 
-The notification wakes the existing poll and carries only an availability hint. The worker reads authoritative status and artifacts from the pinned connector. The gateway records receipt and recovery times in the request trace and produces the usual terminal customer webhook. Polling continues to work when a connector sends no notification. Enabling or disabling completion webhooks changes the binding identity. Roll to a new named binding and retain the old entry with `drain_only: true` while its requests drain.
+The notification carries an availability hint and can wake a poll before completion is recorded. The worker reads authoritative status and artifacts from the pinned connector. Once the gateway has recorded completion, it keeps the publication retry schedule. The request trace records callback receipt and verified handle recovery separately. Recovered jobs produce the usual terminal customer webhook. Enabling or disabling completion webhooks changes the binding identity. Roll to a new named binding and retain the old entry with `drain_only: true` while its requests drain.
+
+An authenticated callback received before the gateway authorizes a retry can suspend that retry and recover the original job by request ID. Preserve the same `Idempotency-Key` mapping at the connector across retries and timeouts. A callback can also arrive after the next call has already been authorized.
 
 ## Operate a binding
 

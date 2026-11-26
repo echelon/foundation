@@ -134,6 +134,18 @@ async fn view(
     Ok(PolicyView { revision, monthly_budget, active_requests })
 }
 
+#[utoipa::path(
+    post, path = "/v1/catalog/quotes/scoped", operation_id = "quoteProjectModel", tag = "catalog",
+    summary = "Quote a named model within a project",
+    description = "Applies project policy and connection availability. A project key requires requests:submit. Use /v1/quotes/scoped for automatic model selection or pinned offers.",
+    security(("project_api_key" = []), ("session_cookie" = []), ("api_key" = [])),
+    params(ScopeQuery, ("client_ref" = Option<String>, Query, description = "Use the same client reference when submitting.")),
+    request_body = QuoteInput,
+    responses(
+        (status = 200, description = "Signed model quote without provider and offer IDs on candidates.", body = ModelQuote),
+        (status = "default", response = super::RequestErrorResponse),
+    ),
+)]
 pub(super) async fn scoped_model_quote(
     State(state): State<AppState>,
     Extension(seals): Extension<Arc<QuoteSeals>>,
@@ -191,6 +203,7 @@ pub async fn update(
     }
     update.policy.connection_projects.clone_from(&prior.policy.connection_projects);
     update.policy.excluded_connections.clone_from(&prior.policy.excluded_connections);
+    update.policy.compute_order.clone_from(&prior.policy.compute_order);
     let next = prior.next(update.policy)?;
     let encoded = serde_json::to_value(&next.policy)
         .map_err(|_| ApiError::Internal("could not encode routing policy".into()))?;
@@ -258,6 +271,7 @@ pub async fn preview(
     };
     draft.policy.connection_projects.clone_from(&proposed.policy.connection_projects);
     draft.policy.excluded_connections.clone_from(&proposed.policy.excluded_connections);
+    draft.policy.compute_order.clone_from(&proposed.policy.compute_order);
     *proposed = proposed.next(draft.policy)?;
     let availability = RouteAvailability::for_pool(&state.pool, AvailabilityInput {
         scope, catalog: &catalog, providers: providers.as_deref(), quote: &draft.input, policies: &policies,

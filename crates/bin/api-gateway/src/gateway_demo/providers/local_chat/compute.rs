@@ -3,6 +3,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use anyhow::ensure;
+use ids::AccountId;
 use reqwest::{Url, header::HeaderValue};
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +16,7 @@ const CHAT_PATH: &str = "/v1/chat/completions";
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ComputeBinding {
+pub(in crate::gateway_demo) struct ComputeBinding {
     pub name: String,
     allowed_locations: BTreeSet<Location>,
     targets: Vec<EndpointConfig>,
@@ -23,25 +24,36 @@ pub(super) struct ComputeBinding {
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
-struct Location {
-    cloud: String,
-    region: String,
+pub(in crate::gateway_demo) struct Location {
+    pub cloud: String,
+    pub region: String,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct EndpointConfig {
-    id: String,
-    location: Location,
-    zone: String,
-    priority: u8,
-    endpoint: String,
-    key_env: Option<String>,
+pub(in crate::gateway_demo) struct EndpointConfig {
+    pub id: String,
+    pub location: Location,
+    pub zone: String,
+    pub priority: u8,
+    pub endpoint: String,
+    pub key_env: Option<String>,
     #[serde(default)]
-    retry_on_rate_limit: bool,
+    pub retry_on_rate_limit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub organization_id: Option<AccountId>,
 }
 
-pub(in crate::gateway_demo::providers) struct ComputeStack {
+#[derive(Serialize)]
+pub(in crate::gateway_demo) struct TargetView {
+    pub id: String,
+    cloud: String,
+    region: String,
+    zone: String,
+    priority: u8,
+}
+
+pub(in crate::gateway_demo) struct ComputeStack {
     pub cell: String,
     pub name: String,
     targets: Vec<Target>,
@@ -55,6 +67,10 @@ pub(in crate::gateway_demo::providers) struct Target {
 }
 
 impl ComputeBinding {
+    pub(super) fn is_organization_scoped(&self) -> bool {
+        !self.targets.is_empty() && self.targets.iter().all(|target| target.organization_id.is_some())
+    }
+
     pub(super) fn build(self, cell: Option<&str>) -> anyhow::Result<Binding<ChatClient>> {
         let cell = cell
             .filter(|cell| valid_identifier(cell))
@@ -85,7 +101,7 @@ impl ComputeBinding {
                 self.allowed_locations.contains(&config.location),
                 "compute target is outside the stack's allowed locations"
             );
-            let endpoint = compute_endpoint(&config)?;
+            let endpoint = config.validate()?;
             config.endpoint = endpoint.to_string();
             ensure!(
                 endpoints.insert(config.endpoint.clone()),
@@ -124,6 +140,19 @@ impl ComputeBinding {
     }
 }
 
+impl EndpointConfig {
+    pub(in crate::gateway_demo) fn validate(&self) -> anyhow::Result<Url> {
+        ensure!(valid_identifier(&self.id) && valid_identifier(&self.location.cloud)
+            && valid_identifier(&self.location.region) && valid_identifier(&self.zone),
+            "enter valid target, cloud, region, and zone IDs");
+        ensure!(self.endpoint.len() <= 2048, "compute endpoint is too long");
+        if let Some(key) = &self.key_env {
+            super::validate_key_env(key)?;
+        }
+        compute_endpoint(self)
+    }
+}
+
 fn compute_endpoint(config: &EndpointConfig) -> anyhow::Result<Url> {
     if let Ok(endpoint) = fixture_endpoint(&config.endpoint, CHAT_PATH) {
         return Ok(endpoint);
@@ -149,8 +178,43 @@ impl ComputeStack {
         self.targets.iter().all(|target| declared.contains(&target.config.location.region))
     }
 
-    pub fn ordered_targets(&self, request_id: &str) -> Vec<&Target> {
-        let mut targets: Vec<_> = self.targets.iter().collect();
+    pub(in crate::gateway_demo) fn target_views(&self, account: &AccountId) -> Vec<TargetView> {
+        let mut targets: Vec<_> = self.targets.iter().filter(|target| target.visible(Some(account)))
+            .map(|target| TargetView {
+                id: target.config.id.clone(),
+                cloud: target.config.location.cloud.clone(),
+                region: target.config.location.region.clone(),
+                zone: target.config.zone.clone(),
+                priority: target.config.priority,
+            }).collect();
+        targets.sort_by(|left, right| left.priority.cmp(&right.priority).then(left.id.cmp(&right.id)));
+        targets
+    }
+
+    pub(in crate::gateway_demo) fn has_owned_target(&self, account: &AccountId) -> bool {
+        self.targets.iter().any(|target| target.config.organization_id.as_ref() == Some(account))
+    }
+
+    pub(in crate::gateway_demo) fn review_addition(&self, config: &EndpointConfig) -> anyhow::Result<()> {
+        ensure!(self.targets.len() < 4, "this pool already has four targets");
+        ensure!(!self.targets.iter().any(|target| target.config.id == config.id
+            || target.config.endpoint == config.endpoint), "target ID or endpoint is already configured");
+        Ok(())
+    }
+
+    pub(in crate::gateway_demo) fn has_target(&self, account: &AccountId, order: Option<&[String]>) -> bool {
+        self.targets.iter().any(|target| target.visible(Some(account))
+            && order.is_none_or(|ids| ids.contains(&target.config.id)))
+    }
+
+    pub(in crate::gateway_demo::providers) fn ordered_targets(
+        &self, request_id: &str, account: Option<&AccountId>, order: Option<&[String]>,
+    ) -> Vec<&Target> {
+        let visible = || self.targets.iter().filter(|target| target.visible(account));
+        if let Some(order) = order {
+            return order.iter().filter_map(|id| visible().find(|target| target.config.id == *id)).collect();
+        }
+        let mut targets: Vec<_> = visible().collect();
         targets.sort_by_cached_key(|target| {
             (
                 target.config.priority,
@@ -162,6 +226,10 @@ impl ComputeStack {
 }
 
 impl Target {
+    fn visible(&self, account: Option<&AccountId>) -> bool {
+        self.config.organization_id.as_ref().is_none_or(|owner| Some(owner) == account)
+    }
+
     pub fn retries_rate_limit(&self) -> bool {
         self.config.retry_on_rate_limit
     }
@@ -199,5 +267,37 @@ impl Target {
             cloud = %self.config.location.cloud, region = %self.config.location.region,
             zone = %self.config.zone, outcome = outcome.code(), "compute target submission"
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_project_order_filters_and_reorders_only_targets_visible_to_its_account() {
+        let owner = AccountId::generate();
+        let sibling = AccountId::generate();
+        let binding: ComputeBinding = serde_json::from_value(serde_json::json!({
+            "name": "pool",
+            "allowed_locations": [{"cloud":"aws","region":"east"}],
+            "targets": [
+                {"id":"a","location":{"cloud":"aws","region":"east"},"zone":"one","priority":10,
+                 "endpoint":"http://127.0.0.1:9811/v1/chat/completions"},
+                {"id":"b","location":{"cloud":"aws","region":"east"},"zone":"two","priority":20,
+                 "endpoint":"http://127.0.0.1:9812/v1/chat/completions"},
+                {"id":"private","location":{"cloud":"aws","region":"east"},"zone":"three","priority":30,
+                 "endpoint":"http://127.0.0.1:9813/v1/chat/completions","organization_id":owner}
+            ]
+        })).unwrap();
+        let binding = binding.build(Some("sample")).unwrap();
+        let stack = binding.client.compute_stack().unwrap();
+        let custom = vec!["private".into(), "b".into()];
+        let ids = |account, order| stack.ordered_targets("request", Some(account), order)
+            .into_iter().map(|target| target.config.id.as_str()).collect::<Vec<_>>();
+        assert_eq!(ids(&owner, Some(&custom)), ["private", "b"]);
+        assert_eq!(ids(&sibling, Some(&custom)), ["b"]);
+        assert_eq!(ids(&sibling, None), ["a", "b"]);
+        assert!(!stack.has_target(&sibling, Some(&custom[..1])));
     }
 }

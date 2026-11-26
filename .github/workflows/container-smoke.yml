@@ -1,0 +1,140 @@
+name: Container smoke
+
+"on":
+  pull_request:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      COMPOSE_FILE: deploy/container/compose.yaml
+      COMPOSE_PROJECT_NAME: tokencraft-ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build both images
+        shell: bash
+        run: |
+          docker build --file deploy/container/Dockerfile --target gateway \
+            --build-arg "SOURCE_REVISION=$GITHUB_SHA" --tag tokencraft-gateway:ci .
+          docker compose build --build-arg "SOURCE_REVISION=$GITHUB_SHA"
+      - name: Verify image metadata
+        id: image_metadata
+        shell: bash
+        run: |
+          package_version=
+          for image in tokencraft-gateway:ci tokencraft-demo:local; do
+            test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" = linux/amd64
+            # Cargo packages use x86_64, while Docker reports the same architecture as amd64.
+            image_version=$(docker run --rm --network none --entrypoint cat "$image" VERSION.json \
+              | jq -er --arg revision "$GITHUB_SHA" '
+                  select(.platform == "linux-x86_64" and .source_revision == $revision and .build_profile == "release")
+                  | .version
+                  | select(type == "string" and test("\\A[0-9][0-9A-Za-z.-]{0,127}\\z"))')
+            package_version=${package_version:-$image_version}
+            test "$package_version" = "$image_version"
+          done
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$package_version" ]]; then
+            echo "Tag $GITHUB_REF_NAME must match package version v$package_version" >&2
+            exit 1
+          fi
+          gateway_id=$(docker image inspect --format '{{.Id}}' tokencraft-gateway:ci)
+          [[ "$gateway_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'version=%s\ngateway_id=%s\n' "$package_version" "$gateway_id" >> "$GITHUB_OUTPUT"
+      - name: Migrate and run the standalone gateway
+        shell: bash
+        run: |
+          export TOKENCRAFT_RUNTIME_DB_PASSWORD="$(openssl rand -hex 24)"
+          export TOKENCRAFT_RUNTIME_APP_PASSWORD="$(openssl rand -hex 24)"
+          export TOKENCRAFT_RUNTIME_SESSION_SECRET="$(openssl rand -hex 32)"
+          runtime=(docker compose -p tokencraft-runtime-ci -f .github/fixtures/container/runtime.compose.yaml)
+          cleanup() {
+            local status=$?
+            if ((status != 0)); then
+              "${runtime[@]}" logs --no-color || true
+            fi
+            "${runtime[@]}" down --volumes || status=1
+            exit "$status"
+          }
+          trap cleanup EXIT
+          "${runtime[@]}" up --detach --no-build api worker
+          test "$("${runtime[@]}" exec -T api id -u)" = 65532
+          test "$("${runtime[@]}" exec -T api id -g)" = 65532
+          "${runtime[@]}" run --rm --no-deps -T probe
+      - name: Run the local demo and restart it
+        shell: bash
+        run: |
+          docker compose up --no-build --wait --wait-timeout 90
+          bash examples/connector/smoke.sh http://localhost:4000
+
+          cookie=$(mktemp)
+          trap 'rm -f "$cookie"' EXIT
+          api=http://localhost:4000
+          payload=$(jq -nc --arg email "container-$(openssl rand -hex 8)@example.test" \
+            --arg password "$(openssl rand -hex 24)" '{email:$email,password:$password,display_name:"Container restart"}')
+          curl --noproxy '*' -fsS --cookie-jar "$cookie" -H 'Content-Type: application/json' \
+            --data "$payload" "$api/v1/auth/signup" >/dev/null
+          account=$(curl --noproxy '*' -fsS --cookie "$cookie" "$api/v1/accounts" | jq -er '.accounts[0].account_id')
+
+          docker compose down
+          docker compose up --no-build --wait --wait-timeout 90
+          curl --noproxy '*' -fsS --cookie "$cookie" "$api/v1/accounts" \
+            | jq -e --arg account "$account" '.accounts | map(.account_id) | index($account) != null'
+      - name: Check the optional console mount
+        shell: bash
+        run: |
+          export TOKENCRAFT_CONSOLE_DIR="$RUNNER_TEMP/console-fixture"
+          mkdir -p "$TOKENCRAFT_CONSOLE_DIR/assets" "$TOKENCRAFT_CONSOLE_DIR/catalog"
+          printf '%s\n' '<html><head></head><body><script src="/assets/index.js"></script></body></html>' \
+            > "$TOKENCRAFT_CONSOLE_DIR/index.html"
+          printf '%s\n' 'console.log("TokenCraft console fixture")' > "$TOKENCRAFT_CONSOLE_DIR/assets/index.js"
+          cp catalog/artcraft-v1.json "$TOKENCRAFT_CONSOLE_DIR/catalog/artcraft-v1.json"
+          docker compose -f "$COMPOSE_FILE" -f deploy/container/console.compose.yaml up --no-build --wait --wait-timeout 90
+          curl --noproxy '*' -fsS -H 'Accept: text/html' http://localhost:3000/docs \
+            | grep -Fq '<meta name="tokencraft-api-port" content="4000">'
+          curl --noproxy '*' -fsS http://localhost:3000/catalog/artcraft-v1.json \
+            | cmp -s catalog/artcraft-v1.json -
+      - name: Archive the versioned gateway image
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.image_metadata.outputs.version }}
+          TESTED_GATEWAY_ID: ${{ steps.image_metadata.outputs.gateway_id }}
+        run: |
+          test "$(docker image inspect --format '{{.Id}}' tokencraft-gateway:ci)" = "$TESTED_GATEWAY_ID"
+          release_image="tokencraft-gateway:$PACKAGE_VERSION"
+          filename="tokencraft-gateway-$PACKAGE_VERSION-linux-amd64.tar.gz"
+          docker tag tokencraft-gateway:ci "$release_image"
+          mkdir -p "$RUNNER_TEMP/container"
+          cd "$RUNNER_TEMP/container"
+          docker save "$release_image" | gzip -n > "$filename"
+          gzip -t "$filename"
+          docker image rm "$release_image"
+          docker image load --input "$filename"
+          test "$(docker image inspect --format '{{.Id}}' "$release_image")" = "$TESTED_GATEWAY_ID"
+          sha256sum "$filename" > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: tokencraft-gateway-linux-amd64
+          path: ${{ runner.temp }}/container/
+          compression-level: 0
+          if-no-files-found: error
+      - name: Collect logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Clean up disposable state
+        if: always()
+        run: docker compose down --volumes

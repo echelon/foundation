@@ -47,10 +47,10 @@ pub async fn binding_dependencies(
                            AND r.uncertain_at IS NOT NULL AND p.upstream_handle IS NULL
                            AND r.dispatched_at > now() - interval '15 minutes'
                            AND p.error_code IN ('connector_submission_unconfirmed', 'submission_interrupted')
-                           AND EXISTS (
+                           AND (p.connector_recovery_enabled OR EXISTS (
                              SELECT 1 FROM gateway_connector_completions completion
                              WHERE completion.request_id = r.id AND completion.next_lookup_at IS NOT NULL
-                           )
+                           ))
                         THEN 'submission_recovery'
                     END AS phase
                FROM gateway_requests r JOIN gateway_provider_runs p ON p.request_id = r.id

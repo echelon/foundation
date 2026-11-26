@@ -1,7 +1,8 @@
 use std::{
+    env,
     fs::{self, OpenOptions},
     net::Ipv4Addr,
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Command as SyncCommand, ExitStatus, Stdio},
     time::Duration,
@@ -19,6 +20,7 @@ use crate::state::{PrivateFile, State};
 const HOST: Ipv4Addr = Ipv4Addr::LOCALHOST;
 const USER: &str = "tokencraft";
 pub(crate) const DATABASE: &str = "tokencraft_dev";
+const SERVER_TOOLS: &[&str] = &["postgres", "initdb", "pg_ctl", "pg_isready", "createdb"];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Mode {
@@ -249,23 +251,36 @@ async fn connect(url: &str) -> sqlx::Result<db::PgPool> {
 }
 
 async fn postgres_tools() -> Result<PathBuf> {
+    let search_path = env::var_os("PATH").unwrap_or_default();
+    if let Some(tools) = env::split_paths(&search_path)
+        .filter_map(|directory| directory.canonicalize().ok())
+        .find(|directory| SERVER_TOOLS.iter().all(|name| executable(&directory.join(name))))
+    {
+        return Ok(tools);
+    }
+
     let output = Command::new("pg_config")
         .arg("--bindir")
         .kill_on_drop(true)
         .output()
         .await
-        .context("find pg_config on PATH. Install the PostgreSQL server tools first")?;
+        .context("put the PostgreSQL server tools or their pg_config on PATH")?;
     ensure!(output.status.success(), "pg_config --bindir failed");
     let tools = PathBuf::from(String::from_utf8(output.stdout)?.trim());
-    for name in ["initdb", "pg_ctl", "pg_isready", "createdb", "postgres"] {
+    for name in SERVER_TOOLS {
         ensure!(
-            tools.join(name).is_file(),
-            "{} is missing from {}",
+            executable(&tools.join(name)),
+            "{} is missing or cannot run from {}",
             name,
             tools.display()
         );
     }
     Ok(tools)
+}
+
+fn executable(path: &Path) -> bool {
+    path.metadata()
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
 fn tool(program: impl AsRef<Path>) -> Command {

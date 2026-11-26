@@ -3,8 +3,8 @@ set -euo pipefail
 umask 077
 
 api=${1:-http://localhost:4000}
-proof_dir=$(mktemp -d)
-trap 'rm -f -- "$proof_dir/session.cookies" "$proof_dir/source-0.png" "$proof_dir/source-1.png" "$proof_dir/export.ndjson" "$proof_dir/restored.ndjson"; rmdir "$proof_dir"' EXIT
+proof_dir=$(mktemp -d "${TMPDIR:-/tmp}/tokencraft-connector.XXXXXXXX")
+trap 'rm -f -- "$proof_dir/session.cookies" "$proof_dir/source-0.png" "$proof_dir/source-1.png" "$proof_dir/export.ndjson" "$proof_dir/restored.ndjson" "$proof_dir"/admitted-*.json; rmdir "$proof_dir"' EXIT
 
 http() {
     curl --silent --show-error --noproxy '*' --connect-timeout 2 --max-time 15 "$@"
@@ -24,8 +24,8 @@ account=$(http --fail --cookie "$cookie" "$api/v1/accounts" | jq -er '.accounts[
 project=$(http --fail --cookie "$cookie" -H 'Content-Type: application/json'     -d '{"name":"Bundled connector verification"}' "$api/v1/projects?account_id=$account" | jq -er '.id')
 provider_url="$api/v1/projects/$project/providers?account_id=$account"
 inventory=$(http --fail --cookie "$cookie" "$provider_url")
-jq -e '.offers | any(.id == "example_image" and .allowed_by_policy == true)' <<< "$inventory" >/dev/null
-base_revision=$(jq -er '.base_revision' <<< "$inventory")
+printf '%s\n' "$inventory" | jq -e '.offers | any(.id == "example_image" and .allowed_by_policy == true)' >/dev/null
+base_revision=$(printf '%s\n' "$inventory" | jq -er '.base_revision')
 preview=$(jq -nc --arg revision "$base_revision" '{
   base_revision:$revision,
   change:{kind:"attach",name:"Mapping probe",provider_id:"mapping-probe",
@@ -47,15 +47,27 @@ key="tokencraft-dev-$(openssl rand -hex 16)"
 submit() {
     http --fail -H "Authorization: Bearer $token" -H 'Content-Type: application/json'         -H "Idempotency-Key: $key" -d "$payload" "$api/v1/image"
 }
-receipt=$(submit)
-request_id=$(jq -er '.id' <<< "$receipt")
-status_path=$(jq -er '.status_url' <<< "$receipt")
+pids=()
+for attempt in {1..8}; do
+    submit > "$proof_dir/admitted-$attempt.json" &
+    pids+=("$!")
+done
+failed=0
+for pid in "${pids[@]}"; do
+    wait "$pid" || failed=1
+done
+test "$failed" = 0
+jq -se 'length == 8 and (map([.id,.status_url]) | unique | length == 1)' \
+  "$proof_dir"/admitted-*.json >/dev/null
+receipt=$(< "$proof_dir/admitted-1.json")
+request_id=$(printf '%s\n' "$receipt" | jq -er '.id')
+status_path=$(printf '%s\n' "$receipt" | jq -er '.status_url')
 [[ "$status_path" =~ ^/v1/(model-)?requests/[A-Za-z0-9_-]+$ ]]
 test "$(submit | jq -er '.id')" = "$request_id"
-echo "Image request admitted and idempotent replay verified: $request_id"
+echo "Eight concurrent submissions and one replay returned the same request: $request_id"
 for ((attempt=1; attempt<=150; attempt++)); do
     snapshot=$(http --fail -H "Authorization: Bearer $token" "$api$status_path")
-    lifecycle=$(jq -er '.status' <<< "$snapshot")
+    lifecycle=$(printf '%s\n' "$snapshot" | jq -er '.status')
     case "$lifecycle" in
         succeeded) break ;;
         failed|canceled|awaiting_reconciliation) echo "Request ended as $lifecycle" >&2; exit 1 ;;
@@ -73,12 +85,12 @@ echo "Scoped request summary and artifact publication baseline verified"
 verify_outputs() {
     local scope="$1" results artifact url output expected actual dimensions signature status
     results=$(http --fail -H "Authorization: Bearer $token" "$api$status_path/result")
-    jq -e '.result.images | length == 2 and all(.width==64 and .height==48 and .content_type=="image/png")' <<< "$results" >/dev/null
+    printf '%s\n' "$results" | jq -e '.result.images | length == 2 and all(.width==64 and .height==48 and .content_type=="image/png")' >/dev/null
     for slot in 0 1; do
-        artifact=$(jq -e --argjson slot "$slot" '.result.images[$slot]' <<< "$results")
-        url=$(jq -er '.url' <<< "$artifact")
+        artifact=$(printf '%s\n' "$results" | jq -e --argjson slot "$slot" '.result.images[$slot]')
+        url=$(printf '%s\n' "$artifact" | jq -er '.url')
         [[ "$url" =~ ^/v1/requests/[A-Za-z0-9_-]+/artifacts/[01]$ ]]
-        expected=$(jq -er '.artifact.sha256' <<< "$artifact")
+        expected=$(printf '%s\n' "$artifact" | jq -er '.artifact.sha256')
         output="$proof_dir/$scope-$slot.png"
         http --fail -H "Authorization: Bearer $token" "$api$url" -o "$output"
         if command -v shasum >/dev/null; then

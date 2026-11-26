@@ -133,7 +133,8 @@ pub async fn clear_retired(pool: &PgPool) -> sqlx::Result<()> {
                    OR (r.adapter = 'connector_queue' AND r.content_removed_at IS NULL
                        AND r.uncertain_at IS NOT NULL
                        AND (
-                           (p.upstream_handle IS NULL AND p.error_code = 'connector_submission_unconfirmed'
+                           (p.upstream_handle IS NULL
+                             AND p.error_code IN ('connector_submission_unconfirmed', 'submission_interrupted')
                              AND r.dispatched_at > statement_timestamp() - interval '16 minutes')
                            OR (p.upstream_handle IS NOT NULL AND (
                                (p.error_code = 'provider_poll_deadline' AND p.recheck_requested_at IS NULL

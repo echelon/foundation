@@ -1,6 +1,6 @@
 # Local setup
 
-The Rust quickstart supports macOS and Linux. Install the PostgreSQL 17 server tools and Rust with rustup. Put the server installation's `pg_config` on `PATH`. The launcher uses it to locate `postgres`, `initdb`, `pg_ctl`, `pg_isready`, and `createdb`.
+The Rust quickstart supports macOS and Linux. Install the PostgreSQL 17 server tools and Rust with rustup. Put the server's bin directory on `PATH`. The launcher looks for `postgres`, `initdb`, `pg_ctl`, `pg_isready`, and `createdb` in the same directory. It can also find the directory through `pg_config --bindir`.
 
 ## Backend
 
@@ -13,6 +13,29 @@ cargo run --locked -p tokencraft -- dev
 The gateway defaults to `http://localhost:4000`, PostgreSQL to `127.0.0.1:55439`, and the bundled connector to `127.0.0.1:4019`. The launcher stores local data in `.tokencraft-dev/`. Use `--state-dir` to choose a new location or reopen an existing private state directory. The same command accepts `--api-port`, `--db-port`, `--connector-port`, and `--web-port`.
 
 First start migrates PostgreSQL and builds the gateway against that schema for SQLx. For an offline start with cached dependencies, pass `--offline` to both Cargo and the dev command. For a prebuilt installation, put matching `tokencraft` and `api-gateway` binaries in the same directory on `PATH`, then run `tokencraft dev`.
+
+### Start with Docker Compose
+
+From the core repository root, build and start the demo using Docker Engine 28 or newer and Docker Compose. The image builds through the same packaging check as the native distribution. At runtime it starts PostgreSQL 17, the gateway, and the synthetic image connector on a single machine. [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
+
+```sh
+docker compose -f deploy/container/compose.yaml up --build --wait
+curl -fsS http://localhost:4000/ready
+bash examples/connector/smoke.sh http://localhost:4000
+```
+
+The last command uses the [local smoke test tools](#submit-an-example-image-from-the-terminal).
+
+The host publishes the API on IPv4 loopback. PostgreSQL and the connector listen on loopback inside the container. The named volume holds accounts, requests, artifacts, and the launcher's generated keys. `docker compose -f deploy/container/compose.yaml down` stops the demo and leaves that volume available for the next start.
+
+To add the browser console, first [compile the frontend](#browser-console). Pass the absolute path to its `dist` directory as a read-only mount and open [localhost:3000](http://localhost:3000).
+
+```sh
+TOKENCRAFT_CONSOLE_DIR=/absolute/path/to/dist \
+  docker compose -f deploy/container/compose.yaml -f deploy/container/console.compose.yaml up --build --wait
+```
+
+For an operator catalog and externally managed PostgreSQL, use the [gateway runtime image](deployment.md#build-the-gateway-runtime-image).
 
 ### Start from a native package
 
@@ -44,6 +67,16 @@ bash examples/connector/smoke.sh http://localhost:4000
 ```
 
 The smoke test creates a local account, project, and service principal. It calls `POST /v1/image` for `example_image`, polls the returned `status_url`, validates the downloaded PNGs, and restores a [sealed event export](event-archives.md). Run it against a disposable dev directory to keep the generated account and images out of a shared database.
+
+### Measure local connector capacity
+
+Start `tokencraft dev` with a disposable state directory and the bundled connector. From the core checkout, run the bounded load check with Python 3.
+
+```sh
+python3 -B examples/connector/load.py --requests 128 --concurrency 24
+```
+
+The check provisions a project and submits synthetic image requests for two client references using one key. It reports admission and observed completion latency separately, samples the project queue, and verifies the filtered history and usage totals after the queue drains. It polls with the response's `Retry-After` and `ETag` headers when present, so observed completion includes the polling interval. Compare runs with the same concurrency, fixture, hardware, and build profile.
 
 ### Start with a reviewed catalog
 
@@ -99,7 +132,7 @@ tokencraft restore ./tokencraft-backup ./restored-dev
 tokencraft dev --state-dir ./restored-dev
 ```
 
-Use `cargo run --locked -p tokencraft --` before the subcommand when running from source. The commands use `pg_dump`, `pg_restore`, and the server tools from `pg_config --bindir`. Use matching PostgreSQL versions for the source and recovery environment.
+Use `cargo run --locked -p tokencraft --` before the subcommand when running from source. The commands use `pg_dump` and `pg_restore` from the selected PostgreSQL server installation. Use matching PostgreSQL versions for the source and recovery environment.
 
 Use a new destination each time. Restore verifies the file checksums before loading the database in one transaction. A successful restore makes the state available at the new path, and the next `dev` launch applies any pending migrations. Keep backups in private storage and restore from trusted copies. The backup holds the keys that protect local content as well as the database.
 

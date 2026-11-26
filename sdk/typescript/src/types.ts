@@ -171,6 +171,8 @@ export interface ClientOptions {
   baseUrl: string | URL;
   apiKey?: string;
   timeoutMs?: number;
+  /** Total attempts for a native submission, including the first. Defaults to 1. */
+  submitMaxAttempts?: number;
   fetch?: typeof fetch;
 }
 
@@ -217,6 +219,8 @@ export interface RoutePreview {
 
 export interface SubmitOptions extends CallOptions {
   idempotencyKey: string;
+  /** W3C traceparent from the caller's active span. */
+  traceparent?: string;
   clientRef?: string;
   appRef?: string;
   webhookSubscriptionId?: string;

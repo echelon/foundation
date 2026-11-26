@@ -1,9 +1,44 @@
+use reqwest::header::HeaderValue;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DownstreamProvider, Provider, ProviderAttempt, ProviderAttemptState, RequestStatus,
+    DownstreamProvider, Error, Provider, ProviderAttempt, ProviderAttemptState, RequestStatus,
     TraceCorrelation,
 };
+
+pub(super) fn submit_traceparent(value: &str) -> Result<HeaderValue, Error> {
+    let invalid = || Error::InvalidInput("supply a valid W3C traceparent");
+    if !valid_traceparent(value) {
+        return Err(invalid());
+    }
+    let mut header = HeaderValue::from_str(value).map_err(|_| invalid())?;
+    header.set_sensitive(true);
+    Ok(header)
+}
+
+fn valid_traceparent(value: &str) -> bool {
+    if value.len() > 256 || !value.bytes().all(|byte| byte.is_ascii_graphic() && byte != b',') {
+        return false;
+    }
+    let Some(base) = value.get(..55) else {
+        return false;
+    };
+    let mut fields = base.split('-');
+    let (Some(version), Some(trace), Some(parent), Some(flags), None) =
+        (fields.next(), fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return false;
+    };
+    let hex = |field: &str, length| {
+        field.len() == length && field.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    };
+    let suffix = &value[55..];
+    hex(version, 2) && version != "ff"
+        && hex(trace, 32) && trace != "00000000000000000000000000000000"
+        && hex(parent, 16) && parent != "0000000000000000"
+        && hex(flags, 2)
+        && (suffix.is_empty() || (version != "00" && suffix.starts_with('-')))
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct RequestTraceSnapshot {

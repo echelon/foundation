@@ -2,6 +2,8 @@
 
 TokenCraft is a Rust gateway for routing AI requests across providers. It handles accounts, project keys, quotes, budgets, asynchronous requests, and artifact delivery. Providers connect through versioned HTTP bindings and operator-reviewed catalog entries.
 
+The [ArtCraft reference catalog](catalog/artcraft-v1.json) describes supported provider plugins, model capabilities, and supplier list prices for each snapshot. A self-hosted gateway loads the operator's own catalog. Start with your own models or import selected ArtCraft presets with local bindings and rates. [Catalog setup](docs/provider-connectors.md#curate-your-own-catalog)
+
 ## Backend design
 
 [Open the interactive design source](frontend/public/design/index.html). The console build serves it at `/design/`, with shareable links such as `/design/#overview/caller`. The diagrams identify observed code and proposed hosted architecture.
@@ -10,7 +12,7 @@ Build the browser console from `frontend/` with `npm ci` and `npm run build`. Fo
 
 ## Quickstart
 
-Install Rust using the toolchain in [rust-toolchain.toml](rust-toolchain.toml) and the PostgreSQL 17 server tools. Make sure `pg_config --bindir` points to the directory containing `initdb` and `pg_ctl`.
+Install Rust using the toolchain in [rust-toolchain.toml](rust-toolchain.toml) and the PostgreSQL 17 server tools. Put the server's bin directory or its `pg_config` on `PATH`.
 
 ```sh
 cargo run --locked -p tokencraft -- dev
@@ -21,11 +23,13 @@ curl -fsS http://localhost:4000/v1/catalog/models
 The launcher starts a private PostgreSQL cluster, applies migrations, starts the gateway, and runs the bundled synthetic connector. Commercial providers are installed as separate services and appear after their bindings and offers are added to the deployment catalog. The example generates synthetic PNGs without provider credentials, Python, or Node.js. Press Ctrl+C to stop the stack.
 
 - [Backend setup and image walkthrough](docs/setup.md)
+- [Start the demo with Docker Compose](docs/setup.md#start-with-docker-compose)
 - [Start from a native package](docs/setup.md#start-from-a-native-package)
 - [Start with your own catalog and provider bindings](docs/setup.md#start-with-a-reviewed-catalog)
 - [Back up and restore dev state](docs/setup.md#back-up-and-restore-dev-state)
 - [Configure a provider](docs/provider-connectors.md)
 - [Prepare offers from the ArtCraft catalog](docs/provider-connectors.md#prepare-offers-from-the-artcraft-catalog)
+- [OpenAPI and connector schema contracts](docs/api-contracts.md)
 
 - [Draft and customize provider mappings](docs/provider-mapping.md)
 - [Deployment and migration](docs/deployment.md)

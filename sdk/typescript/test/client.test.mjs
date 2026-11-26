@@ -6,6 +6,7 @@ import {
 } from "@tokencraft/sdk";
 
 const requestId = "req_01m881w0c8np13xfvetqsbk8m0";
+const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const image = { model: "studio_image_demo", workload: { kind: "image", count: 1, aspect_ratio: "7:5" } };
 const options = { baseUrl: "https://gateway.example/edge/", apiKey: "fixture_key" };
 
@@ -161,6 +162,99 @@ test("carries the gateway error code and receipt header without retrying a submi
   assert.equal(calls, 1);
 });
 
+test("opt-in submission retries reuse the serialized intent and idempotency key", async () => {
+  const quote = { id: "quo_pinned", input: structuredClone(image), pinned_offer_id: "fal_image" };
+  const submission = { idempotencyKey: "fixture-retry", clientRef: "customer-1", appRef: "studio", imagePrompt: "Violet kite", traceparent };
+  const sent = [];
+  const client = new TokenCraft({ ...options, submitMaxAttempts: 3, fetch: async (url, init) => {
+    sent.push({ url: url.href, method: init.method, headers: [...init.headers], body: init.body });
+    if (sent.length === 1) {
+      quote.input.workload.count = 2;
+      submission.idempotencyKey = "fixture-changed";
+      submission.traceparent = traceparent.replace("01", "00");
+      init.headers.set("Idempotency-Key", "fixture-changed");
+      init.headers.delete("traceparent");
+      url.pathname = "/changed";
+      return Response.json({}, { status: 503, headers: { "Retry-After": "0" } });
+    }
+    if (sent.length === 2) return Response.json({}, { status: 429, headers: { "Retry-After": "0" } });
+    return Response.json({ id: requestId }, { status: 202 });
+  } });
+  assert.equal((await client.submit(quote, submission)).id, requestId);
+  assert.deepEqual(sent, [sent[0], sent[0], sent[0]]);
+  assert.ok(sent[0].headers.some(([key, value]) => key === "idempotency-key" && value === "fixture-retry"));
+  assert.ok(sent[0].headers.some(([key, value]) => key === "traceparent" && value === traceparent));
+  const body = JSON.parse(sent[0].body);
+  assert.equal(body.input.workload.count, 1);
+  assert.equal(body.pinned_offer_id, "fal_image");
+  assert.equal(body.client_ref, "customer-1");
+  assert.equal(body.app_ref, "studio");
+});
+
+test("validates caller trace context and keeps it local to the supplied submission", async () => {
+  const seen = [];
+  const client = new TokenCraft({ ...options, fetch: async (_, init) => {
+    seen.push([init.headers.get("traceparent"), init.headers.get("tracestate"), init.headers.get("baggage")]);
+    return Response.json({ id: requestId });
+  } });
+  const quote = { id: "quo_fixture", input: image };
+  const future = traceparent.replace(/^00-/, "01-") + "-extension";
+  for (const invalid of [
+    traceparent.replace(/^00-/, "ff-"),
+    traceparent.replace("00f067aa0ba902b7", "0".repeat(16)),
+    traceparent.replace("4bf92f3577b34da6a3ce929d0e0e4736", "0".repeat(32)),
+    traceparent + ", " + traceparent,
+    traceparent + "-extra",
+    future + "a".repeat(256),
+    traceparent + "\r\nX-Other: discarded",
+  ]) {
+    assert.throws(() => client.submit(quote, { idempotencyKey: "fixture-linked", traceparent: invalid }), TypeError);
+  }
+  await client.submit(quote, { idempotencyKey: "fixture-linked", traceparent: future });
+  await client.catalog();
+  await client.submit(quote, { idempotencyKey: "fixture-unlinked" });
+  assert.deepEqual(seen, [[future, null, null], [null, null, null], [null, null, null]]);
+});
+
+test("submission preserves terminal gateway errors and enforces the attempt limit", async () => {
+  const quote = { id: "quo_fixture", input: image };
+  for (const [status, hint, maxAttempts, expectedCalls] of [
+    [503, "0", undefined, 1],
+    [503, undefined, 3, 1],
+    [503, "0, 1", 3, 1],
+    [409, "0", 3, 1],
+    [503, "0", 2, 2],
+  ]) {
+    let calls = 0;
+    const client = new TokenCraft({ ...options, submitMaxAttempts: maxAttempts, fetch: async () => {
+      calls++;
+      const headers = hint === undefined ? {} : { "Retry-After": hint };
+      return Response.json({ error: { code: "fixture", message: "try later" } }, { status, headers });
+    } });
+    await assert.rejects(client.submit(quote, { idempotencyKey: "fixture-retry" }), {
+      name: "TokenCraftError", status, code: "fixture",
+    });
+    assert.equal(calls, expectedCalls);
+  }
+  assert.throws(() => new TokenCraft({ ...options, submitMaxAttempts: 9 }), RangeError);
+});
+
+test("submission retry delays honor the total deadline and caller cancellation", async () => {
+  let calls = 0;
+  const controller = new AbortController();
+  const reason = new Error("client canceled");
+  const client = new TokenCraft({ ...options, submitMaxAttempts: 3, timeoutMs: 30, fetch: async () => {
+    if (++calls === 2) setTimeout(() => controller.abort(reason), 0);
+    return Response.json({}, { status: 503, headers: { "Retry-After": "60" } });
+  } });
+  const quote = { id: "quo_fixture", input: image };
+  await assert.rejects(client.submit(quote, { idempotencyKey: "fixture-retry" }), TokenCraftTimeoutError);
+  assert.equal(calls, 1);
+  await assert.rejects(client.submit(quote, { idempotencyKey: "fixture-retry", signal: controller.signal }),
+    (error) => error === reason);
+  assert.equal(calls, 2);
+});
+
 test("wait polls in-flight requests and exposes uncertain provider acceptance to the caller", async () => {
   const states = ["queued", "running", "awaiting_reconciliation"];
   const client = new TokenCraft({ ...options, fetch: async () => Response.json({ status: states.shift() }) });
@@ -168,9 +262,10 @@ test("wait polls in-flight requests and exposes uncertain provider acceptance to
   assert.equal(states.length, 0);
 });
 
-test("wait reuses the validator and continues after an empty 304", async () => {
+test("wait reuses the validator across a rollout response and an empty 304", async () => {
   const reads = [
     { validator: null, response: Response.json({ status: "queued" }, { headers: { ETag: 'W/"queued"' } }) },
+    { validator: 'W/"queued"', response: Response.json({}, { status: 503, headers: { ETag: '"wrong"', "Retry-After": "0" } }) },
     { validator: 'W/"queued"', response: new Response(null, { status: 304 }) },
     { validator: 'W/"queued"', response: Response.json({ status: "succeeded" }) },
   ];
@@ -181,6 +276,11 @@ test("wait reuses the validator and continues after an empty 304", async () => {
   } });
   assert.equal((await client.wait(requestId, { pollIntervalMs: 1 })).status, "succeeded");
   assert.equal(reads.length, 0);
+});
+
+test("wait reports a 503 without a retry hint", async () => {
+  const client = new TokenCraft({ ...options, fetch: async () => Response.json({}, { status: 503 }) });
+  await assert.rejects(client.wait(requestId), { name: "TokenCraftError", status: 503, requestId });
 });
 
 test("the polling deadline still applies while respecting Retry-After", async () => {

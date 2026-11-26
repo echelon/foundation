@@ -6,17 +6,20 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use db_queries::gateway_requests::content_restores::{self as jobs, Update};
+use db_queries::gateway_requests::content_restores::{self as jobs, Task, Update};
 use enums::AuditEvent;
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 
 use super::super::{
     access::{self, GatewayCaller, Permission, ScopeQuery},
     archive_blobs::{COLD_OBJECT, IO_ERROR},
+    archive_bucket::RestoreDispatch,
     catalog::digest,
     handlers::parse_request_id,
     projects::audit,
     providers::ProviderRuntime,
+    readiness::Readiness,
     RequestErrorResponse,
 };
 use super::{artifact_name, storage::Target, Store, MAX_BUNDLE};
@@ -106,12 +109,12 @@ pub(crate) async fn enqueue(
     Ok((StatusCode::ACCEPTED, Json(progress.into())))
 }
 
-pub(super) fn spawn(pool: db::PgPool, store: Arc<Store>) {
+pub(super) fn spawn(pool: db::PgPool, store: Arc<Store>, readiness: Arc<Readiness>) {
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(Duration::from_secs(2));
         timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            timer.tick().await;
+            readiness.work_tick(&mut timer).await;
             if let Err(error) = work(&pool, &store.primary).await {
                 tracing::warn!(sqlstate = ?error.as_database_error().and_then(|e| e.code()),
                     "request content restore deferred");
@@ -136,21 +139,49 @@ async fn work(pool: &db::PgPool, target: &Target) -> sqlx::Result<()> {
     };
     let update = match target.read(&name, task.byte_limit as usize).await {
         Ok(ciphertext) if digest(&ciphertext) == task.checksum => Update::Ready,
-        Err(COLD_OBJECT) if !task.attempted => Update::Attempt,
-        Err(COLD_OBJECT | IO_ERROR) => Update::Wait,
+        Err(COLD_OBJECT) => return restore_cold_object(tx, pool, target, &task, &name).await,
+        Err(IO_ERROR) => Update::Wait,
         _ => Update::Failed,
     };
-    let dispatch = matches!(update, Update::Attempt);
     jobs::update(&mut tx, &task, update).await?;
-    tx.commit().await?;
-    if dispatch {
-        let mut tx = pool.begin().await?;
-        if jobs::can_dispatch(&mut tx, target.id(), &task).await?
-            && target.request_restore(&name).await.is_err()
-        {
-            jobs::update(&mut tx, &task, Update::Failed).await?;
-        }
-        tx.commit().await?;
+    tx.commit().await
+}
+
+async fn restore_cold_object(
+    mut tx: Transaction<'_, Postgres>,
+    pool: &db::PgPool,
+    target: &Target,
+    task: &Task,
+    name: &str,
+) -> sqlx::Result<()> {
+    if task.retrieval_confirmed || task.retrieval_submissions >= jobs::MAX_RESTORE_SUBMISSIONS
+        || !target.permits_restore()
+    {
+        jobs::update(&mut tx, task, Update::Wait).await?;
+        return tx.commit().await;
     }
-    Ok(())
+    if task.attempted {
+        let update = match target.restoration_exists(name).await {
+            Ok(true) => Some(Update::Confirmed),
+            Err(_) => Some(Update::Wait),
+            Ok(false) => None,
+        };
+        if let Some(update) = update {
+            jobs::update(&mut tx, task, update).await?;
+            return tx.commit().await;
+        }
+    }
+
+    let submission = jobs::reserve(&mut tx, task).await?;
+    tx.commit().await?;
+    let Some(submission) = submission else { return Ok(()) };
+    let mut tx = pool.begin_with("BEGIN ISOLATION LEVEL READ COMMITTED").await?;
+    if jobs::can_dispatch(&mut tx, target.id(), task, submission).await? {
+        match target.request_restore(name).await {
+            Ok(RestoreDispatch::Confirmed) => jobs::update(&mut tx, task, Update::Confirmed).await?,
+            Ok(RestoreDispatch::Unconfirmed) => {}
+            Err(_) => jobs::update(&mut tx, task, Update::Failed).await?,
+        }
+    }
+    tx.commit().await
 }

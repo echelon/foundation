@@ -7,6 +7,9 @@ use sqlx::postgres::PgPoolOptions;
 
 pub use sqlx::PgPool;
 
+mod schema;
+pub use schema::migrations_current;
+
 /// Migrations embedded at compile time from `crates/db/migrations`.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
@@ -36,29 +39,6 @@ pub async fn ping(pool: &PgPool) -> bool {
 /// Identify the cluster before an operator tool applies migrations to a local listener.
 pub async fn data_directory(pool: &PgPool) -> sqlx::Result<String> {
     sqlx::query_scalar("SHOW data_directory").fetch_one(pool).await
-}
-
-/// Compare the applied migration ledger with the migrations embedded in this binary.
-pub async fn migrations_current(conn: &mut sqlx::PgConnection) -> sqlx::Result<bool> {
-    let expected: Vec<_> = MIGRATOR
-        .iter()
-        .filter(|item| !item.migration_type.is_down_migration())
-        .collect();
-    let applied: Vec<(i64, Vec<u8>, bool)> = sqlx::query_as(
-        "SELECT version, checksum, success FROM _sqlx_migrations ORDER BY version LIMIT $1",
-    )
-    .bind(expected.len() as i64 + 1)
-    .fetch_all(conn)
-    .await?;
-    Ok(applied.len() == expected.len()
-        && applied
-            .iter()
-            .zip(expected)
-            .all(|((version, checksum, success), expected)| {
-                *success
-                    && *version == expected.version
-                    && checksum.as_slice() == expected.checksum.as_ref()
-            }))
 }
 
 /// Count application tables (excludes sqlx bookkeeping) — handy for `admin-cli db-info`.

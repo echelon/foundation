@@ -61,7 +61,7 @@ pub async fn run(mut cfg: config::Config) -> anyhow::Result<()> {
   if let Some(demo) = &demo {
     gateway_demo::spawn_background_tasks(pool.clone(), demo);
     if role == gateway_demo::ProcessRole::Worker {
-      return serve(listener, gateway_demo::worker_probe_router(demo), role).await;
+      return serve(listener, gateway_demo::probe_router(demo), role).await;
     }
   }
 
@@ -234,14 +234,13 @@ fn build_router_inner(
       on_response.clone().on_response(response, latency, span);
     });
 
-  let router = Router::new()
-    // hello, human (embedded landing page)
+  let diagnostics = Router::new()
     .route("/", get(root::index_handler))
-    // health + public catalog
     .route("/health", get(catalog::health_handler))
     .route("/openapi.json", get(crate::openapi::document))
     .route("/v1/schemas/primitives", get(crate::openapi::primitive_schemas))
-    .route("/v1/api_status", get(root::api_status_handler))
+    .route("/v1/api_status", get(root::api_status_handler));
+  let router = Router::new()
     .merge(gateway_demo::media_router(&state, demo.as_ref()))
     // auth
     .route("/v1/auth/signup", post(auth::signup_handler))
@@ -311,9 +310,9 @@ fn build_router_inner(
   let router = router.route("/v1/files", post(files::upload_file_handler));
   let router = router.merge(crate::model_reviews::router(demo.as_ref().map(gateway_demo::DemoConfig::scoped_models)));
   let router = match demo {
-    Some(demo) => router.merge(gateway_demo::router(demo)),
+    Some(demo) => gateway_demo::mount_api_routes(router, demo),
     None => router,
-  };
+  }.merge(diagnostics);
   let router = match console_origin.filter(|_| is_hosted) {
     Some(origin) => router.layer(axum::middleware::from_fn_with_state(origin, hosted::protect_session_origin)),
     None => router,

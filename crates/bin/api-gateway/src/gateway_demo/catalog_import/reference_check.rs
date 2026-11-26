@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     ffi::OsString,
     io::{self, Write},
     path::PathBuf,
@@ -18,6 +19,11 @@ and covered by an upstream model and capability set in a supplied plugin catalog
 The command reads local files and writes a JSON report with their exact hashes.
 ";
 const MAX_SAFE_JS_INTEGER: u64 = 9_007_199_254_740_991;
+const REFERENCE_FIELDS: &[&str] = &["version", "revision", "publisher", "currency", "offers"];
+const OFFER_FIELDS: &[&str] = &[
+    "id", "model", "plugin", "upstream_model", "kind", "capabilities",
+    "name", "preset", "source_url", "rates",
+];
 
 #[derive(Deserialize)]
 struct Publication {
@@ -33,6 +39,7 @@ struct PublicOffer {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PublicRate {
     unit: String,
     usd_nanos: u64,
@@ -45,13 +52,13 @@ pub(super) struct Report<'a> {
     version: u8,
     reference_revision: &'a str,
     reference_sha256: String,
-    offers: Vec<CheckedOffer<'a>>,
+    pub(super) offers: Vec<CheckedOffer<'a>>,
 }
 
 #[derive(Serialize)]
-struct CheckedOffer<'a> {
+pub(super) struct CheckedOffer<'a> {
     offer_id: &'a str,
-    plugin: &'a str,
+    plugin: String,
     upstream_model: &'a str,
     plugin_catalog_sha256: String,
     rate_count: usize,
@@ -76,9 +83,8 @@ pub(super) fn run(mut args: impl Iterator<Item = OsString>) -> Result<()> {
             _ => bail!("unknown reference check option. Use --help"),
         }
     }
-    let reference = Reference::parse(read_file(&reference.context("set --reference FILE")?)?)?;
-    let offers = project(&reference)?;
-    let report = check(&reference, &offers, &plugins)?;
+    let reference = Reference::load(&reference.context("set --reference FILE")?)?;
+    let report = check(&reference, &plugins)?;
     let mut out = io::stdout().lock();
     serde_json::to_writer_pretty(&mut out, &report)?;
     writeln!(out)?;
@@ -116,36 +122,64 @@ pub(super) fn project(reference: &Reference) -> Result<Vec<Offer>> {
 
 pub(super) fn check<'a>(
     reference: &'a Reference,
-    offers: &'a [Offer],
     plugins: &[PathBuf],
 ) -> Result<Report<'a>> {
     ensure!(!plugins.is_empty(), "supply at least one --plugin-catalog FILE");
-    let publication: Publication = serde_json::from_slice(&reference.bytes).context("read public pricing fields")?;
+    let rate_counts = validate_publication(reference)?;
+    let offers = project(reference)?;
     let catalogs = plugins.iter().map(|path| {
         let bytes = read_file(path)?;
         let catalog = Catalog::parse(&bytes).with_context(|| format!("validate plugin catalog {}", path.display()))?;
         Ok((digest(bytes), catalog))
     }).collect::<Result<Vec<_>>>()?;
+    let mut coverage = HashMap::new();
+    for (sha256, catalog) in &catalogs {
+        for offer in &catalog.offers {
+            if let Some(model) = offer.upstream_model.as_deref() {
+                coverage.entry((offer.provider.as_str(), offer.adapter.as_str(), model))
+                    .or_insert_with(Vec::new)
+                    .push((sha256, &offer.pricing));
+            }
+        }
+    }
 
     let mut checked = Vec::with_capacity(offers.len());
-    for (offer, presentation) in offers.iter().zip(publication.offers) {
-        presentation.validate().with_context(|| format!("review public pricing for {}", offer.id))?;
-        let model = offer.upstream_model.as_deref().context("reference offer requires an upstream model")?;
+    for ((entry, offer), rate_count) in reference.catalog.offers.iter().zip(offers).zip(rate_counts) {
+        let model = entry.upstream_model.as_str();
         let plugin = offer.provider.as_str();
-        let (sha256, _) = catalogs.iter().find(|(_, catalog)| catalog.offers.iter().any(|candidate| {
-            candidate.provider == offer.provider && candidate.adapter == offer.adapter
-                && candidate.upstream_model.as_deref() == Some(model)
-                && super::reference_adoption::covers(&candidate.pricing, &offer.pricing)
-        })).with_context(|| format!("no {plugin} plugin catalog covers {} ({model})", offer.id))?;
+        let (sha256, _) = coverage.get(&(plugin, offer.adapter.as_str(), model))
+            .and_then(|candidates| candidates.iter().find(|(_, pricing)| {
+                super::reference_adoption::covers(pricing, &offer.pricing)
+            }))
+            .with_context(|| format!("no {plugin} plugin catalog covers {} ({model})", offer.id))?;
         checked.push(CheckedOffer {
-            offer_id: &offer.id, plugin, upstream_model: model,
-            plugin_catalog_sha256: sha256.clone(), rate_count: presentation.rates.len(),
+            offer_id: &entry.id, plugin: plugin.to_owned(), upstream_model: model,
+            plugin_catalog_sha256: (*sha256).clone(), rate_count,
         });
     }
     Ok(Report {
         version: 1, reference_revision: &reference.catalog.revision,
         reference_sha256: digest(&reference.bytes), offers: checked,
     })
+}
+
+pub(super) fn validate_publication(reference: &Reference) -> Result<Vec<usize>> {
+    // Imports read only routing fields. Publication checks every field because it emits the original bytes.
+    let snapshot: Value = serde_json::from_slice(&reference.bytes).context("read public catalog fields")?;
+    let fields = snapshot.as_object().context("public catalog must be an object")?;
+    ensure!(fields.keys().all(|key| REFERENCE_FIELDS.contains(&key.as_str())),
+        "public catalog contains an unsupported top-level field");
+    let offers = fields.get("offers").and_then(Value::as_array).context("read public catalog offers")?;
+    for (index, offer) in offers.iter().enumerate() {
+        let fields = offer.as_object().context("public offer must be an object")?;
+        ensure!(fields.keys().all(|key| OFFER_FIELDS.contains(&key.as_str())),
+            "public catalog offer {} contains an unsupported field", index + 1);
+    }
+    let publication: Publication = serde_json::from_slice(&reference.bytes).context("read public pricing fields")?;
+    reference.catalog.offers.iter().zip(publication.offers).map(|(entry, presentation)| {
+        presentation.validate().with_context(|| format!("review public pricing for {}", entry.id))?;
+        Ok(presentation.rates.len())
+    }).collect()
 }
 
 impl PublicOffer {
@@ -163,4 +197,31 @@ impl PublicOffer {
 
 fn display_text(value: &str) -> bool {
     !value.trim().is_empty() && !value.chars().any(char::is_control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gateway_demo::catalog_import::tests::SNAPSHOT;
+
+    #[test]
+    fn publication_excludes_config_fields_at_each_level() {
+        let mut snapshot: Value = serde_json::from_slice(SNAPSHOT).unwrap();
+        snapshot["offers"][0]["name"] = json!("Fixture Image");
+        snapshot["offers"][0]["preset"] = json!("4:3 PNG");
+        snapshot["offers"][0]["source_url"] = json!("https://example.invalid/pricing");
+        let parse = |value: &Value| Reference::parse(serde_json::to_vec(value).unwrap()).unwrap();
+        assert_eq!(validate_publication(&parse(&snapshot)).unwrap(), [1]);
+
+        let mut invalid = snapshot.clone();
+        invalid["connection_access"] = json!({});
+        assert!(validate_publication(&parse(&invalid)).is_err());
+
+        let mut invalid = snapshot.clone();
+        invalid["offers"][0]["local_binding"] = json!("private-connector");
+        assert!(validate_publication(&parse(&invalid)).is_err());
+
+        snapshot["offers"][0]["rates"][0]["contract"] = json!("internal");
+        assert!(validate_publication(&parse(&snapshot)).is_err());
+    }
 }

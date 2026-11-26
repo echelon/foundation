@@ -37,6 +37,10 @@ class Api(BaseHTTPRequestHandler):
         if self.path == "/ready":
             self.send_response(200 if self.server.ready.is_set() else 503)
             self.end_headers()
+        elif self.path == "/busy":
+            self.send_response(503)
+            self.send_header("Retry-After", "11")
+            self.end_headers()
         elif self.path == "/stream":
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -62,7 +66,7 @@ def request(port, method, path, headers=None, body=None):
     with closing(HTTPConnection("127.0.0.1", port, timeout=2)) as client:
         client.request(method, path, headers=headers or {}, body=body)
         response = client.getresponse()
-        return response.status, response.read()
+        return response.status, response.read(), response.headers
 
 
 def wait_for(port, status, process):
@@ -99,26 +103,34 @@ def check_routes(port, replicas, process):
     responses = set()
     deadline = time.monotonic() + 10
     while responses != expected and time.monotonic() < deadline:
-        response = request(port, "GET", "/who", {**FORWARD, "X-Forwarded-Proto": "http"})
+        response = request(port, "GET", "/who", {**FORWARD, "X-Forwarded-Proto": "http"})[:2]
         assert response in expected, response
         responses.add(response)
         time.sleep(0.05)
     assert responses == expected, responses
     check_stream(port, replicas)
+    status, _, headers = request(port, "GET", "/busy", FORWARD)
+    assert status == 503 and headers["Retry-After"] == "11"
 
     # A replica that received a POST can lose the connection before replying.
-    status, _ = request(port, "POST", "/submit", FORWARD, b"fixture")
+    status, _, headers = request(port, "POST", "/submit", FORWARD, b"fixture")
     assert status >= 500, status
+    assert "Retry-After" not in headers
     assert sum(replica.submissions for replica in replicas) == 1
 
     for replica in replicas:
         replica.ready.clear()
     wait_for(port, 503, process)
-    assert request(port, "GET", "/who", FORWARD)[0] == 503
+    for method, path in [("GET", "/who"), ("GET", PROBE), ("POST", "/submit")]:
+        status, _, headers = request(port, method, path, FORWARD)
+        assert status == 503
+        assert headers["Retry-After"] == "5"
+        assert headers["Cache-Control"] == "no-store"
+    assert sum(replica.submissions for replica in replicas) == 1
     replicas[1].ready.set()
     wait_for(port, 200, process)
     for _ in range(4):
-        assert request(port, "GET", "/who", FORWARD) == (200, b"second 192.0.2.42 https")
+        assert request(port, "GET", "/who", FORWARD)[:2] == (200, b"second 192.0.2.42 https")
 
 
 def main(haproxy):
@@ -176,7 +188,7 @@ def main(haproxy):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait()
-        print("Cell ingress readiness, distribution, forwarding headers, SSE, and POST replay checks passed.")
+        print("Cell ingress readiness, Retry-After, distribution, forwarding headers, SSE, and POST replay checks passed.")
 
 
 if __name__ == "__main__":

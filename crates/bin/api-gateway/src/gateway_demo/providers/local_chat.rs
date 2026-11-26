@@ -8,7 +8,7 @@ use serde::Deserialize;
 use super::{Binding, ChatClient, fixture_endpoint};
 use crate::gateway_demo::catalog::{Adapter, Catalog, digest};
 
-pub(super) mod compute;
+pub(in crate::gateway_demo) mod compute;
 use compute::ComputeBinding;
 
 #[cfg(test)]
@@ -53,11 +53,7 @@ pub(super) fn load(catalog: &Catalog) -> anyhow::Result<BTreeMap<String, Binding
         .filter_map(|offer| offer.local_binding.as_deref())
         .collect();
     let path = std::env::var_os(CONFIG);
-    if names.is_empty() {
-        ensure!(
-            path.is_none(),
-            "local chat bindings require a self-hosted chat offer"
-        );
+    if names.is_empty() && path.is_none() {
         return Ok(BTreeMap::new());
     }
     let path = path.context("set TOKENCRAFT_LOCAL_CHAT_BINDINGS for self-hosted chat offers")?;
@@ -89,9 +85,10 @@ fn parse(
             BindingConfig::Local(local) => &local.name,
             BindingConfig::Compute(compute) => &compute.name,
         };
+        let scoped_compute = matches!(&entry, BindingConfig::Compute(compute) if compute.is_organization_scoped());
         ensure!(
-            names.contains(name.as_str()) && !bindings.contains_key(name),
-            "each local chat binding must be named by a catalog offer exactly once"
+            (names.contains(name.as_str()) || scoped_compute) && !bindings.contains_key(name),
+            "local chat requires distinct bindings and a catalog offer for each shared binding"
         );
         let name = name.to_owned();
         let binding = match entry {

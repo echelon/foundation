@@ -19,8 +19,8 @@ jobs:
           pg_bindir="$(pg_config --bindir)"
           test -x "$pg_bindir/initdb"
           test -x "$pg_bindir/pg_ctl"
-      - name: Test the launcher and provider mappings
-        run: cargo test --locked -p tokencraft -p provider_mapping -p tokencraft_sdk
+      - name: Test the launcher, provider mappings, shared enums, and Rust SDK
+        run: cargo test --locked -p tokencraft -p provider_mapping -p enums -p tokencraft_sdk
       - name: Check gateway contracts and run the bundled connector
         shell: bash
         run: |
@@ -35,7 +35,12 @@ jobs:
                 (.offers | length) == 1 and
                 (.offers[0] | .id == "example_image" and .provider == "self_hosted" and .adapter == "connector_queue")
               ' >/dev/null
+              contract_dir="$RUNNER_TEMP/tokencraft-contracts"
+              bash scripts/export_contracts.sh "$contract_dir"
+              diff -u contracts/openapi.json "$contract_dir/openapi.json"
+              diff -u crates/core/provider-mapping/schemas/v1.json "$contract_dir/connector-primitives.json"
               bash examples/connector/smoke.sh
+              python3 -B examples/connector/load.py --requests 16 --concurrency 8
               db_password="$(jq -er .database "$state_dir/dev-keys.json")"
               export PGHOST=127.0.0.1 PGPORT=55439 PGUSER=tokencraft PGPASSWORD="$db_password"
               createdb --maintenance-db=postgres -w tokencraft_export_test
@@ -54,6 +59,12 @@ jobs:
           done
           cat "$RUNNER_TEMP/gateway.log"
           exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tokencraft-contracts
+          path: ${{ runner.temp }}/tokencraft-contracts/*.json
+          if-no-files-found: ignore
 
   typescript-sdk:
     runs-on: ubuntu-24.04

@@ -91,6 +91,20 @@ impl ChatClient {
         matches!(&self.destination, Destination::Direct { tenant_keys: true, .. })
     }
 
+    pub(super) fn worker_origin(&self) -> Option<String> {
+        match &self.destination {
+            Destination::Direct { endpoint, .. } => Some(endpoint.origin().ascii_serialization()),
+            Destination::Compute(_) => None,
+        }
+    }
+
+    pub(super) fn compute_stack(&self) -> Option<&ComputeStack> {
+        match &self.destination {
+            Destination::Compute(stack) => Some(stack),
+            _ => None,
+        }
+    }
+
     pub(super) fn compute(stack: ComputeStack) -> anyhow::Result<Self> {
         Self::build(Destination::Compute(stack))
     }
@@ -183,7 +197,22 @@ impl ChatClient {
                 .and_then(|remaining| remaining.checked_sub(LEASE_MARGIN))
                 .filter(|remaining| !remaining.is_zero())
         };
-        for target in stack.ordered_targets(dispatch.request_id) {
+        use crate::gateway_demo::compute_providers;
+        let policy = if let Some(pool) = dispatch.pool {
+            Some(tokio::time::timeout(Duration::from_secs(1),
+                compute_providers::dispatch_policy(pool, dispatch.request_id))
+                .await.ok().and_then(Result::ok)
+                .ok_or(SubmitOutcome::Rejected("compute_policy_unavailable"))?)
+        } else {
+            None
+        };
+        let account = policy.as_ref().map(|(account, _)| account);
+        let order = policy.as_ref().and_then(|(_, policies)| compute_providers::order(policies, &stack.name));
+        let targets = stack.ordered_targets(dispatch.request_id, account, order);
+        if targets.is_empty() {
+            return Err(SubmitOutcome::Rejected("compute_targets_excluded"));
+        }
+        for target in targets {
             let now = Instant::now();
             let Some(lease_budget) = remaining() else {
                 return Err(SubmitOutcome::Rejected("compute_dispatch_deadline"));

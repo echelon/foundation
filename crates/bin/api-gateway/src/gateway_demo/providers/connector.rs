@@ -225,6 +225,12 @@ impl Connectors {
         self.bindings.values().map(|entry| entry.digest.as_str())
     }
 
+    pub(super) fn worker_destinations(&self) -> impl Iterator<Item = (&str, String)> {
+        self.bindings.values().map(|entry| {
+            (entry.digest.as_str(), entry.origin.origin().ascii_serialization())
+        })
+    }
+
     pub(super) fn completion_digests(&self) -> impl Iterator<Item = &str> {
         self.bindings.values().filter(|entry| entry.completion_webhooks).map(|entry| entry.digest.as_str())
     }

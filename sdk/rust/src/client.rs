@@ -4,7 +4,7 @@ use reqwest::header::{HeaderValue, ACCEPT, AUTHORIZATION, ETAG, IF_NONE_MATCH, R
 use reqwest::{Client, Method, RequestBuilder, Response, StatusCode, Url};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
-use crate::trace::{OtlpTrace, RequestTraceSnapshot, TraceBaseline};
+use crate::trace::{submit_traceparent, OtlpTrace, RequestTraceSnapshot, TraceBaseline};
 use crate::{
     valid_id, AudioProviderResult, Catalog, ChatOptions, Error, ImageProviderResult, ListOptions,
     MeshProviderResult, Message, ModelCatalog, PolicySource, Provider, ProviderPath, ProviderResult, Quote, QuoteInput, Receipt, RequestEvents,
@@ -18,6 +18,9 @@ pub struct TokenCraftClient {
     bearer: Option<HeaderValue>,
     http: Client,
     app_ref: Option<String>,
+    submit_traceparent: Option<HeaderValue>,
+    timeout: Duration,
+    submit_max_attempts: u8,
 }
 
 impl TokenCraftClient {
@@ -84,6 +87,9 @@ impl TokenCraftClient {
             bearer,
             http,
             app_ref: None,
+            submit_traceparent: None,
+            timeout,
+            submit_max_attempts: 1,
         })
     }
 
@@ -176,6 +182,23 @@ impl TokenCraftClient {
     pub fn with_app_ref(mut self, app_ref: impl Into<String>) -> Self {
         self.app_ref = Some(app_ref.into());
         self
+    }
+
+    /// Link native submissions to a caller span. Clone a shared client for each caller context.
+    pub fn with_submit_traceparent(mut self, value: &str) -> Result<Self, Error> {
+        self.submit_traceparent = Some(submit_traceparent(value)?);
+        Ok(self)
+    }
+
+    /// Allow up to 8 attempts on native submissions, including the first.
+    ///
+    /// Retries require a 429 or 503 with a delay in seconds and share the client's timeout.
+    pub fn with_submit_max_attempts(mut self, attempts: u8) -> Result<Self, Error> {
+        if !(1..=8).contains(&attempts) {
+            return Err(Error::InvalidInput("supply 1 to 8 submission attempts"));
+        }
+        self.submit_max_attempts = attempts;
+        Ok(self)
     }
 
     pub async fn submit(
@@ -276,11 +299,36 @@ impl TokenCraftClient {
             prompts,
             chat_options: options.chat_options,
         };
-        let request = self
+        let mut request = self
             .request(Method::POST, "v1/requests", true)?
             .header("Idempotency-Key", key)
             .json(&body);
-        self.send(request, None).await
+        if let Some(traceparent) = &self.submit_traceparent {
+            request = request.header("traceparent", traceparent.clone());
+        }
+        if self.submit_max_attempts == 1 {
+            return self.send(request, None).await;
+        }
+
+        let request = request.build().map_err(|source| Error::from_http(source, None))?;
+        let mut remaining = self.submit_max_attempts;
+        tokio::time::timeout(self.timeout, async {
+            loop {
+                let attempt = request.try_clone()
+                    .ok_or(Error::InvalidInput("submission body cannot be replayed"))?;
+                let response = self.http.execute(attempt).await
+                    .map_err(|source| Error::from_http(source, None))?;
+                remaining -= 1;
+                if remaining > 0 && retryable(response.status()) {
+                    if let Some(delay) = retry_after(&response) {
+                        drop(response);
+                        tokio::time::sleep(delay.min(self.timeout)).await;
+                        continue;
+                    }
+                }
+                return Self::decode(response, None).await;
+            }
+        }).await.map_err(|_| Error::Timeout { request_id: None })?
     }
 
     pub async fn get(&self, id: &str) -> Result<RequestTrace, Error> {
@@ -414,11 +462,13 @@ impl TokenCraftClient {
                 }
                 let response = request.send().await
                     .map_err(|source| Error::from_http(source, Some(id.to_owned())))?;
-                let suggested_delay = response.headers().get(RETRY_AFTER)
-                    .and_then(|value| value.to_str().ok()?.parse::<u64>().ok())
-                    .map(Duration::from_secs)
-                    .unwrap_or_default();
-                if response.status() != StatusCode::NOT_MODIFIED || validator.is_none() {
+                let status = response.status();
+                let suggested_delay = retry_after(&response);
+                let unchanged = status == StatusCode::NOT_MODIFIED && validator.is_some();
+                let unavailable = retryable(status) && suggested_delay.is_some();
+                if unchanged || unavailable {
+                    drop(response);
+                } else {
                     validator = response.headers().get(ETAG).cloned();
                     let trace: RequestTrace = Self::decode(response, Some(id)).await?;
                     if trace.status.is_terminal()
@@ -427,7 +477,8 @@ impl TokenCraftClient {
                         return Ok(trace);
                     }
                 }
-                tokio::time::sleep(options.poll_interval.max(suggested_delay).min(options.timeout)).await;
+                let delay = options.poll_interval.max(suggested_delay.unwrap_or_default());
+                tokio::time::sleep(delay.min(options.timeout)).await;
             }
         })
         .await
@@ -520,6 +571,19 @@ impl TokenCraftClient {
             request_id,
         })
     }
+}
+
+fn retryable(status: StatusCode) -> bool {
+    matches!(status, StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE)
+}
+
+fn retry_after(response: &Response) -> Option<Duration> {
+    let mut values = response.headers().get_all(RETRY_AFTER).iter();
+    let value = values.next()?.to_str().ok()?;
+    if values.next().is_some() || value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    Some(Duration::from_secs(value.parse().unwrap_or(u64::MAX)))
 }
 
 fn validate_duration(value: Duration) -> Result<(), Error> {

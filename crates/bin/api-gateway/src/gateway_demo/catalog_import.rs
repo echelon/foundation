@@ -1,4 +1,5 @@
 pub(super) mod review;
+mod compute_patch;
 mod reference_adoption;
 mod reference_bundle;
 mod reference_check;
@@ -21,6 +22,7 @@ use super::catalog::{
 };
 
 const HELP: &str = "Usage:
+  api-gateway catalog apply-compute-patch [--base FILE] --bundle FILE
   api-gateway catalog apply-provider-patch --base FILE --bundle FILE
   api-gateway catalog prepare --selection FILE [--base FILE] --reference FILE [--signature FILE --public-key FILE]
   api-gateway catalog prepare --selection FILE [--base FILE] --bundle FILE --public-key FILE
@@ -30,9 +32,9 @@ const HELP: &str = "Usage:
   api-gateway catalog check-reference --reference FILE --plugin-catalog FILE [--plugin-catalog FILE ...]
   api-gateway catalog sign-reference --reference FILE --private-key FILE [--plugin-catalog FILE ...]
   api-gateway catalog verify-reference --reference FILE --signature FILE --public-key FILE
-  api-gateway catalog verify-reference --bundle FILE --public-key FILE
+  api-gateway catalog verify-reference --bundle FILE --public-key FILE [--emit-catalog]
   api-gateway catalog pack-reference --reference FILE --signature FILE --public-key FILE
-  api-gateway catalog stage-reference --reference FILE --signature FILE --public-key FILE --directory DIR
+  api-gateway catalog stage-reference --reference FILE --signature FILE --public-key FILE --directory DIR --plugin-catalog FILE [--plugin-catalog FILE ...]
   api-gateway catalog fetch-reference --registry HTTPS_URL (--sha256 HEX | --current) --public-key FILE [--ca FILE]
   api-gateway catalog observe-openrouter --catalog FILE [--input FILE]
   api-gateway catalog observe-fal --catalog FILE [--input FILE]
@@ -47,6 +49,9 @@ Set update_from_sha256 on an existing imported offer to adopt a pinned revision.
 The validated result goes to stdout.
 Use observe-openrouter to report public list prices for configured OpenRouter chat offers.
 ";
+
+const MAX_REFERENCE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_REFERENCE_OFFERS: usize = 4096;
 
 #[derive(Deserialize)]
 struct ReferenceCatalog {
@@ -64,6 +69,10 @@ struct Reference {
 }
 
 impl Reference {
+    fn load(path: &Path) -> Result<Self> {
+        Self::parse(read_limited(path, MAX_REFERENCE_BYTES)?)
+    }
+
     fn parse(bytes: Vec<u8>) -> Result<Self> {
         let catalog = ReferenceCatalog::parse(&bytes)?;
         Ok(Self { bytes, catalog, verified: None })
@@ -72,6 +81,11 @@ impl Reference {
 
 impl ReferenceCatalog {
     fn parse(bytes: &[u8]) -> Result<Self> {
+        ensure!(
+            bytes.len() as u64 <= MAX_REFERENCE_BYTES,
+            "ArtCraft reference catalog exceeds {} KiB",
+            MAX_REFERENCE_BYTES / 1024
+        );
         let source: Self = serde_json::from_slice(bytes).context("read ArtCraft reference catalog")?;
         ensure!(
             source.version == 1 && source.publisher == "ArtCraft" && source.currency == "USD",
@@ -80,6 +94,10 @@ impl ReferenceCatalog {
         ensure!(
             !source.revision.is_empty() && !source.offers.is_empty(),
             "reference catalog requires a revision and offers"
+        );
+        ensure!(
+            source.offers.len() <= MAX_REFERENCE_OFFERS,
+            "ArtCraft reference catalog exceeds {MAX_REFERENCE_OFFERS} offers"
         );
         let mut ids = HashSet::new();
         ensure!(
@@ -164,6 +182,7 @@ pub async fn run(mut args: impl Iterator<Item = OsString>) -> Result<()> {
             return Ok(());
         }
         Some("prepare") => {}
+        Some("apply-compute-patch") => return compute_patch::run(args),
         Some("apply-provider-patch") => return run_provider_patch(args),
         Some("review") => return review::run(args),
         Some("check-bindings") => return super::providers::binding_check::run(args),
@@ -210,7 +229,7 @@ pub async fn run(mut args: impl Iterator<Item = OsString>) -> Result<()> {
         ensure!(reference.is_none() && signature.is_none(), "use --bundle without --reference or --signature");
         reference_bundle::load(&bundle, &public_key.context("set --public-key FILE for the bundle")?)?
     } else {
-        let mut reference = Reference::parse(read_file(&reference.context("set --reference or --bundle FILE")?)?)?;
+        let mut reference = Reference::load(&reference.context("set --reference or --bundle FILE")?)?;
         match (signature.as_deref(), public_key.as_deref()) {
             (Some(signature), Some(public_key)) => {
                 let trust = reference_signature::Trust { signature, public_key };
@@ -476,6 +495,46 @@ mod tests {
                 aspect_ratios: vec!["4:3".into()],
             },
         );
+    }
+
+    #[test]
+    fn selects_one_offer_from_a_reference_larger_than_the_local_catalog_limit() {
+        let mut snapshot: Value = serde_json::from_slice(SNAPSHOT).unwrap();
+        let template = snapshot["offers"][0].clone();
+        let offers: Vec<_> = (0..384).map(|index| {
+            let mut offer = template.clone();
+            offer["id"] = format!("fixture_{index}").into();
+            offer
+        }).collect();
+        snapshot["offers"] = offers.into();
+        let reference_bytes = serde_json::to_vec(&snapshot).unwrap();
+        assert!(reference_bytes.len() as u64 > MAX_CONFIG_BYTES);
+        let reference = Reference::parse(reference_bytes).unwrap();
+        let mut selection: Value = serde_json::from_slice(SELECTION).unwrap();
+        selection["offers"][0]["reference"] = "fixture_383".into();
+        let local_bytes = prepare(&reference, &serde_json::to_vec(&selection).unwrap(), None).unwrap();
+        let local = Catalog::parse(&local_bytes).unwrap();
+        assert_eq!(local.offers.len(), 1);
+        assert_eq!(local.offers[0].id, "fixture_383");
+    }
+
+    #[test]
+    fn rejects_reference_inputs_over_the_reference_limits() {
+        let mut oversized = SNAPSHOT.to_vec();
+        oversized.resize(MAX_REFERENCE_BYTES as usize + 1, b' ');
+        assert!(Reference::parse(oversized).err().unwrap().to_string().contains("exceeds 4096 KiB"));
+
+        let snapshot: Value = serde_json::from_slice(SNAPSHOT).unwrap();
+        let template = snapshot["offers"][0].clone();
+        let offers: Vec<_> = (0..=MAX_REFERENCE_OFFERS).map(|index| {
+            let mut offer = template.clone();
+            offer["id"] = format!("fixture_{index}").into();
+            offer
+        }).collect();
+        let mut too_many = snapshot;
+        too_many["offers"] = offers.into();
+        let bytes = serde_json::to_vec(&too_many).unwrap();
+        assert!(Reference::parse(bytes).err().unwrap().to_string().contains("exceeds 4096 offers"));
     }
 
     #[test]

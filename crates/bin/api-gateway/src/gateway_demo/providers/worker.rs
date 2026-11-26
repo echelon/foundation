@@ -1,0 +1,224 @@
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use db_queries::gateway_requests::{
+    self,
+    queued_runs::{self, ClaimedQueuePoll, PollBindings},
+    ClaimedProviderRun, SubmitBindings,
+};
+use tokio::{task::{Id, JoinSet}, time::MissedTickBehavior};
+use tracing::Instrument;
+
+use crate::{
+    gateway_demo::{catalog_refresh::CatalogStore, readiness::Readiness},
+    middleware::trace_context::work_span,
+};
+
+use super::{dispatch, log_database_error, observe_queue, ProviderRuntime};
+
+const MAX_IN_FLIGHT: usize = 4;
+
+pub(super) async fn run(
+    pool: db::PgPool,
+    runtime: Arc<ProviderRuntime>,
+    catalog: Arc<CatalogStore>,
+    readiness: Arc<Readiness>,
+) {
+    let chat: Vec<_> = runtime.local_chat.values().map(|entry| entry.digest.clone()).collect();
+    let submit_connectors: Vec<_> = runtime.connectors.active_digests().map(str::to_owned).collect();
+    let poll_connectors: Vec<_> = runtime.connectors.digests().map(str::to_owned).collect();
+    let recovery: Vec<_> = runtime.connectors.completion_digests().map(str::to_owned).collect();
+    let destinations = runtime.connectors.worker_destinations()
+        .chain(runtime.local_chat.values().map(|binding| {
+            let destination = binding.client.worker_origin().unwrap_or_else(|| binding.digest.clone());
+            (binding.digest.as_str(), destination)
+        }));
+    let mut slots = DestinationSlots::new(destinations);
+    let mut tasks = JoinSet::new();
+    let mut timer = tokio::time::interval(Duration::from_millis(250));
+    timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    let mut prefer_poll = true;
+
+    loop {
+        timer.tick().await;
+        while let Some(result) = tasks.try_join_next_with_id() {
+            let id = match result {
+                Ok((id, ())) => id,
+                Err(error) => {
+                    tracing::warn!("provider task stopped before recording its result");
+                    error.id()
+                }
+            };
+            slots.active.remove(&id);
+        }
+        if tasks.len() >= MAX_IN_FLIGHT {
+            readiness.provider_observed(true);
+            continue;
+        }
+
+        for _ in tasks.len()..MAX_IN_FLIGHT {
+            if !readiness.database_schema_ready() {
+                break;
+            }
+            let blocked = slots.blocked_destination();
+            let local_chat = slots.eligible(&chat, blocked);
+            let connectors = slots.eligible(&submit_connectors, blocked);
+            let polling = slots.eligible(&poll_connectors, blocked);
+            let submit = SubmitBindings {
+                local_chat: &local_chat,
+                connectors: &connectors,
+                connector_recovery: &recovery,
+            };
+            let work = claim_work(&pool, submit, &polling, prefer_poll).await;
+            readiness.provider_observed(work.is_ok());
+            match work {
+                Ok(Some(work)) => {
+                    // Give the other queue first choice on the next claim.
+                    prefer_poll = matches!(&work, Work::Submit(_));
+                    let destination = slots.bindings[work.binding_digest()].clone();
+                    let task = tasks.spawn(work.execute(pool.clone(), Arc::clone(&runtime), Arc::clone(&catalog)));
+                    slots.active.insert(task.id(), destination);
+                }
+                Ok(None) => break,
+                Err(error) => {
+                    log_database_error(&error);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+struct DestinationSlots<'a> {
+    bindings: HashMap<&'a str, String>,
+    active: HashMap<Id, String>,
+    limit: usize,
+}
+
+impl<'a> DestinationSlots<'a> {
+    fn new(destinations: impl Iterator<Item = (&'a str, String)>) -> Self {
+        let bindings: HashMap<_, _> = destinations.collect();
+        let multiple = bindings.values().next()
+            .is_some_and(|first| bindings.values().any(|origin| origin != first));
+        // Leave one slot for other destinations. A dedicated worker can use all four.
+        let limit = if multiple { MAX_IN_FLIGHT - 1 } else { MAX_IN_FLIGHT };
+        Self { bindings, active: HashMap::new(), limit }
+    }
+
+    fn blocked_destination(&self) -> Option<&str> {
+        // With four total slots and a limit of three, at most one destination is full.
+        self.active.values().find(|destination| {
+            self.active.values().filter(|active| active == destination).count() >= self.limit
+        }).map(String::as_str)
+    }
+
+    fn eligible<'b>(&self, bindings: &'b [String], blocked: Option<&str>) -> Cow<'b, [String]> {
+        match blocked {
+            Some(destination) => Cow::Owned(bindings.iter()
+                .filter(|binding| self.bindings[binding.as_str()] != destination)
+                .cloned()
+                .collect()),
+            None => Cow::Borrowed(bindings),
+        }
+    }
+}
+
+enum Work {
+    Submit(ClaimedProviderRun),
+    Poll(ClaimedQueuePoll),
+}
+
+async fn claim_work(
+    pool: &db::PgPool,
+    submit: SubmitBindings<'_>,
+    poll_connectors: &[String],
+    prefer_poll: bool,
+) -> sqlx::Result<Option<Work>> {
+    for poll in [prefer_poll, !prefer_poll] {
+        let task = if poll {
+            if poll_connectors.is_empty() {
+                continue;
+            }
+            queued_runs::claim_queue_poll(pool, PollBindings { connectors: poll_connectors }).await?.map(Work::Poll)
+        } else if !submit.local_chat.is_empty() || !submit.connectors.is_empty() {
+            gateway_requests::claim_provider_run(pool, submit).await?.map(Work::Submit)
+        } else {
+            continue;
+        };
+        if task.is_some() {
+            return Ok(task);
+        }
+    }
+    Ok(None)
+}
+
+impl Work {
+    fn binding_digest(&self) -> &str {
+        match self {
+            Self::Submit(run) => &run.binding_digest,
+            Self::Poll(run) => &run.binding_digest,
+        }
+    }
+
+    async fn execute(self, pool: db::PgPool, runtime: Arc<ProviderRuntime>, catalog: Arc<CatalogStore>) {
+        let span = match &self {
+            Self::Submit(run) => work_span(
+                "provider_submit", &run.request_id, run.trace_id.as_deref(), run.admission_span_id.as_deref(),
+            ),
+            Self::Poll(run) => work_span(
+                "provider_poll", &run.request_id, run.trace_id.as_deref(), run.admission_span_id.as_deref(),
+            ),
+        };
+        async {
+            let started = Instant::now();
+            let result = match self {
+                Self::Submit(run) => dispatch(&pool, &runtime, &catalog.current(), run).await,
+                Self::Poll(task) => observe_queue(&pool, &runtime, task).await,
+            };
+            if let Err(error) = result {
+                log_database_error(&error);
+            } else {
+                tracing::debug!(elapsed_ms = started.elapsed().as_millis() as u64, "provider worker cycle finished");
+            }
+        }.instrument(span).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn aliases_share_capacity_and_a_dedicated_destination_gets_all_slots() {
+        let bindings = ["primary", "previous", "alternate"].map(str::to_owned);
+        for multiple_destinations in [true, false] {
+            let alternate = if multiple_destinations { "alternate-origin" } else { "shared-origin" };
+            let mut slots = DestinationSlots::new([
+                ("primary", "shared-origin".to_owned()),
+                ("previous", "shared-origin".to_owned()),
+                ("alternate", alternate.to_owned()),
+            ].into_iter());
+            let mut tasks = JoinSet::new();
+            for binding in ["primary", "previous", "primary"] {
+                let task = tasks.spawn(std::future::pending::<()>());
+                slots.active.insert(task.id(), slots.bindings[binding].clone());
+            }
+            let eligible = slots.eligible(&bindings, slots.blocked_destination());
+            if multiple_destinations {
+                assert_eq!(eligible.as_ref(), &bindings[2..]);
+            } else {
+                assert_eq!(eligible.as_ref(), &bindings);
+            }
+
+            tasks.abort_all();
+            let interrupted = tasks.join_next_with_id().await.unwrap().unwrap_err();
+            slots.active.remove(&interrupted.id());
+            assert!(slots.blocked_destination().is_none());
+        }
+    }
+}

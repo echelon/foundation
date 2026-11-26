@@ -1,4 +1,5 @@
 import { connectionCheckPath } from "@/lib/onboarding";
+import { referenceCatalogUrl } from "./referenceCatalog";
 
 type Endpoint = readonly [method: "GET" | "POST" | "PUT", path: string, summary: string, doc?: string];
 export type DocsLink = { label: string; href: string; external?: boolean };
@@ -180,6 +181,22 @@ export function buildDocs({ baseUrl, demo, keyPath }: { baseUrl: string; demo: b
           paragraphs: ["Use the gateway's OpenAPI JSON to inspect request and response schemas or generate clients. Native quote and request routes require a configured provider catalog."],
           keywords: ["openapi", "schema", "swagger", "generate client", "download api contract"],
           links: [{ label: "Open OpenAPI JSON", href: baseUrl.replace(/\/$/, "") + "/openapi.json", external: true }],
+        },
+      ],
+    },
+    {
+      id: "provider-catalog", title: "Provider pricing catalog", group: "Reference", topics: [
+        {
+          id: "artcraft-reference-catalog", title: "Browse the ArtCraft catalog",
+          paragraphs: [
+            "The public ArtCraft catalog lists supported provider plugins, model capabilities, and supplier rates with their billing terms.",
+            "For a self-hosted gateway, import the presets you want with your own plugin bindings and routing rates. Add custom models directly to your gateway catalog.",
+          ],
+          keywords: ["supplier rates", "list prices", "provider plugins", "self-hosted catalog", "custom models"],
+          links: [
+            { label: "Open ArtCraft catalog JSON", href: referenceCatalogUrl, external: true },
+            { label: "Curate a self-hosted catalog", href: "https://github.com/storytold/tokencraft/blob/main/docs/provider-connectors.md#prepare-offers-from-the-artcraft-catalog", external: true },
+          ],
         },
       ],
     },
