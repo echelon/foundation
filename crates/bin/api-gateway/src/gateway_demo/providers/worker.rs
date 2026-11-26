@@ -18,9 +18,7 @@ use crate::{
     middleware::trace_context::work_span,
 };
 
-use super::{dispatch, log_database_error, observe_queue, ProviderRuntime};
-
-const MAX_IN_FLIGHT: usize = 4;
+use super::{dispatch, log_database_error, observe_queue, ProviderRuntime, MAX_PROVIDER_TASKS};
 
 pub(super) async fn run(
     pool: db::PgPool,
@@ -55,12 +53,13 @@ pub(super) async fn run(
             };
             slots.active.remove(&id);
         }
-        if tasks.len() >= MAX_IN_FLIGHT {
+        readiness.set_provider_tasks(tasks.len());
+        if tasks.len() >= MAX_PROVIDER_TASKS {
             readiness.provider_observed(true);
             continue;
         }
 
-        for _ in tasks.len()..MAX_IN_FLIGHT {
+        for _ in tasks.len()..MAX_PROVIDER_TASKS {
             if !readiness.database_schema_ready() {
                 break;
             }
@@ -82,6 +81,7 @@ pub(super) async fn run(
                     let destination = slots.bindings[work.binding_digest()].clone();
                     let task = tasks.spawn(work.execute(pool.clone(), Arc::clone(&runtime), Arc::clone(&catalog)));
                     slots.active.insert(task.id(), destination);
+                    readiness.set_provider_tasks(tasks.len());
                 }
                 Ok(None) => break,
                 Err(error) => {
@@ -106,7 +106,7 @@ impl<'a> DestinationSlots<'a> {
         let multiple = bindings.values().next()
             .is_some_and(|first| bindings.values().any(|origin| origin != first));
         // Leave one slot for other destinations. A dedicated worker can use all four.
-        let limit = if multiple { MAX_IN_FLIGHT - 1 } else { MAX_IN_FLIGHT };
+        let limit = if multiple { MAX_PROVIDER_TASKS - 1 } else { MAX_PROVIDER_TASKS };
         Self { bindings, active: HashMap::new(), limit }
     }
 

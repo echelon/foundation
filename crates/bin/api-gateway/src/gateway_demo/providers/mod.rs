@@ -74,7 +74,7 @@ impl ProviderRuntime {
             vault,
             local_chat,
             connectors,
-            streams: Arc::new(Semaphore::new(32)),
+            streams: Arc::new(Semaphore::new(MAX_SSE_READERS)),
         }))
     }
 
@@ -209,6 +209,19 @@ pub(super) fn fixture_endpoint(raw: &str, path: &str) -> anyhow::Result<Url> {
         "provider fixtures require the exact endpoint on a literal loopback IP and port"
     );
     Ok(endpoint)
+}
+
+pub(super) const MAX_SSE_READERS: usize = 32;
+pub(super) const MAX_PROVIDER_TASKS: usize = 4;
+
+impl ProviderRuntime {
+    pub(super) fn local_binding_digests(&self) -> impl Iterator<Item = &str> {
+        self.local_chat.values().map(|binding| binding.digest.as_str())
+    }
+
+    pub(super) fn connector_binding_digests(&self) -> impl Iterator<Item = &str> {
+        self.connectors.active_digests()
+    }
 }
 
 pub(super) fn spawn(

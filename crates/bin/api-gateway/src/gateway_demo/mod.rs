@@ -54,7 +54,9 @@ pub(crate) use providers::completion as connector_completion;
 mod quote;
 mod quote_seals;
 mod readiness;
+mod capacity;
 mod request_capacity;
+mod submission_limits;
 mod request_location;
 pub(crate) mod request_content;
 mod requests;
@@ -87,6 +89,8 @@ pub(crate) use process::ProcessRole;
         readiness::ready,
         readiness::setup,
         operations::queues,
+        submission_limits::get,
+        submission_limits::increase,
         operations::publication,
         dispatch_control::get,
         dispatch_control::set,
@@ -146,6 +150,7 @@ pub(crate) struct DemoConfig {
     role: ProcessRole,
     quote_seals: Arc<quote_seals::QuoteSeals>,
     readiness: Arc<readiness::Readiness>,
+    capacity_access: Option<Arc<capacity::Access>>,
     catalog: Arc<CatalogStore>,
     webhooks: Option<Arc<webhooks::WebhookConfig>>,
     providers: Option<Arc<providers::ProviderRuntime>>,
@@ -239,6 +244,7 @@ pub(crate) fn startup_config(
         role,
         quote_seals: Arc::new(quote_seals::QuoteSeals::new(session_secret)),
         readiness,
+        capacity_access: capacity::Access::load()?,
         providers,
         catalog: Arc::new(CatalogStore::load(Arc::new(catalog))?),
         webhooks: webhooks::WebhookConfig::load(hosted)?.map(Arc::new),
@@ -267,6 +273,8 @@ fn router(config: DemoConfig) -> Router<AppState> {
         .route("/v1/compute-providers/preview", post(compute_providers::preview).layer(DefaultBodyLimit::max(8 * 1024)))
         .route("/v1/routing-policy/history", get(provider_access::history))
         .route("/v1/operations/queues", get(operations::queues))
+        .route("/v1/rate-limits", get(submission_limits::get))
+        .route("/v1/rate-limits/increase", post(submission_limits::increase).layer(DefaultBodyLimit::max(1024)))
         .route("/v1/provider-credentials/:binding", get(provider_credentials::list).put(provider_credentials::save))
         .route("/v1/provider-credentials/:binding/:version", delete(provider_credentials::revoke))
         .route("/v1/operations/artifact-publication", get(operations::publication))
@@ -385,9 +393,15 @@ async fn no_store(mut response: Response) -> Response {
 }
 
 pub(crate) fn probe_router<S: Clone + Send + Sync + 'static>(config: &DemoConfig) -> Router<S> {
-    Router::new()
-        .route("/ready", get(readiness::ready))
+    let router = Router::new().route("/ready", get(readiness::ready));
+    let router = if let Some(access) = &config.capacity_access {
+        router.route("/internal/capacity", get(capacity::inspect).layer(Extension(Arc::clone(access))))
+    } else {
+        router
+    };
+    router
         .layer(Extension(Arc::clone(&config.readiness)))
+        .layer(Extension(config.providers.clone()))
         .layer(axum::middleware::map_response(no_store))
 }
 

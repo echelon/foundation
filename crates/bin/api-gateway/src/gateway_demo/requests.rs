@@ -642,8 +642,14 @@ pub(super) async fn submit(
             }
         }
     }
-    if inserted && quote_expiry.is_some_and(|expires| Utc::now() >= expires) {
-        return Err(ApiError::QuoteStale);
+    if inserted {
+        let retry_after = gateway_requests::submission_limits::consume(&mut tx, key.scope.account).await?;
+        if quote_expiry.is_some_and(|expires| Utc::now() >= expires) {
+            return Err(ApiError::QuoteStale);
+        }
+        if retry_after > 0 {
+            return Err(ApiError::SubmissionRateLimit(retry_after));
+        }
     }
     tx.commit().await?;
     if inserted {

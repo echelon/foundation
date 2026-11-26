@@ -3,6 +3,7 @@ use ids::{AccountId, GatewayProjectId, GatewayRequestId};
 use serde::{Deserialize, Serialize};
 
 pub mod active_requests;
+pub mod submission_limits;
 pub mod artifact_objects;
 pub mod artifacts;
 mod cancel_mock_attempts;

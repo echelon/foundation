@@ -3864,6 +3864,94 @@
         ]
       }
     },
+    "/v1/rate-limits": {
+      "get": {
+        "tags": [
+          "native"
+        ],
+        "summary": "Read the organization submission rate limit",
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionLimit"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/RequestErrorResponse"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
+    "/v1/rate-limits/increase": {
+      "post": {
+        "tags": [
+          "native"
+        ],
+        "summary": "Request the next self-service submission limit tier",
+        "operationId": "increase",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LimitIncrease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubmissionLimit"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/RequestErrorResponse"
+          }
+        },
+        "security": [
+          {
+            "session_cookie": []
+          }
+        ]
+      }
+    },
     "/v1/requests": {
       "get": {
         "tags": [
@@ -7714,6 +7802,24 @@
           }
         ]
       },
+      "LimitIncrease": {
+        "type": "object",
+        "required": [
+          "expected_requests_per_minute",
+          "requested_requests_per_minute"
+        ],
+        "properties": {
+          "expected_requests_per_minute": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "requested_requests_per_minute": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
       "LinkSsoBody": {
         "type": "object",
         "properties": {
@@ -11354,6 +11460,41 @@
           },
           "provider_email": {
             "type": "string"
+          }
+        }
+      },
+      "SubmissionLimit": {
+        "type": "object",
+        "required": [
+          "requests_per_minute",
+          "burst",
+          "operator_managed"
+        ],
+        "properties": {
+          "burst": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "next_self_service_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "next_self_service_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "operator_managed": {
+            "type": "boolean"
+          },
+          "requests_per_minute": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },

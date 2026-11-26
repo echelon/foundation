@@ -1,6 +1,7 @@
 """Exercise the cell ingress against disposable loopback API replicas."""
 
 import argparse
+import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing
 from http.client import HTTPConnection, HTTPException
@@ -99,6 +100,7 @@ def check_routes(port, replicas, process):
     assert request(port, "GET", "/who")[0] == 400
     assert request(port, "GET", "/who", {"X-Forwarded-For": "bad"})[0] == 400
     assert request(port, "GET", "/who", {"X-Forwarded-For": "192.0.2.1, 192.0.2.2"})[0] == 400
+    assert request(port, "GET", "/internal/capacity", FORWARD)[0] == 403
     expected = {(200, f"{replica.name} 192.0.2.42 https".encode()) for replica in replicas}
     responses = set()
     deadline = time.monotonic() + 10
@@ -133,7 +135,24 @@ def check_routes(port, replicas, process):
         assert request(port, "GET", "/who", FORWARD)[:2] == (200, b"second 192.0.2.42 https")
 
 
-def main(haproxy):
+def check_ip_rate(port):
+    headers = {"X-Forwarded-For": "2001:db8::1"}
+    burst_started = time.monotonic()
+    for attempt in range(1001):
+        status, body, _ = request(port, "GET", "/who", headers)
+        if status == 429:
+            assert attempt >= 999, attempt
+            assert json.loads(body)["error"]["code"] == "ingress_rate_limit"
+            break
+        assert status == 200, status
+    else:
+        raise AssertionError(f"no IP rate limit after 1001 requests in {time.monotonic() - burst_started:.1f}s")
+    assert request(port, "GET", "/who", {"X-Forwarded-For": "2001:db8::2"})[0] == 200
+    assert request(port, "GET", "/who", {"X-Forwarded-For": "192.0.2.43"})[0] == 200
+    assert request(port, "GET", PROBE)[0] == 200
+
+
+def main(haproxy, ip_rate_limit=False):
     with TemporaryDirectory() as temporary, ExitStack() as cleanup:
         directory = Path(temporary)
         allowlist = directory / "trusted.txt"
@@ -149,6 +168,7 @@ def main(haproxy):
             "TOKENCRAFT_LB_CONNECTIONS_PER_API": "16",
             "TOKENCRAFT_LB_API_SLOTS": "2",
             "TOKENCRAFT_LB_API_ADDRESS": "api.cell.test:4000",
+            "TOKENCRAFT_LB_ENABLE_IP_RATE_LIMIT": "true" if ip_rate_limit else "false",
         }
         subprocess.run([haproxy, "-c", "-f", str(CONFIG)], env=environment, check=True)
 
@@ -176,6 +196,8 @@ def main(haproxy):
             )
             try:
                 check_routes(port, replicas, process)
+                if ip_rate_limit:
+                    check_ip_rate(port)
             except Exception:
                 log.seek(0)
                 print(log.read())
@@ -189,9 +211,13 @@ def main(haproxy):
                     process.kill()
                     process.wait()
         print("Cell ingress readiness, Retry-After, distribution, forwarding headers, SSE, and POST replay checks passed.")
+        if ip_rate_limit:
+            print("Verified-client IP burst limit and isolated address counters passed.")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--haproxy", default="haproxy", help="HAProxy 3.2+ binary")
-    main(parser.parse_args().haproxy)
+    parser.add_argument("--ip-rate-limit", action="store_true", help="Enable and exercise the IP burst limit")
+    args = parser.parse_args()
+    main(args.haproxy, args.ip_rate_limit)

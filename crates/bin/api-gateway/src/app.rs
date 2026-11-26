@@ -136,8 +136,24 @@ async fn serve(listener: tokio::net::TcpListener, app: Router, role: gateway_dem
   let addr = listener.local_addr()?;
   tracing::info!(?role, "api-gateway listening on http://{addr}");
   // with_connect_info: gives the trace span a peer address even when no proxy header is set.
-  axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
+  axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
   Ok(())
+}
+
+async fn shutdown_signal() {
+  #[cfg(unix)]
+  if let Ok(mut terminate) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+    tokio::select! {
+      _ = terminate.recv() => {},
+      _ = tokio::signal::ctrl_c() => {},
+    }
+    return;
+  }
+  if tokio::signal::ctrl_c().await.is_err() {
+    std::future::pending::<()>().await;
+  }
 }
 
 /// The product router group (auth.md §5). Split-seam kept clean so console/admin/webhooks-in

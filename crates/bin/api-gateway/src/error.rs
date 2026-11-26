@@ -1,7 +1,7 @@
 //! The gateway's error type. Every handler/service returns `Result<T, ApiError>`; the
 //! `IntoResponse` impl renders a JSON envelope `{ "error": { "code", "message" } }`.
 
-use axum::http::StatusCode;
+use axum::http::{header::RETRY_AFTER, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
@@ -21,6 +21,7 @@ struct GatewayErrorDetail {
 pub(crate) const MONTHLY_BUDGET_MESSAGE: &str = "request would exceed the monthly estimated budget";
 pub(crate) const PROVIDER_CREDENTIAL_MESSAGE: &str = "save an active provider key for this project or organization";
 pub(crate) const ACTIVE_REQUEST_LIMIT_MESSAGE: &str = "active request limit reached. Retry after outstanding work completes";
+pub(crate) const SUBMISSION_RATE_MESSAGE: &str = "organization submission rate limit reached";
 
 pub(crate) const QUOTE_STALE_MESSAGE: &str = "quote expired or changed; request a fresh comparison";
 
@@ -36,6 +37,7 @@ pub enum ApiError {
   QuoteStale,
   BudgetExceeded,
   ActiveRequestLimit,
+  SubmissionRateLimit(i64),
   ProviderCredentialUnavailable,
   NotImplemented(String),
   ServiceUnavailable(String),
@@ -52,7 +54,7 @@ impl ApiError {
       Self::Conflict(_) => StatusCode::CONFLICT,
       Self::ArchiveRetrievalRequired(_) => StatusCode::CONFLICT,
       Self::QuoteStale | Self::BudgetExceeded => StatusCode::CONFLICT,
-      Self::ActiveRequestLimit => StatusCode::TOO_MANY_REQUESTS,
+      Self::ActiveRequestLimit | Self::SubmissionRateLimit(_) => StatusCode::TOO_MANY_REQUESTS,
       Self::ProviderCredentialUnavailable => StatusCode::CONFLICT,
       Self::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
       Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
@@ -71,6 +73,7 @@ impl ApiError {
       Self::QuoteStale => "quote_stale",
       Self::BudgetExceeded => "monthly_budget_exceeded",
       Self::ActiveRequestLimit => "active_request_limit",
+      Self::SubmissionRateLimit(_) => "submission_rate_limit",
       Self::ProviderCredentialUnavailable => "provider_credential_unavailable",
       Self::NotImplemented(_) => "not_implemented",
       Self::ServiceUnavailable(_) => "service_unavailable",
@@ -83,6 +86,7 @@ impl ApiError {
       Self::QuoteStale => QUOTE_STALE_MESSAGE,
       Self::BudgetExceeded => MONTHLY_BUDGET_MESSAGE,
       Self::ActiveRequestLimit => ACTIVE_REQUEST_LIMIT_MESSAGE,
+      Self::SubmissionRateLimit(_) => SUBMISSION_RATE_MESSAGE,
       Self::ProviderCredentialUnavailable => PROVIDER_CREDENTIAL_MESSAGE,
       Self::BadRequest(m)
       | Self::Unauthorized(m)
@@ -93,6 +97,13 @@ impl ApiError {
       | Self::NotImplemented(m)
       | Self::ServiceUnavailable(m)
       | Self::Internal(m) => m,
+    }
+  }
+
+  pub(crate) fn retry_after(&self) -> Option<HeaderValue> {
+    match self {
+      Self::SubmissionRateLimit(seconds) => HeaderValue::from_str(&seconds.to_string()).ok(),
+      _ => None,
     }
   }
 }
@@ -108,7 +119,11 @@ impl IntoResponse for ApiError {
       other => other.message().to_string(),
     };
     let body = Json(GatewayError { error: GatewayErrorDetail { code: self.code(), message: public_message } });
-    (self.status(), body).into_response()
+    let mut response = (self.status(), body).into_response();
+    if let Some(retry_after) = self.retry_after() {
+      response.headers_mut().insert(RETRY_AFTER, retry_after);
+    }
+    response
   }
 }
 

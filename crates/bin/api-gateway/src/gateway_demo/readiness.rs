@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -70,6 +70,7 @@ pub(super) struct Readiness {
     schema: Observation,
     queue: Observation,
     provider: Option<Observation>,
+    provider_tasks: AtomicUsize,
     artifact: Option<Observation>,
     artifact_backend: &'static str,
 }
@@ -82,9 +83,22 @@ impl Readiness {
             schema: Observation::new(),
             queue: Observation::new(),
             provider: provider_enabled.then(Observation::new),
+            provider_tasks: AtomicUsize::new(0),
             artifact: (artifact_backend != "postgresql").then(Observation::new),
             artifact_backend,
         }
+    }
+
+    pub(super) fn role(&self) -> ProcessRole {
+        self.role
+    }
+
+    pub(super) fn set_provider_tasks(&self, active: usize) {
+        self.provider_tasks.store(active, Ordering::Relaxed);
+    }
+
+    pub(super) fn provider_tasks(&self) -> usize {
+        self.provider_tasks.load(Ordering::Relaxed)
     }
 
     pub(super) fn queue_observed(&self, success: bool) {
@@ -149,7 +163,7 @@ impl Readiness {
         }
     }
 
-    fn traffic_ready(&self) -> bool {
+    pub(super) fn traffic_ready(&self) -> bool {
         // Every replica depends on the same bucket. Keep API routes that only
         // need PostgreSQL reachable during a shared storage outage.
         let require_artifact_storage = self.artifact_backend != "s3" || !self.role.serves_api();

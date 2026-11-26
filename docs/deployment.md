@@ -387,6 +387,8 @@ The proxy forwards requests once. Configure upstream ingress to avoid automatic 
 
 ### Scale and verify the cell
 
+The [capacity guide](capacity.md) describes the organization submission bucket, self-service quota tiers, and the opt-in, signal-driven API and worker controller.
+
 Run redundant proxy instances across the cell’s failure domains and configure HTTPS ingress to check each instance’s private readiness endpoint. Keep an instance serving while replacing another. Drain API replicas before stopping them and give active streams time to finish. Load-test simultaneous streams, small reads, and submissions. Measure ready replica count, queue time, connection saturation, tail latency, stream disconnects, and PostgreSQL pool waits. Verify that the remaining replicas can handle peak traffic when a zone is removed. Add cells when database capacity or failure isolation calls for it.
 
 Workers still share jobs through PostgreSQL lease claims. Self-hosted inference uses the cell’s configured compute binding, including its eligible targets and fallback rules. An internal replica service is optional for a group of interchangeable model servers in one placement and policy domain. Managed providers operate their own inference load balancing.

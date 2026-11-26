@@ -1,10 +1,10 @@
-use axum::http::{header::WWW_AUTHENTICATE, HeaderMap, HeaderValue, StatusCode};
+use axum::http::{header::{RETRY_AFTER, WWW_AUTHENTICATE}, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::error::{ApiError, ACTIVE_REQUEST_LIMIT_MESSAGE, MONTHLY_BUDGET_MESSAGE, PROVIDER_CREDENTIAL_MESSAGE};
+use crate::error::{ApiError, ACTIVE_REQUEST_LIMIT_MESSAGE, MONTHLY_BUDGET_MESSAGE, PROVIDER_CREDENTIAL_MESSAGE, SUBMISSION_RATE_MESSAGE};
 
 use super::AcceptedRequest;
 
@@ -101,6 +101,7 @@ impl ChatError {
 
 impl From<ApiError> for ChatError {
     fn from(error: ApiError) -> Self {
+        let retry_after = error.retry_after();
         let (status, code, message) = match error {
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, "invalid_request", message),
             ApiError::Unauthorized(message) => {
@@ -134,6 +135,11 @@ impl From<ApiError> for ChatError {
                 "active_request_limit",
                 ACTIVE_REQUEST_LIMIT_MESSAGE.into(),
             ),
+            ApiError::SubmissionRateLimit(_) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "submission_rate_limit",
+                SUBMISSION_RATE_MESSAGE.into(),
+            ),
             ApiError::NotImplemented(message) => {
                 (StatusCode::NOT_IMPLEMENTED, "not_implemented", message)
             }
@@ -151,7 +157,11 @@ impl From<ApiError> for ChatError {
                 )
             }
         };
-        Self::new(status, code, message)
+        let mut converted = Self::new(status, code, message);
+        if let Some(retry_after) = retry_after {
+            converted.headers.insert(RETRY_AFTER, retry_after);
+        }
+        converted
     }
 }
 
